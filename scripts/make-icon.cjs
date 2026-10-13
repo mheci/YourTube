@@ -6,7 +6,7 @@
 // Every mark is rendered from signed distance fields with supersampling, and
 // the PNG is written by hand with zlib, so there are no image dependencies.
 //
-//   node scripts/make-icon.cjs                        # write icon.png (design: split)
+//   node scripts/make-icon.cjs                        # write icon.png (design: chevron)
 //   node scripts/make-icon.cjs --list                 # list the designs
 //   node scripts/make-icon.cjs --design orbit --out x.png
 //   node scripts/make-icon.cjs --preview --design orbit
@@ -367,7 +367,7 @@ if (args.includes("--list")) {
   process.exit(0);
 }
 
-const designName = flag("--design", "split");
+const designName = flag("--design", "chevron");
 if (!designs[designName]) {
   console.error(`unknown design "${designName}"; available: ${DESIGN_NAMES.join(", ")}`);
   process.exit(1);

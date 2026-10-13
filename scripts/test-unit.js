@@ -435,12 +435,17 @@ let keepAlive;
     "search-remix",
     "watch-genome",
     "time-budget",
-    "dearrow",
-    "ryd-votes",
   ];
   for (const id of removedFeatureIds) {
     assert.ok(!bundle.includes(`id: "${id}"`), `removed feature registration is absent: ${id}`);
   }
+  // DeArrow and Return YouTube Dislike were once dead registrations with no
+  // implementation. They are now real features under new ids, so assert that
+  // they are registered and wired instead of asserting their absence.
+  assert.ok(bundle.includes('id: "dearrow"') && bundle.includes("sponsor.ajay.app/api/branding"),
+    "dearrow is registered and queries the branding API");
+  assert.ok(bundle.includes('id: "return-dislike"') && bundle.includes("returnyoutubedislikeapi.com/votes"),
+    "return-dislike is registered and queries the votes API");
   const removedSettingKeys = [
     "timeMachineOn:",
     "smallCreatorOn:",

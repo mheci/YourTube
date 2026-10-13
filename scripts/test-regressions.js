@@ -343,3 +343,20 @@ assert.ok(/id: "auto-exit-fullscreen"/.test(bundle) && /document\.exitFullscreen
 assert.ok(/textScaleScope/.test(bundle) && /"watch" === S\.textScaleScope/.test(bundle) === false &&
   /S\.textScaleScope === "watch"/.test(bundle),
   "TEXTSCALE-01: reading size can be limited to the watch page");
+
+// --- playback and audio additions ---
+assert.ok(/id: "wheel-controls"/.test(bundle) && /"wheel", onWheel, \{ passive: false \}/.test(bundle) &&
+  /ytp-progress-bar-container, \.ytp-progress-bar/.test(bundle),
+  "PLAY-WHEEL-01: wheel controls bind with a non-passive listener and distinguish the progress bar");
+assert.ok(/id: "volume-boost"/.test(bundle) && /createMediaElementSource/.test(bundle) &&
+  /_ytAudioGraphs\.set\(el, entry\)/.test(bundle) && /__yourtube_boost__/.test(bundle),
+  "PLAY-BOOST-01: audio graph is created once per element and boost is remembered per channel");
+assert.ok(/id: "loudness-leveling"/.test(bundle) && /createDynamicsCompressor/.test(bundle) &&
+  /entry\.comp\.ratio\.value = 1;/.test(bundle),
+  "PLAY-LEVEL-01: leveling uses a compressor that resets to transparent");
+assert.ok(/id: "sticky-quality"/.test(bundle) && /_isLiveStream\(\)/.test(bundle) && /ie\.setQuality\(target\)/.test(bundle),
+  "PLAY-STICKY-01: live quality is re-asserted");
+assert.ok(/id: "wide-player"/.test(bundle) && /ytb-ui-wide/.test(bundle) && /html\.ytb-ui-wide ytd-watch-flexy #columns/.test(bundle),
+  "PLAY-WIDE-01: wide player layout present");
+assert.ok(/id: "shorts-speed"/.test(bundle) && /ytb-ui-shorts-progress/.test(bundle) && /shortsSpeedDefault/.test(bundle),
+  "PLAY-SHORTS-01: shorts speed and progress bar present");

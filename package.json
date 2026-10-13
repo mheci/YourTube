@@ -1,7 +1,7 @@
 {
   "name": "yourtube",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Client-side YouTube customization userscript with SponsorBlock integration, themes, feed filtering and playback tools",
   "license": "MIT",
   "scripts": {

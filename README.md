@@ -29,7 +29,14 @@ Current version: **1.0.0**
 
 - Hide or dim videos you have already watched; filter by title or channel
   keywords; hide Shorts across every surface; hide live content, premieres,
-  auto-dubbed videos, and AI panels.
+  auto-dubbed videos, AI panels, community posts and mix/radio shelves.
+- Anti-Repeat Memory records the videos your feeds render and hides the ones you
+  have scrolled past before, with a configurable grace period and forget window.
+- Hide low-view videos below a threshold, show views-per-day and upload dates on
+  cards, sort the results already on the page by date, views or length, and strip
+  the related-search filler sections.
+- Subscriptions-Only Home hides the recommendation feed, or sends the front page
+  straight to your subscriptions.
 - Block channels by name or handle, including their comments, with an optional
   title-text match.
 - Comment search, keyword filtering, collapsing of long comments, and
@@ -39,24 +46,39 @@ Current version: **1.0.0**
 
 - Default speed, per-channel speed memory, loop, A/B segment repeat, quality
   preference, captions behavior, and ad-skip.
+- Mouse-wheel volume, seek and speed control; volume boost up to 300% with
+  optional per-channel memory; loudness leveling; sticky quality during
+  livestreams; wide player mode; auto-exit fullscreen when a video ends.
 - Chapter tools: buttons, hotkeys, auto-skip by keyword, and progress markers.
+- Shorts: playback speed and an optional progress bar.
 - Quality-of-life extras: screenshot button, copy timestamp, transcript button,
   frame stepper, forward/rewind buttons, silence fast-forward, pause rewind,
   instant replay, sleep timer, and a playback performance overlay.
 
-**SponsorBlock**
+**Integrations**
 
-- Automatic skipping of sponsor, intro, outro, self-promotion, and filler
-  segments, with per-category enable, action, and timeline visibility.
-- Privacy-preserving lookups: the video ID is hashed (SHA-256) and only a
-  four-character prefix is sent. Segment view reports are UUID-only.
-- Submission editor, voting, VIP filtering, countdown before skipping, and
-  "warn instead of skip" categories.
+- **SponsorBlock** — automatic skipping of sponsor, intro, outro, self-promotion
+  and filler segments, with per-category enable, action and timeline visibility,
+  a submission editor, voting and VIP filtering. Lookups send only a SHA-256
+  prefix of the video ID; view reports are UUID-only.
+- **Return YouTube Dislike** — dislike counts and a like/dislike ratio bar.
+- **DeArrow** — community titles for the watch page and community thumbnails for
+  cards, each with a way back to the original.
+- Live chat cleanup: hide superchats and membership messages, or compact the
+  message layout.
 
 **Watching habits and local data**
 
 - Session history with resume cards, timestamp bookmarks, study notes,
   per-channel volume, playlist resume points, and quick save to collections.
+- Watch-time statistics (totals, top channels, recent days) and a weekly summary,
+  both built from the local history store.
+- Subscription groups: local channel folders that can filter the subscriptions
+  feed.
+- Watch Later helpers (hide watched, copy the rest, sort by duration), session
+  shuffle for playlists, and a random video picker.
+- Export watch history (JSON or CSV), notes and bookmarks, the current playlist,
+  and your subscription list.
 - Wellbeing tools: watch budget with a focus overlay, Shorts policy schedule,
   Shorts marathon guard, end-of-video wind-down, stretch reminders, and a
   session intention prompt.
@@ -66,8 +88,9 @@ Current version: **1.0.0**
 **Diagnostics**
 
 - Activity monitor, feature performance tracker, FPS counter, buffer health,
-  dropped-frame counter, data usage tracker, health check, and a settings
-  dashboard with live search.
+  dropped-frame counter, data usage tracker, health check, transcript tools,
+  notification limiting, a tabbed watch page, and a settings dashboard with live
+  search. Keyboard shortcuts can be rebound.
 
 ---
 

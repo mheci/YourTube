@@ -107,16 +107,18 @@ Two settings deserve a note:
 
 ## Network use
 
-YourTube is client-side, but three features use the network:
+YourTube is client-side, but four features use the network:
 
 | Feature | Destination | Data sent |
 |---|---|---|
 | SponsorBlock lookups | `sponsor.ajay.app` | SHA-256 prefix of the video ID (privacy mode, default) or the video ID if you disable privacy mode |
 | Segment view reports | `sponsor.ajay.app` | Segment UUID only |
+| DeArrow titles and thumbnails | `sponsor.ajay.app`, `dearrow-thumb.ajay.app` | Video ID (title and thumbnail lookups, cached for twelve hours) |
+| Return YouTube Dislike | `returnyoutubedislikeapi.com` | Video ID (one request per video, cached for six hours) |
 | Update checks | `github.com` | Nothing; it reads the release metadata file |
 
-Everything else stays in your browser. There is no telemetry, and no data is sent
-to the project.
+DeArrow and Return YouTube Dislike are off by default. Everything else stays in
+your browser: there is no telemetry, and no data is sent to the project.
 
 ---
 

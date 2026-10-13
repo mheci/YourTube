@@ -5219,3 +5219,246 @@
       en.appendChild(Io("Show a progress bar", "shortsProgressOn"));
     },
   });
+  // ---------------------------------------------------------------------------
+  // Third-party integrations
+  // ---------------------------------------------------------------------------
+
+  // Return YouTube Dislike. One request per video, cached for six hours; the
+  // count is written into the existing dislike button and a ratio bar is added
+  // under it. Failures are silent: the native UI is left alone.
+  xa.register({
+    id: "return-dislike", name: "Return YouTube Dislike",
+    summary: "Shows dislike counts and a like/dislike ratio bar.",
+    masterKey: "returnDislikeOn", keys: ["returnDislikeOn", "returnDislikeBar"],
+    apply(ctx) {
+      if (!S.returnDislikeOn) return;
+      ctx.addStyle(
+        ".ytb-ui-ryd-count{font-size:12px;font-weight:500;margin-left:6px;color:inherit;opacity:.9}" +
+        ".ytb-ui-ryd-bar{display:flex;flex-direction:column;gap:2px;margin:6px 0 2px;max-width:340px}" +
+        ".ytb-ui-ryd-track{height:4px;border-radius:2px;background:rgba(255,255,255,.14);overflow:hidden;display:flex}" +
+        ".ytb-ui-ryd-like{background:#3ea6ff;height:100%}" +
+        ".ytb-ui-ryd-dislike{background:#ff5252;height:100%}" +
+        ".ytb-ui-ryd-label{font:600 10.5px system-ui;color:#aaa;display:flex;gap:8px;align-items:center;justify-content:space-between}",
+      );
+      const cache = new YourTubeResources.BoundedCache(64, "ytb-ryd", { ttlMs: 6 * 60 * 60 * 1000 });
+      let inFlight = 0;
+      const format = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n));
+      const dislikeButton = () => {
+        try {
+          return document.querySelector("dislike-button-view-model button") ||
+            document.querySelector("ytd-menu-renderer #segmented-dislike-button button") ||
+            document.querySelector("button[title*='dislike' i]") ||
+            document.querySelector("ytd-toggle-button-renderer:nth-of-type(2) button");
+        } catch (_) { return null; }
+      };
+      const render = (data) => {
+        if (!data || typeof data.dislikes !== "number") return;
+        const button = dislikeButton();
+        if (!button) return;
+        let count = button.querySelector(".ytb-ui-ryd-count");
+        if (!count) {
+          count = To("span", "ytb-ui-ryd-count");
+          button.appendChild(count);
+        }
+        count.textContent = format(data.dislikes);
+        count.title = "Dislike count from the Return YouTube Dislike API";
+        if (!S.returnDislikeBar) return;
+        const host = button.closest("ytd-menu-renderer, #top-row, #actions-inner") || button.parentElement;
+        if (!host || host.querySelector(".ytb-ui-ryd-bar")) return;
+        const total = (data.likes || 0) + (data.dislikes || 0);
+        if (!total) return;
+        const likePct = Math.round(((data.likes || 0) / total) * 100);
+        const bar = To("div", "ytb-ui-ryd-bar");
+        const track = To("div", "ytb-ui-ryd-track");
+        const like = To("div", "ytb-ui-ryd-like");
+        const dislike = To("div", "ytb-ui-ryd-dislike");
+        like.style.width = likePct + "%";
+        dislike.style.width = (100 - likePct) + "%";
+        track.appendChild(like);
+        track.appendChild(dislike);
+        const label = To("div", "ytb-ui-ryd-label");
+        label.appendChild(To("span", null, format(data.likes || 0) + " likes"));
+        label.appendChild(To("span", null, (100 - likePct) + "% dislike"));
+        label.appendChild(To("span", null, format(data.dislikes || 0) + " dislikes"));
+        bar.appendChild(track);
+        bar.appendChild(label);
+        host.appendChild(bar);
+      };
+      const load = (videoId) => {
+        if (!videoId) return;
+        const cached = cache.get(videoId);
+        if (cached) { render(cached); return; }
+        if (inFlight >= 2) return;
+        inFlight++;
+        fetch("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId))
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data) => {
+            if (!data || typeof data.dislikes !== "number") return;
+            cache.set(videoId, data);
+            if (videoId === (ie.videoId && ie.videoId())) render(data);
+          })
+          .catch(() => {})
+          .then(() => { inFlight--; });
+      };
+      const tick = () => {
+        if (!location.pathname.startsWith("/watch")) return;
+        load(ie.videoId && ie.videoId());
+      };
+      ctx.addInterval(tick, 2500);
+      ctx.onNav(() => ctx.addTimeout(tick, 1200));
+      Yt["return-dislike"].push(() => {
+        document.querySelectorAll(".ytb-ui-ryd-count, .ytb-ui-ryd-bar").forEach((el) => el.remove());
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Show dislike counts", "returnDislikeOn"));
+      en.appendChild(Io("Show the like/dislike ratio bar", "returnDislikeBar"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Counts come from returnyoutubedislikeapi.com, one request per video (cached for six hours)."));
+    },
+  });
+
+  // DeArrow: community titles for the watch page and community thumbnails for
+  // cards. Card thumbnails are fetched lazily as cards scroll into view, capped
+  // per navigation, because the API is per video.
+  xa.register({
+    id: "dearrow", name: "DeArrow Titles & Thumbnails",
+    summary: "Replaces clickbait titles and thumbnails with community versions.",
+    masterKey: "deArrowOn", keys: ["deArrowOn", "deArrowTitles", "deArrowThumbs"],
+    apply(ctx) {
+      if (!S.deArrowOn) return;
+      ctx.addStyle(
+        ".ytb-ui-dearrow-chip{display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:2px 8px;" +
+        "border-radius:99px;background:rgba(111,168,220,.14);border:1px solid rgba(111,168,220,.4);color:#8ab4e8;" +
+        "font:600 10.5px system-ui;cursor:pointer;vertical-align:middle;white-space:nowrap}" +
+        ".ytb-ui-dearrow-chip:hover{background:rgba(111,168,220,.26)}",
+      );
+      const cache = new YourTubeResources.BoundedCache(96, "ytb-dearrow", { ttlMs: 12 * 60 * 60 * 1000 });
+      const thumbUrl = (videoId, time) =>
+        "https://dearrow-thumb.ajay.app/api/v1/getThumbnail?videoID=" + encodeURIComponent(videoId) +
+        "&time=" + encodeURIComponent(time) + "&returnError=true";
+      let titleAppliedFor = "";
+      let originalTitle = "";
+      const applyTitle = (videoId, data) => {
+        if (!S.deArrowTitles || !data || !Array.isArray(data.titles) || !data.titles.length) return;
+        if (titleAppliedFor === videoId) return;
+        const best = data.titles.find((entry) => entry && !entry.original && entry.title) || null;
+        if (!best) return;
+        const heading = document.querySelector("ytd-watch-metadata h1, h1.ytd-watch-metadata, #title h1");
+        if (!heading) return;
+        const target = heading.querySelector("yt-formatted-string") || heading;
+        if (!originalTitle) originalTitle = target.textContent;
+        titleAppliedFor = videoId;
+        target.textContent = best.title;
+        try { document.title = best.title + " - YouTube"; } catch (_) {}
+        if (!heading.querySelector(".ytb-ui-dearrow-chip")) {
+          const chip = To("button", "ytb-ui-dearrow-chip", "DeArrow");
+          chip.type = "button";
+          chip.title = "Show the original title";
+          chip.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            target.textContent = originalTitle;
+            titleAppliedFor = "";
+            chip.remove();
+          });
+          heading.appendChild(chip);
+        }
+      };
+      const applyThumb = (card, videoId, data) => {
+        if (!S.deArrowThumbs || !data || !Array.isArray(data.thumbnails) || !data.thumbnails.length) return;
+        const best = data.thumbnails.find((entry) => entry && !entry.original && Number.isFinite(entry.timestamp)) || null;
+        if (!best) return;
+        const image = card.querySelector("img");
+        if (!image || image.dataset.ytbDeArrow) return;
+        image.dataset.ytbDeArrow = "1";
+        image.src = thumbUrl(videoId, best.timestamp);
+        image.removeAttribute("srcset");
+      };
+      const load = (videoId) => {
+        const cached = cache.get(videoId);
+        if (cached) return Promise.resolve(cached);
+        return fetch("https://sponsor.ajay.app/api/branding?videoID=" + encodeURIComponent(videoId))
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data) => {
+            if (data && typeof data === "object") cache.set(videoId, data);
+            return data;
+          })
+          .catch(() => null);
+      };
+      const watchTick = () => {
+        if (!location.pathname.startsWith("/watch")) return;
+        const videoId = ie.videoId && ie.videoId();
+        if (!videoId || titleAppliedFor === videoId) return;
+        load(videoId).then((data) => applyTitle(videoId, data));
+      };
+      let cardBudget = 0;
+      const resetBudget = () => { cardBudget = 12; };
+      const cardScan = () => {
+        if (!S.deArrowThumbs || cardBudget <= 0) return;
+        const cards = document.querySelectorAll("ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer");
+        const now = Date.now();
+        for (const card of cards) {
+          if (cardBudget <= 0) break;
+          const rect = card.getBoundingClientRect();
+          if (rect.bottom < 0 || rect.top > window.innerHeight + 400) continue;
+          const link = card.querySelector("a[href*='/watch?v=']");
+          if (!link) continue;
+          const match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(link.getAttribute("href") || "");
+          if (!match) continue;
+          const videoId = match[1];
+          if (card.dataset.ytbDeArrowChecked && now - Number(card.dataset.ytbDeArrowChecked) < 600000) continue;
+          card.dataset.ytbDeArrowChecked = String(now);
+          cardBudget--;
+          load(videoId).then((data) => applyThumb(card, videoId, data));
+        }
+      };
+      resetBudget();
+      watchTick();
+      ctx.addInterval(() => { watchTick(); cardScan(); }, 3000);
+      ctx.onNav(() => {
+        titleAppliedFor = "";
+        originalTitle = "";
+        resetBudget();
+        ctx.addTimeout(watchTick, 1500);
+        ctx.addTimeout(cardScan, 2500);
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Use community titles and thumbnails", "deArrowOn"));
+      en.appendChild(Io("Replace watch-page titles", "deArrowTitles"));
+      en.appendChild(Io("Replace card thumbnails", "deArrowThumbs"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Data comes from the DeArrow API on sponsor.ajay.app. Card thumbnails are loaded as cards scroll into view, capped per page."));
+    },
+  });
+
+  // Live chat cleanup: hide paid messages and tighten the message layout.
+  xa.register({
+    id: "live-chat-clean", name: "Live Chat Cleanup",
+    summary: "Hides superchats and compacts live chat.",
+    masterKey: "liveChatCleanOn", keys: ["liveChatCleanOn", "liveChatHidePaid", "liveChatCompact"],
+    apply(ctx) {
+      if (!S.liveChatCleanOn) return;
+      const rules = [];
+      if (S.liveChatHidePaid) {
+        rules.push(
+          "yt-live-chat-paid-message-renderer, yt-live-chat-paid-sticker-renderer, " +
+          "yt-live-chat-membership-item-renderer, ytd-sponsorships-live-chat-header-renderer{display:none!important}",
+        );
+      }
+      if (S.liveChatCompact) {
+        rules.push(
+          "yt-live-chat-text-message-renderer{padding:2px 8px!important}" +
+          "yt-live-chat-text-message-renderer #author-photo{width:18px!important;height:18px!important}" +
+          "yt-live-chat-text-message-renderer #message{font-size:12px!important;line-height:1.35!important}",
+        );
+      }
+      if (rules.length) ctx.addStyle(rules.join(""));
+    },
+    settings(en) {
+      en.appendChild(Io("Clean up live chat", "liveChatCleanOn"));
+      en.appendChild(Io("Hide superchats and memberships", "liveChatHidePaid"));
+      en.appendChild(Io("Compact message layout", "liveChatCompact"));
+    },
+  });

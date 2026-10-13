@@ -41,7 +41,7 @@ assert.ok(/\/\^https:\/i\.test\(sUrl\)/.test(bundle) || /_p\.protocol !== "https
 const connects = (text) => (text.match(/@connect\s+(\S+)/g) || []).map((s) => s.split(/\s+/)[1]);
 assert.deepStrictEqual(
   connects(bundle).sort(),
-  ["github.com", "s.youtube.com", "self", "sponsor.ajay.app", "www.youtube.com"],
+  ["github.com", "returnyoutubedislikeapi.com", "s.youtube.com", "self", "sponsor.ajay.app", "www.youtube.com"],
   "PT-08: bundle @connect exactly the used hosts"
 );
 assert.deepStrictEqual(connects(bundle).sort(), connects(meta).sort(),

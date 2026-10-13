@@ -360,3 +360,16 @@ assert.ok(/id: "wide-player"/.test(bundle) && /ytb-ui-wide/.test(bundle) && /htm
   "PLAY-WIDE-01: wide player layout present");
 assert.ok(/id: "shorts-speed"/.test(bundle) && /ytb-ui-shorts-progress/.test(bundle) && /shortsSpeedDefault/.test(bundle),
   "PLAY-SHORTS-01: shorts speed and progress bar present");
+
+// --- third-party integrations ---
+assert.ok(/id: "return-dislike"/.test(bundle) && /returnyoutubedislikeapi\.com\/votes\?videoId=/.test(bundle) &&
+  /ytb-ui-ryd-count/.test(bundle) && /ytb-ui-ryd-bar/.test(bundle),
+  "RYD-01: dislike counts and ratio bar render from the votes API");
+assert.ok(/id: "dearrow"/.test(bundle) && /sponsor\.ajay\.app\/api\/branding\?videoID=/.test(bundle) &&
+  /dearrow-thumb\.ajay\.app\/api\/v1\/getThumbnail/.test(bundle) && /ytb-ui-dearrow-chip/.test(bundle),
+  "DEARROW-01: titles, thumbnails and the revert chip are wired");
+assert.ok(/cardBudget = 12/.test(bundle) && /getBoundingClientRect\(\)/.test(bundle),
+  "DEARROW-02: card thumbnails are lazy and capped per navigation");
+assert.ok(/id: "live-chat-clean"/.test(bundle) && /yt-live-chat-paid-message-renderer/.test(bundle) &&
+  /yt-live-chat-membership-item-renderer/.test(bundle),
+  "CHAT-01: paid messages and membership items can be hidden");

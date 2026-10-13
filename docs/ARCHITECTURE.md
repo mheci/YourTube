@@ -73,7 +73,7 @@ Line numbers drift; the anchors are stable. Use the anchor text, not the numbers
 | `node scripts/test-import-roundtrip.js` | the real settings import path end-to-end in jsdom |
 | `node scripts/test-regressions.js` | pins for every fix from the v1.1.7 review |
 | `node scripts/harness-stability.js` | apply/teardown cycles for all 169 cards, a navigation storm and a bfcache restore, counting live timers, observers and listeners for growth |
-| `node scripts/make-icon.cjs` | regenerates `icon.png` (the brand mark) with optional `--preview` and `--sheet` checks |
+| `node scripts/make-icon.cjs` | renders the brand mark; `--list` shows the designs, `--design` picks one, `--sheet-all` builds a size-contact sheet |
 
 Suggested cadence: run `audit:keys` in CI (deterministic, no network), and
 `audit:selectors` weekly or before a release, treating its output as a review

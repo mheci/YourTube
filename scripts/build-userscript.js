@@ -62,12 +62,17 @@ bundle = replaceBetween(
   read("src/engine.js"),
 );
 
-const pkgVersion = JSON.parse(read("package.json")).version;
+const pkg = JSON.parse(read("package.json"));
+const pkgVersion = pkg.version;
+const pkgLicense = pkg.license || "MIT";
 const stampVersion = (text) =>
   text.replace(/^\/\/ @version\s+\S+$/m, `// @version      ${pkgVersion}`);
-let meta = stampVersion(read("yourtube.meta.js"));
-bundle = stampVersion(bundle);
+const stampLicense = (text) =>
+  text.replace(/^\/\/ @license\s+\S+$/m, `// @license      ${pkgLicense}`);
+const stamp = (text) => stampLicense(stampVersion(text));
+let meta = stamp(read("yourtube.meta.js"));
+bundle = stamp(bundle);
 fs.writeFileSync(path.join(root, "yourtube.meta.js"), toCrlf(meta));
 
 fs.writeFileSync(path.join(root, "yourtube.user.js"), toCrlf(bundle));
-console.log(`Built yourtube.user.js from source mirrors (version ${pkgVersion}).`);
+console.log(`Built yourtube.user.js from source mirrors (version ${pkgVersion}, ${pkgLicense}).`);

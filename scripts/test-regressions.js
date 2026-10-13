@@ -373,3 +373,40 @@ assert.ok(/cardBudget = 12/.test(bundle) && /getBoundingClientRect\(\)/.test(bun
 assert.ok(/id: "live-chat-clean"/.test(bundle) && /yt-live-chat-paid-message-renderer/.test(bundle) &&
   /yt-live-chat-membership-item-renderer/.test(bundle),
   "CHAT-01: paid messages and membership items can be hidden");
+
+// --- watch page, data and layout additions ---
+assert.ok(/id: "transcript-tools"/.test(bundle) && /ytd-transcript-segment-renderer/.test(bundle) &&
+  /ytb-ui-transcript-tools/.test(bundle) && /transcriptNoScroll/.test(bundle),
+  "WATCH-TRANSCRIPT-01: transcript copy, download and no-scroll present");
+assert.ok(/id: "notification-clean"/.test(bundle) && /ytb-ui-mark-read/.test(bundle) && /notificationHideBadge/.test(bundle),
+  "WATCH-NOTIF-01: notification helpers present");
+assert.ok(/id: "watch-later-tools"/.test(bundle) && /Hide watched/.test(bundle) &&
+  /Copy remaining/.test(bundle) && /Sort by duration/.test(bundle),
+  "WATCH-WL-01: watch later helpers present");
+assert.ok(/id: "watch-stats"/.test(bundle) && /Top channels/.test(bundle) && /Recent days/.test(bundle),
+  "DATA-STATS-01: watch statistics render from local history");
+assert.ok(/id: "weekly-report"/.test(bundle) && /__yourtube_report__/.test(bundle),
+  "DATA-WEEKLY-01: weekly report is stored and throttled to one per week");
+assert.ok(/id: "random-pick"/.test(bundle) && /Math\.floor\(Math\.random\(\) \* ids\.length\)/.test(bundle),
+  "DATA-RANDOM-01: random picker present");
+assert.ok(/id: "shuffle-tools"/.test(bundle) && /Shuffled /.test(bundle),
+  "DATA-SHUFFLE-01: shuffle reorders the list in the tab");
+assert.ok(/id: "export-data"/.test(bundle) && /yourtube-history-/.test(bundle) && /text\/csv/.test(bundle) &&
+  /yourtube-subscriptions-/.test(bundle),
+  "DATA-EXPORT-01: history, playlist and subscription exports present");
+assert.ok(/id: "sub-groups"/.test(bundle) && /__yourtube_groups__/.test(bundle) &&
+  /ytb-ui-groups/.test(bundle) && /ytb-group-hidden/.test(bundle),
+  "GROUPS-01: subscription groups store and feed filter present");
+assert.ok(/id: "sub-group-add"/.test(bundle) && /Add to group/.test(bundle),
+  "GROUPS-02: channels can be added to a group from their page");
+assert.ok(/id: "ui-restore-2026"/.test(bundle) && /ytb-ui-subs/.test(bundle) && /subscriberCountText/.test(bundle),
+  "UI-RESTORE-01: subscriber count and inline like cleanup present");
+assert.ok(/id: "watch-tabs"/.test(bundle) && /data-ytb-tab/.test(bundle) && /ytb-ui-tabs-bar/.test(bundle),
+  "UI-TABS-01: tabbed watch page present");
+assert.ok(/id: "keymap"/.test(bundle) && /_YT_KEYMAP_DEFAULTS/.test(bundle) && /function _ytKeySpec/.test(bundle) &&
+  /_bound\("forceWatched"\)/.test(bundle),
+  "KEYS-01: shortcuts are dispatched through the rebindable keymap");
+assert.ok(/id: "subs-only-home"/.test(bundle) && /ytb-ui-subs-only/.test(bundle) && /feed\/subscriptions/.test(bundle),
+  "FEED-SUBSONLY-01: subscriptions-only home present");
+assert.ok(/id: "sort-search"/.test(bundle) && /ytb-ui-sort-bar/.test(bundle) && /Sorted .* results by /.test(bundle),
+  "FEED-SORTSEARCH-01: search result sorting present");

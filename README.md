@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.png" alt="YourTube icon" width="96" height="96">
+</p>
+
 # YourTube
 
 A client-side userscript that changes how YouTube looks and behaves: themes, feed

@@ -79,8 +79,7 @@ function makeContext({ supportsHas }) {
 
   const big = engine.parseFilterList("##.card:has-text(/" + "a".repeat(400) + "/)");
   const procBig = big.procFilters[0];
-  assert.ok(procBig, "filter parsed");
-  assert.strictEqual(procBig.hasTextPatterns.length, 0, "UB-02: oversize pattern rejected");
+  assert.strictEqual(procBig, undefined, "UB-02: oversize patterns drop the filter instead of scanning a no-op forever");
 
   const txt = engine.parseFilterList("##.card:has-text(NEEDLE)");
   const before = Date.now();

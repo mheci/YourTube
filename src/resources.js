@@ -17,7 +17,11 @@
     };
     const reportAsyncError = (value) => {
       if (!value || typeof value.then !== "function") return;
-      value.catch(() => {});
+      value.catch((error) => {
+        // Rejections from feature callbacks used to vanish; keep them in the
+        // logger ring so diagnostics can see them.
+        try { Logger.error("async", (error && (error.message || String(error))) || "rejected"); } catch (_) {}
+      });
     };
 
     class Bus {
@@ -205,7 +209,9 @@
                 }
               }
             }
-          } catch (_) {}
+          } catch (_) {
+            try { console.error("[StateStore:" + this._key + "] load failed; starting from defaults"); } catch (_) {}
+          }
           this._loaded = true;
           return this._data;
         })();
@@ -227,6 +233,12 @@
         try {
           updater(this._data);
         } catch (error) {
+          // The updater may have mutated part of the data before throwing;
+          // persist and announce that state so memory and storage cannot
+          // diverge silently, then keep the existing throw contract.
+          this._mutated = true;
+          this._scheduleFlush();
+          this._emitChange(key, this._data);
           try { console.error("[StateStore:" + this._key + "] update failed:", error); } catch (_) {}
           throw new Error("[StateStore:" + this._key + "] update failed: " + (error instanceof Error ? error.message : String(error)));
         }
@@ -271,6 +283,10 @@
           return true;
         } catch (_) {
           this._flushRetries = (this._flushRetries || 0) + 1;
+          if (this._flushRetries >= 3) {
+            this._flushFailures = (this._flushFailures || 0) + 1;
+            try { console.error("[StateStore:" + this._key + "] could not persist after retries; changes may be lost"); } catch (_) {}
+          }
           if (this._flushRetries < 3 && !this._timer) {
             this._timer = setTimeout(() => {
               this._timer = 0;
@@ -291,7 +307,7 @@
       }
 
       stats() {
-        return { key: this._key, loaded: this._loaded, dirty: this._dirty, flushes: this._flushes, pendingFlush: this._timer !== 0 };
+        return { key: this._key, loaded: this._loaded, dirty: this._dirty, flushes: this._flushes, flushFailures: this._flushFailures || 0, pendingFlush: this._timer !== 0 };
       }
     }
 
@@ -363,13 +379,19 @@
         let timer = 0;
         let poll = 0;
         let done = false;
+        let rejectPromise = null;
         const cancel = () => {
           if (done || cancelled) return;
           cancelled = true;
-          if (timer) clearTimeout(timer);
-          if (poll) clearInterval(poll);
+          done = true;
+          if (timer) { clearTimeout(timer); timer = 0; }
+          if (poll) { clearInterval(poll); poll = 0; }
+          // Settle the promise: callers awaiting when() must not hang forever
+          // after a cancel.
+          if (rejectPromise) { try { rejectPromise(new Error("Dom.when: cancelled")); } catch (_) {} }
         };
         const promise = new Promise((resolve, reject) => {
+          rejectPromise = reject;
           const find = () => {
             try {
               const found = root
@@ -602,7 +624,12 @@
         return true;
       }
 
-      has(key) { return this.peek(key) !== undefined; }
+      has(key) {
+        const entry = this._map.get(key);
+        if (!entry) return false;
+        if (this._expiredEntry(entry)) { this._remove(key, "expired"); return false; }
+        return true;
+      }
       delete(key) { return this._remove(key); }
       clear() {
         this._pending.clear();
@@ -740,28 +767,41 @@
         if (timeoutHandle) { clearTimeout(timeoutHandle); timeoutHandle = 0; }
       };
 
+      const flushPending = () => {
+        rafHandle = 0;
+        timeoutHandle = 0;
+        const batch = pendingBatch;
+        pendingBatch = [];
+        for (const [id, sub] of subscribers) {
+          const relevant = (sub.target || sub.selector || sub.predicate)
+            ? batch.filter((mutation) => isRelevantMutation(mutation, sub))
+            : batch;
+          if (!relevant.length && !sub.fireOnEmpty) continue;
+          try { reportAsyncError(sub.callback(relevant, { id, root: observedRoot, total: batch.length })); } catch (_) {}
+        }
+      };
+
       const scheduleFlush = () => {
         if ((rafHandle || timeoutHandle) || !pendingBatch.length) return;
         const doc = getDocument();
-        const flush = () => {
-          rafHandle = 0;
-          timeoutHandle = 0;
-          const batch = pendingBatch;
-          pendingBatch = [];
-          for (const [id, sub] of subscribers) {
-            const relevant = (sub.target || sub.selector || sub.predicate)
-              ? batch.filter((mutation) => isRelevantMutation(mutation, sub))
-              : batch;
-            if (!relevant.length && !sub.fireOnEmpty) continue;
-            try { reportAsyncError(sub.callback(relevant, { id, root: observedRoot, total: batch.length })); } catch (_) {}
-          }
-        };
         if (typeof requestAnimationFrame === "function" && doc && !doc.hidden) {
-          rafHandle = requestAnimationFrame(flush);
+          rafHandle = requestAnimationFrame(flushPending);
         } else {
-          timeoutHandle = setTimeout(flush, 16);
+          timeoutHandle = setTimeout(flushPending, 16);
         }
       };
+
+      // rAF is suspended while the tab is hidden; if a flush is armed with rAF
+      // when the tab hides, convert it to a timer so mutations are not held
+      // until the tab is shown again.
+      if (getDocument() && typeof document.addEventListener === "function") {
+        document.addEventListener("visibilitychange", () => {
+          if (!rafHandle || !document.hidden) return;
+          if (typeof cancelAnimationFrame === "function") { try { cancelAnimationFrame(rafHandle); } catch (_) {} }
+          rafHandle = 0;
+          if (!timeoutHandle && pendingBatch.length) timeoutHandle = setTimeout(flushPending, 16);
+        }, true);
+      }
 
       const isRelevantMutation = (mutation, sub) => {
         if (!mutation || !sub) return false;
@@ -846,6 +886,10 @@
             const queued = observer.takeRecords();
             if (queued && queued.length) {
               for (let i = 0; i < queued.length; i++) pendingBatch.push(queued[i]);
+              if (pendingBatch.length > MAX_PENDING_MUTATIONS) {
+                droppedMutations += pendingBatch.length - MAX_PENDING_MUTATIONS;
+                pendingBatch = pendingBatch.slice(pendingBatch.length - MAX_PENDING_MUTATIONS);
+              }
               scheduleFlush();
             }
           } catch (_) {}
@@ -1209,7 +1253,10 @@
             : Math.min(maxBackoffMs, Math.max(baseIntervalMs, currentDelay * 2));
           if (rerunAfter && !disposed) {
             rerunAfter = false;
-            request();
+            // The re-request already passed the min-gap gate when it arrived
+            // mid-scan; re-entering request() here would drop it because
+            // lastRunAt was just set.
+            run();
           }
         };
 

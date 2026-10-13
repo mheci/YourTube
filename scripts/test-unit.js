@@ -301,7 +301,7 @@ let keepAlive;
     1, "vip lookup makes exactly one request within the cache TTL"
   );
   const vipUnknown = await engine.api.getIsUserVIP("nobody-user-id");
-  assert.strictEqual(vipUnknown, false, "failed/404 vip lookup resolves to false, never throws");
+  assert.strictEqual(vipUnknown, null, "failed/404 vip lookup resolves to null, never throws");
 
   context.he = async (url) => ({
     ok: false, status: 403, headers: { get: () => null },

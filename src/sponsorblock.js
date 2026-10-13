@@ -73,6 +73,8 @@
       initPromise: null,
       initPromiseVideoId: null,
       lastInitCompletedAt: 0,
+      lastFailedLookupVideoId: "",
+      lastFailedLookupAt: 0,
       undoUntilTs: 0,
 
       vipByUserID: new Map(),
@@ -95,6 +97,9 @@
     };
 
     const initUserId = () => {
+      // Stable for the session: overlapping inits used to race and could
+      // generate two different IDs.
+      if (State.userId && State.userId.length === 30) return;
       let uid = S.sbUserId;
       if (!uid || uid.length !== 30) {
         const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -450,6 +455,7 @@
       const writtenKeys = new Set();
       const MAX_WRITTEN_KEYS = 1000;
       const scannedVideos = new Set();
+      const MAX_SCANNED_VIDEOS = 500;
 
       const set = async (videoId, configKey, segments) => {
         const cacheKey = "sb:" + videoId + ":" + configKey;
@@ -518,6 +524,7 @@
         }
 
         if (!scannedVideos.has(videoId)) {
+          if (scannedVideos.size >= MAX_SCANNED_VIDEOS) scannedVideos.clear();
           scannedVideos.add(videoId);
           try {
             const rows = await w("kv");
@@ -1122,7 +1129,8 @@
           userInfoCache.set(cacheKey, vip);
           return vip;
         } catch (_) {
-          return false;
+          // Failure is not a "not VIP" verdict: callers must not cache it.
+          return null;
         }
       };
 
@@ -2125,7 +2133,8 @@
               } else {
                 pe("Submission failed: " + (result.message || "unknown error"), 3600, "error");
               }
-            });
+            })
+            .catch(() => pe("Submission failed: unexpected error", 3200, "error"));
         });
 
         panel.querySelector("#ed-cancel").addEventListener("click", () => {
@@ -2250,7 +2259,7 @@
         const uid = vipQueue.shift();
         vipInFlight++;
         API.getIsUserVIP(uid, null)
-          .then((vip) => { rememberVip(uid, vip === true ? true : vip === false ? false : undefined); })
+          .then((vip) => { if (vip === true || vip === false) rememberVip(uid, vip); })
           .catch(() => {})
           .then(() => { vipInFlight--; pumpVipQueue(); });
       }
@@ -2297,10 +2306,14 @@
         const segments = await API.fetchWithRetry(videoId, abortSignal);
         const privacySkip = typeof API.takePrivacyUnavailable === "function" && API.takePrivacyUnavailable();
         if (!privacySkip) await Cache.set(videoId, configKey, segments);
+        State.lastFailedLookupVideoId = "";
         return segments;
       } catch (err) {
         if (err && err.name === "AbortError") throw err;
-
+        // Remember the failure so init() can back off and the card's refresh
+        // can report it instead of "0 segments" as a success.
+        State.lastFailedLookupVideoId = videoId;
+        State.lastFailedLookupAt = Date.now();
         try {
           const fallback = await Cache.get(videoId, configKey, true);
           return fallback && Array.isArray(fallback.data) ? fallback.data : [];
@@ -2383,8 +2396,9 @@
         }
 
         const freshSegments = await fetchPromise;
+        const lookupFailed = State.lastFailedLookupVideoId === videoId && Date.now() - State.lastFailedLookupAt < 60000;
         if (canCommit(videoId, generation)) {
-          applySegments(videoId, generation, freshSegments, hidden, { cached: false });
+          applySegments(videoId, generation, freshSegments, hidden, { cached: false, error: lookupFailed });
           State.lastInitCompletedAt = Date.now();
         }
         return canCommit(videoId, generation) ? State.segments.slice() : [];
@@ -2415,6 +2429,12 @@
       if (!force && State.initPromise && State.initPromiseVideoId === videoId) {
         Metrics.recordDeduped();
         return State.initPromise;
+      }
+      // Back off after a failed lookup: navigation schedules several retries
+      // and a storm can trip SponsorBlock's rate limit.
+      if (!force && !revalidate && videoId && State.lastFailedLookupVideoId === videoId && Date.now() - State.lastFailedLookupAt < 20000) {
+        Metrics.recordDeduped();
+        return State.segments.slice();
       }
       if (!force && !revalidate && videoId && State.videoId === videoId && Date.now() - State.lastInitCompletedAt < recentWindowMs) {
         return State.segments.slice();
@@ -2475,6 +2495,14 @@
       State.betterBeAwareWarned.clear();
       State.vipByUserID.clear();
       State.lastWakeLookupAt = 0;
+      State.lastFailedLookupVideoId = "";
+      // Body-mounted singletons must not survive a disabled card.
+      if (State.countdownTaskId) { try { clearTimeout(State.countdownTaskId); } catch (_) {} State.countdownTaskId = 0; }
+      if (typeof document.getElementById === "function") {
+        try { const overlay = document.getElementById("YourTube-sb-countdown"); if (overlay) overlay.remove(); } catch (_) {}
+        try { const editor = document.getElementById("YourTube-sb-editor"); if (editor) editor.className = ""; } catch (_) {}
+        try { const hud = document.getElementById("YourTube-sb-hud"); if (hud) hud.className = ""; } catch (_) {}
+      }
     };
 
     const invalidate = async (videoId) => {
@@ -2503,6 +2531,9 @@
       const videoId = State.videoId || ie.videoId();
       if (!videoId) return [];
       await invalidate(videoId);
+      if (State.lastFailedLookupVideoId === videoId && Date.now() - State.lastFailedLookupAt < 60000) {
+        throw new Error("lookup failed");
+      }
       return State.segments.slice();
     };
 

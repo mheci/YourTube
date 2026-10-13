@@ -86,8 +86,8 @@ assert.ok(/if \(typeof prevFetch !== "function"\) return;\n        apiInstalled 
 // Force Watched must not seek without a track, and must stop on transport failure.
 assert.ok(/if \(!track \|\| !track\.watchtimeUrl\)/.test(bundle),
   "FW-02: beacon template is required before arming/seeking");
-assert.ok(/if \(!resp \|\| !resp\.json\) return null;/.test(bundle),
-  "FW-03: history verification distinguishes transport failure from a miss");
+assert.ok(/if \(!resp \|\| !resp\.json\) return undefined;/.test(bundle) && /undefined marks a transport failure/.test(bundle),
+  "FW-03: history verification distinguishes transport failure from a signed-out miss");
 
 // the font picker must write its own config key.
 assert.ok(/const _cfgKey = e;/.test(bundle) && /Ta\(_cfgKey, a\.dataset\.value\)/.test(bundle),
@@ -280,7 +280,7 @@ assert.ok(/g\.on\("cfg\.changed", \(\{ key \}\) => \{[\s\S]{0,300}_riskyPrompt\(
   "FW-ACK-04: enabling a risky feature mid-session re-prompts");
 
 // Force Watched must work without GM_xmlhttpRequest.
-assert.ok(/if \(typeof GM_xmlhttpRequest !== "function"\) \{[\s\S]{0,220}credentials: "include"/.test(bundle),
+assert.ok(/if \(typeof GM_xmlhttpRequest !== "function"\) \{[\s\S]{0,420}credentials: "include"/.test(bundle),
   "FW-TRANSPORT-01: InnerTube falls back to same-origin fetch");
 
 // the unsupported Delete endpoint must not be reachable.
@@ -480,11 +480,103 @@ assert.ok(/if \(text\.length > 8388608\) throw new Error\("import too large"\)/.
   "IMPORT-02: oversized imports are rejected before parsing");
 assert.ok(/for \(const \[a, n\] of Object\.entries\(s\)\)/.test(bundle) && !/for \(const \[a, v\] of Object\.entries\(e\)\)/.test(bundle),
   "IMPORT-03: only keys present in the defaults table are imported");
-assert.ok(/if \(_missingStyle \|\| \(!_markers && _now - _lastMarkerReapply > 3e5\)\)/.test(bundle),
-  "WD-01: marker-less watchdog re-applies are rate limited");
+assert.ok(/if \(\(_missingStyle \|\| !_markers\) && _now - _lastMarkerReapply > 3e5\)/.test(bundle),
+  "WD-01: every watchdog re-apply path is rate limited");
 
 // dead code stays dead
 assert.ok(!/YourTubeQueue|whenIdle|segmentEndFor|__fwTplDbg/.test(bundle),
   "CLEAN-01: dead modules and debug leftovers stay removed");
 assert.ok(!/perfHidden|perfLogSuppressed|fadeTask|prevDark/.test(bundle),
   "CLEAN-02: dead perf and state flags stay removed");
+
+// ---------------------------------------------------------------------------
+// Stability overhaul: lifecycle, races and failure paths.
+// ---------------------------------------------------------------------------
+
+// boot
+assert.ok(/var Xt = \{/.test(bundle) && /function p\(e, t, a\) \{[\s\S]{0,80}if \(Xt && Xt\.perfMode/.test(bundle),
+  "BOOT-TDZ-01: the log helper's state object is hoisted so early logs cannot throw");
+
+// primitives
+assert.ok(/const storeCache = new Map\(\);/.test(bundle),
+  "STORE-MEMO-01: stores are memoized per key across re-applies");
+assert.ok(/could not persist after retries/.test(bundle) && /load failed; starting from defaults/.test(bundle),
+  "STORE-ERR-01: storage failures are reported instead of vanishing");
+assert.ok(/Logger\.error\("async"/.test(bundle),
+  "ASYNC-LOG-01: async callback rejections reach the logger ring");
+assert.ok(/re-entering request\(\) here would drop it/.test(bundle),
+  "SCHED-01: coalesced scan re-requests are not dropped by the min-gap gate");
+assert.ok(/rAF is suspended while the tab is hidden/.test(bundle),
+  "OBS-HIDDEN-01: pending observer flushes convert to timers when the tab hides");
+assert.ok(/Dom\.when: cancelled/.test(bundle),
+  "WHEN-01: cancelling when() settles its promise");
+assert.ok(/if \(pendingBatch\.length > MAX_PENDING_MUTATIONS\)/.test(bundle),
+  "OBS-CAP-01: re-observed mutations respect the pending cap");
+
+// engine
+assert.ok(/cssInjected && document\.getElementById\("ytb-engine"\)/.test(bundle),
+  "INJECT-01: the engine stylesheet is re-injected when removed");
+assert.ok(/(skipLatched\.size > 200)/.test(bundle),
+  "LATCH-01: the skip latch is bounded");
+assert.ok(/re-arm the mount on navigation/.test(bundle),
+  "DISCO-01: the discovery host re-mounts after SPA detaches");
+assert.ok(/Restore downgraded thumbnails and clear the observation flags/.test(bundle),
+  "PERF-THUMB-01: perf-mode restores thumbnails on teardown");
+assert.ok(/title\.replace\(\/ \?✓ watched\/g/.test(bundle),
+  "PLW-01: the watched suffix is stripped on teardown");
+assert.ok(/if \(d\.length > 500\) d\.splice\(0, d\.length - 500\);/.test(bundle),
+  "HLH-01: the locally hidden history list is capped");
+
+// new cards
+assert.ok(/let applyAlive = true;/.test(bundle) && /applyAlive = false;/.test(bundle),
+  "DEARROW-ALIVE-01: late DeArrow responses cannot write after teardown");
+assert.ok(/revertedFor = videoId/.test(bundle),
+  "DEARROW-REVERT-01: a dismissed community title stays dismissed");
+assert.ok(/ytbSubsFor/.test(bundle),
+  "UISUBS-01: the subscriber chip is keyed to its video");
+assert.ok(/ytbRydFor/.test(bundle),
+  "RYD-BAR-01: the dislike bar is keyed to its video");
+assert.ok(/shared && !shared\.dead/.test(bundle),
+  "AUDIO-JOIN-01: boost joins stream-routed audio graphs");
+assert.ok(/if \(mode === "date"\) return value\(a\) - value\(b\);/.test(bundle),
+  "SORT-DUR-01: longest-first sorting sorts by duration descending");
+assert.ok(/else if \(node\.dataset\.ytbAsk\)/.test(bundle),
+  "ASK-UNHIDE-01: reused buttons are un-hidden when their label changes");
+assert.ok(/status === "duplicate"/.test(bundle) && /already exists\./.test(bundle),
+  "GROUPS-03: group limits report their real outcome");
+
+// sponsorblock
+assert.ok(/Failure is not a "not VIP" verdict/.test(bundle) && /vip === true \|\| vip === false/.test(bundle),
+  "SB-VIP-03: failed VIP lookups stay unknown");
+assert.ok(/Stable for the session: overlapping inits/.test(bundle),
+  "SB-ID-01: the user id is generated at most once per session");
+assert.ok(/lastFailedLookupVideoId/.test(bundle) && /lookup failed/.test(bundle),
+  "SB-RETRY-COOLDOWN-01: failed lookups back off and refresh reports them");
+assert.ok(/Body-mounted singletons must not survive a disabled card/.test(bundle),
+  "SB-DESTROY-01: destroy() clears countdown, editor and HUD");
+assert.ok(/MAX_SCANNED_VIDEOS/.test(bundle),
+  "SB-SCAN-01: the scanned-video cache is bounded");
+assert.ok(/Submission failed: unexpected error/.test(bundle),
+  "SB-SUBMIT-01: submit rejections surface");
+
+// force-watched and bootstrap
+assert.ok(/marked in local history only/.test(bundle),
+  "FW-MIXED-01: local-only configuration releases the guard");
+assert.ok(/undefined marks a transport failure/.test(bundle) && /has === undefined\) stats\.transportFailed/.test(bundle),
+  "FW-VERIFY-01: transport failures retry instead of reporting a signed-out skip");
+assert.ok(/AbortSignal\.timeout\(9000\)/.test(bundle) && /if \(!r\.ok\) return \{ status: r\.status, json: null \}/.test(bundle),
+  "FW-FETCH-01: the fetch fallback has a timeout and status handling");
+assert.ok(/\(_missingStyle \|\| !_markers\) && _now - _lastMarkerReapply/.test(bundle) && /cannot wedge the watchdog/.test(bundle),
+  "WD-02: every watchdog re-apply path is rate limited and stale ids are pruned");
+assert.ok(/Keys edited in this tab but not yet flushed/.test(bundle),
+  "XTAB-01: unflushed local edits survive a cross-tab sync");
+assert.ok(/Registered per drag/.test(bundle),
+  "DASH-RESIZE-01: resize listeners live only for the drag");
+assert.ok(/Math\.min\(u\.length, 40\)/.test(bundle),
+  "DASH-CHUNK-01: the dashboard streams its card list");
+assert.ok(/Route through the config setter/.test(bundle),
+  "PERF-PERSIST-01: preset toggles are persisted like settings");
+assert.ok(/A clean apply clears the crash counter/.test(bundle),
+  "QUAR-01: quarantine counts current failures only");
+assert.ok(/The resume gate must not stay installed/.test(bundle),
+  "RESUME-GATE-01: the play() gate is removed on reset");

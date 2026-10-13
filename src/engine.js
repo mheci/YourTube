@@ -5462,3 +5462,1028 @@
       en.appendChild(Io("Compact message layout", "liveChatCompact"));
     },
   });
+  // ---------------------------------------------------------------------------
+  // Watch page tools
+  // ---------------------------------------------------------------------------
+
+  // Adds copy and download actions to the transcript panel, and stops YouTube
+  // from scrolling the page when the panel opens.
+  xa.register({
+    id: "transcript-tools", name: "Transcript Tools",
+    summary: "Copy or download the transcript, without the page jump.",
+    masterKey: "transcriptToolsOn", keys: ["transcriptToolsOn", "transcriptTimestamps", "transcriptNoScroll"],
+    apply(ctx) {
+      if (!S.transcriptToolsOn) return;
+      const rowsOf = () => {
+        const rows = document.querySelectorAll("ytd-transcript-segment-renderer");
+        const out = [];
+        rows.forEach((row) => {
+          const time = row.querySelector(".segment-timestamp, #timestamp");
+          const text = row.querySelector(".segment-text, #text, yt-formatted-string.segment-text");
+          if (!text) return;
+          out.push({
+            time: ((time && time.textContent) || "").trim(),
+            text: (text.textContent || "").trim(),
+          });
+        });
+        return out;
+      };
+      const asText = () => rowsOf()
+        .map((row) => (S.transcriptTimestamps && row.time ? row.time + " " + row.text : row.text))
+        .join("\n");
+      const download = (name, body) => {
+        try {
+          const url = YourTubeResources.TrackedBlobURL.create(new Blob([body], { type: "text/plain" }), "ytb-transcript");
+          if (!url) return;
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = name;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(() => YourTubeResources.TrackedBlobURL.revoke(url), 4000);
+        } catch (_) {}
+      };
+      const mount = () => {
+        const panel = document.querySelector("ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-searchable-transcript'] #header, ytd-transcript-renderer #header");
+        if (!panel || panel.querySelector(".ytb-ui-transcript-tools")) return !!panel;
+        const row = To("div", "ytb-ui-transcript-tools");
+        row.style.cssText = "display:flex;gap:6px;padding:6px 0";
+        row.appendChild(Oo("Copy", () => {
+          const text = asText();
+          if (!text) { pe("Transcript is still loading.", 1600, "info"); return; }
+          try { navigator.clipboard.writeText(text).then(() => pe("Transcript copied.", 1400, "success"), () => pe("Clipboard blocked.", 1600, "error")); } catch (_) {}
+        }));
+        row.appendChild(Oo("Download", () => {
+          const text = asText();
+          if (!text) { pe("Transcript is still loading.", 1600, "info"); return; }
+          download("transcript-" + ((ie.videoId && ie.videoId()) || "video") + ".txt", text);
+        }));
+        panel.appendChild(row);
+        return true;
+      };
+      if (S.transcriptNoScroll) {
+        const bound = new WeakSet();
+        const bind = () => {
+          const button = document.querySelector("ytd-video-description-transcript-section-renderer button, button[aria-label*='transcript' i]");
+          if (!button || bound.has(button)) return;
+          bound.add(button);
+          ctx.addListener(button, "click", () => {
+            const y = window.scrollY;
+            for (const delay of [50, 250, 600, 1200]) {
+              ctx.addTimeout(() => { try { window.scrollTo({ top: y }); } catch (_) {} }, delay);
+            }
+          });
+        };
+        bind();
+        ctx.onNav(() => ctx.addTimeout(bind, 1500));
+      }
+      ctx.addInterval(mount, 1500);
+      ctx.onNav(() => ctx.addTimeout(mount, 1200));
+      Yt["transcript-tools"].push(() => {
+        document.querySelectorAll(".ytb-ui-transcript-tools").forEach((el) => el.remove());
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Add copy and download to the transcript", "transcriptToolsOn"));
+      en.appendChild(Io("Include timestamps when copying", "transcriptTimestamps"));
+      en.appendChild(Io("Do not scroll the page when opening the transcript", "transcriptNoScroll"));
+    },
+  });
+
+  xa.register({
+    id: "notification-clean", name: "Notification Limiting",
+    summary: "Hides the badge and adds a mark-all-read button.",
+    masterKey: "notificationCleanOn", keys: ["notificationCleanOn", "notificationHideBadge"],
+    apply(ctx) {
+      if (!S.notificationCleanOn) return;
+      if (S.notificationHideBadge) {
+        ctx.addStyle(
+          "ytd-notification-topbar-button-renderer #notification-count, " +
+          "ytd-notification-topbar-button-renderer .yt-spec-icon-badge-shape__badge, " +
+          "ytd-notification-topbar-button-renderer yt-icon[icon='notification'] + .yt-spec-icon-badge-shape{display:none!important}",
+        );
+      }
+      const mount = () => {
+        const header = document.querySelector("ytd-multi-page-menu-renderer ytd-notification-renderer #header, ytd-multi-page-menu-renderer #header");
+        if (!header || header.querySelector(".ytb-ui-mark-read")) return !!header;
+        const button = Oo("Mark all read", () => {
+          const target = Array.from(document.querySelectorAll("ytd-multi-page-menu-renderer button, ytd-multi-page-menu-renderer yt-button-shape button"))
+            .find((el) => /mark all( as)? read/i.test((el.textContent || "").trim()));
+          if (target) { target.click(); pe("Notifications marked as read.", 1500, "success"); }
+          else pe("No mark-all-read control on this page.", 1800, "info");
+        });
+        button.classList.add("ytb-ui-mark-read");
+        button.style.cssText = "margin:4px 8px;font-size:11px";
+        header.appendChild(button);
+        return true;
+      };
+      ctx.addInterval(mount, 2000);
+      Yt["notification-clean"].push(() => {
+        document.querySelectorAll(".ytb-ui-mark-read").forEach((el) => el.remove());
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Notification helpers", "notificationCleanOn"));
+      en.appendChild(Io("Hide the unread badge", "notificationHideBadge"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "The mark-all-read button appears in the notifications panel header."));
+    },
+  });
+
+  // Watch Later helpers: hide entries you have already watched, copy what is
+  // left, and reorder the list by duration client-side.
+  xa.register({
+    id: "watch-later-tools", name: "Watch Later Tools",
+    summary: "Hide watched entries, copy the rest, sort by duration.",
+    masterKey: "watchLaterToolsOn", keys: ["watchLaterToolsOn", "watchLaterHideWatched", "watchLaterSortDuration"],
+    apply(ctx) {
+      if (!S.watchLaterToolsOn) return;
+      const onWatchLater = () => {
+        if (location.pathname !== "/playlist") return false;
+        return (new URLSearchParams(location.search).get("list") || "").startsWith("WL");
+      };
+      const watched = async () => {
+        try {
+          const rows = await w("history");
+          const set = new Set();
+          for (const row of rows || []) {
+            if (row && row.videoId && (row.completed || row.progress >= 90)) set.add(row.videoId);
+          }
+          return set;
+        } catch (_) { return new Set(); }
+      };
+      const durationOf = (row) => {
+        const badge = row.querySelector("ytd-thumbnail-overlay-time-status-renderer span, .badge-shape-wiz__text, #time-status span");
+        const text = ((badge && badge.textContent) || "").trim();
+        const parts = text.split(":").map((n) => parseInt(n, 10));
+        if (parts.some((n) => !Number.isFinite(n))) return 0;
+        return parts.reduce((total, value) => total * 60 + value, 0);
+      };
+      const toolbar = () => {
+        if (!onWatchLater()) return;
+        const host = document.querySelector("ytd-playlist-header-renderer #buttons, ytd-playlist-header-renderer");
+        if (!host || host.querySelector(".ytb-ui-wl-tools")) return;
+        const row = To("div", "ytb-ui-wl-tools");
+        row.style.cssText = "display:flex;gap:6px;padding:6px 0;flex-wrap:wrap";
+        row.appendChild(Oo("Hide watched", async () => {
+          const set = await watched();
+          let hidden = 0;
+          document.querySelectorAll("ytd-playlist-video-renderer").forEach((item) => {
+            const link = item.querySelector("a[href*='/watch?v=']");
+            const match = link && /[?&]v=([A-Za-z0-9_-]{11})/.exec(link.getAttribute("href") || "");
+            if (!match || !set.has(match[1])) return;
+            item.style.display = "none";
+            hidden++;
+          });
+          pe(hidden ? "Hid " + hidden + " watched entr" + (hidden === 1 ? "y" : "ies") + "." : "Nothing watched in this list.", 2000, "info");
+        }));
+        row.appendChild(Oo("Copy remaining", () => {
+          const links = [];
+          document.querySelectorAll("ytd-playlist-video-renderer").forEach((item) => {
+            if (item.style.display === "none") return;
+            const link = item.querySelector("a[href*='/watch?v=']");
+            if (!link) return;
+            const match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(link.getAttribute("href") || "");
+            if (match) links.push("https://www.youtube.com/watch?v=" + match[1]);
+          });
+          try {
+            navigator.clipboard.writeText(links.join("\n")).then(
+              () => pe("Copied " + links.length + " link(s).", 1600, "success"),
+              () => pe("Clipboard blocked.", 1600, "error"),
+            );
+          } catch (_) {}
+        }));
+        row.appendChild(Oo("Sort by duration", () => {
+          const list = document.querySelector("#contents.ytd-playlist-video-list-renderer");
+          if (!list) { pe("Playlist list not found.", 1600, "info"); return; }
+          const items = Array.from(list.querySelectorAll(":scope > ytd-playlist-video-renderer"));
+          if (!items.length) { pe("Nothing to sort.", 1600, "info"); return; }
+          const sorted = items.slice().sort((a, b) => durationOf(a) - durationOf(b));
+          for (const item of sorted) list.appendChild(item);
+          pe("Sorted " + items.length + " entries by length.", 1800, "success");
+        }));
+        host.appendChild(row);
+      };
+      ctx.addInterval(toolbar, 2500);
+      ctx.onNav(() => ctx.addTimeout(toolbar, 1200));
+      Yt["watch-later-tools"].push(() => {
+        document.querySelectorAll(".ytb-ui-wl-tools").forEach((el) => el.remove());
+        document.querySelectorAll("ytd-playlist-video-renderer").forEach((el) => { el.style.display = ""; });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Watch Later helpers", "watchLaterToolsOn"));
+      en.appendChild(Io("Hide watched entries when asked", "watchLaterHideWatched"));
+      en.appendChild(Io("Allow sorting by duration", "watchLaterSortDuration"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Adds Hide watched, Copy remaining and Sort by duration to the Watch Later header. Nothing is removed from your account."));
+    },
+  });
+
+  // ---------------------------------------------------------------------------
+  // Local data and habits
+  // ---------------------------------------------------------------------------
+
+  // Statistics computed from the local history store: totals, per-channel and
+  // per-day breakdowns. The panel lives in the dashboard.
+  xa.register({
+    id: "watch-stats", name: "Watch-Time Statistics",
+    summary: "Hours watched, per channel and per day, from local history.",
+    masterKey: "watchStatsOn", keys: ["watchStatsOn", "watchStatsDays"],
+    apply() { },
+    settings(en) {
+      en.appendChild(Io("Show watch statistics", "watchStatsOn"));
+      en.appendChild(No("Days to include", "watchStatsDays", 1, 365, 1, (v) => v + " days"));
+      const out = To("div", "ytb-hist-note");
+      out.style.cssText = "margin-top:8px;white-space:pre-line";
+      en.appendChild(out);
+      const fmtHours = (seconds) => (seconds >= 3600 ? (seconds / 3600).toFixed(1) + " h" : Math.round(seconds / 60) + " min");
+      const render = async () => {
+        out.textContent = "Reading local history…";
+        let rows = [];
+        try { rows = (await w("history")) || []; } catch (_) {}
+        const windowDays = Math.max(1, Math.min(365, Number(S.watchStatsDays) || 30));
+        const cutoff = Date.now() - windowDays * 86400000;
+        let totalSec = 0;
+        let watched = 0;
+        const perChannel = new Map();
+        const perDay = new Map();
+        for (const row of rows) {
+          if (!row || !row.videoId) continue;
+          const at = row.lastWatched || 0;
+          if (at && at < cutoff) continue;
+          const seconds = Number(row.totalWatchTime) || 0;
+          totalSec += seconds;
+          watched++;
+          const channel = row.channel || "Unknown";
+          perChannel.set(channel, (perChannel.get(channel) || 0) + seconds);
+          const day = new Date(at || Date.now()).toISOString().slice(0, 10);
+          perDay.set(day, (perDay.get(day) || 0) + seconds);
+        }
+        const top = Array.from(perChannel.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+        const days = Array.from(perDay.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 14);
+        const lines = [];
+        lines.push("Window: last " + windowDays + " days");
+        lines.push("Videos recorded: " + watched + "   Watch time: " + fmtHours(totalSec));
+        lines.push("");
+        lines.push("Top channels");
+        for (const [name, seconds] of top) lines.push("  " + fmtHours(seconds).padStart(8) + "  " + name);
+        lines.push("");
+        lines.push("Recent days");
+        for (const [day, seconds] of days) lines.push("  " + day + "  " + fmtHours(seconds).padStart(8));
+        out.textContent = lines.join("\n");
+      };
+      render();
+      if (typeof So === "function") {
+        So("cfg.changed", (ev) => {
+          if (ev.key === "watchStatsDays" || ev.key === "watchStatsOn") render();
+        });
+      }
+    },
+  });
+
+  // A weekly digest shown once per week, built from the same history store.
+  xa.register({
+    id: "weekly-report", name: "Weekly Watch Report",
+    summary: "A short summary of the last seven days, once a week.",
+    masterKey: "weeklyReportOn", keys: ["weeklyReportOn"],
+    apply(ctx) {
+      if (!S.weeklyReportOn) return;
+      const STORE = "__yourtube_report__";
+      const store = YourTubeEngine.createStore(STORE, { lastShown: 0 });
+      const fmtHours = (seconds) => (seconds >= 3600 ? (seconds / 3600).toFixed(1) + " h" : Math.round(seconds / 60) + " min");
+      const run = async () => {
+        const state = store.get() || {};
+        const week = 7 * 86400000;
+        if (state.lastShown && Date.now() - state.lastShown < week) return;
+        let rows = [];
+        try { rows = (await w("history")) || []; } catch (_) {}
+        const cutoff = Date.now() - week;
+        let totalSec = 0;
+        let count = 0;
+        const perChannel = new Map();
+        for (const row of rows) {
+          if (!row || !row.videoId) continue;
+          const at = row.lastWatched || 0;
+          if (at < cutoff) continue;
+          totalSec += Number(row.totalWatchTime) || 0;
+          count++;
+          const channel = row.channel || "Unknown";
+          perChannel.set(channel, (perChannel.get(channel) || 0) + 1);
+        }
+        if (!count) return;
+        const top = Array.from(perChannel.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3)
+          .map(([name, n]) => name + " (" + n + ")").join(", ");
+        pe("Last 7 days: " + count + " video" + (count === 1 ? "" : "s") + ", " + fmtHours(totalSec) + " watched. Most: " + top, 9000, "info");
+        store.update((data) => { data.lastShown = Date.now(); });
+      };
+      ctx.addTimeout(run, 8000);
+    },
+    settings(en) {
+      en.appendChild(Io("Show a weekly watch summary", "weeklyReportOn"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Appears once every seven days, based on the local history store."));
+    },
+  });
+
+  xa.register({
+    id: "random-pick", name: "Random Video Picker",
+    summary: "Jumps to a random video from a channel or playlist.",
+    masterKey: "randomPickOn", keys: ["randomPickOn", "randomPickUnwatched"],
+    apply(ctx) {
+      if (!S.randomPickOn) return;
+      const candidates = () => {
+        const out = [];
+        document.querySelectorAll("ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer").forEach((card) => {
+          const link = card.querySelector("a[href*='/watch?v=']");
+          if (!link) return;
+          const match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(link.getAttribute("href") || "");
+          if (match) out.push(match[1]);
+        });
+        return Array.from(new Set(out));
+      };
+      const pick = async () => {
+        let ids = candidates();
+        if (!ids.length) { pe("No videos on this page to pick from.", 1800, "info"); return; }
+        if (S.randomPickUnwatched) {
+          try {
+            const rows = (await w("history")) || [];
+            const seen = new Set(rows.filter((row) => row && row.completed).map((row) => row.videoId));
+            const fresh = ids.filter((id) => !seen.has(id));
+            if (fresh.length) ids = fresh;
+          } catch (_) {}
+        }
+        const id = ids[Math.floor(Math.random() * ids.length)];
+        location.href = "https://www.youtube.com/watch?v=" + id;
+      };
+      const mount = () => {
+        const host = document.querySelector("ytd-browse #buttons, ytd-playlist-header-renderer #buttons, ytd-channel-header-renderer #buttons");
+        if (!host || host.querySelector(".ytb-ui-random")) return;
+        const button = Oo("Random", pick);
+        button.classList.add("ytb-ui-random");
+        button.title = "Open a random video from this page";
+        host.appendChild(button);
+      };
+      ctx.addInterval(mount, 2500);
+      ctx.onNav(() => ctx.addTimeout(mount, 1200));
+      Yt["random-pick"].push(() => {
+        document.querySelectorAll(".ytb-ui-random").forEach((el) => el.remove());
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Add a random video button", "randomPickOn"));
+      en.appendChild(Io("Prefer videos I have not finished", "randomPickUnwatched"));
+    },
+  });
+
+  // True shuffle for playlists and the queue: YouTube's shuffle keeps the
+  // original order in the DOM, which makes it easy to lose your place.
+  xa.register({
+    id: "shuffle-tools", name: "Shuffle & Queue Tools",
+    summary: "Randomises playlist order and reorders your own queue.",
+    masterKey: "shuffleToolsOn", keys: ["shuffleToolsOn"],
+    apply(ctx) {
+      if (!S.shuffleToolsOn) return;
+      const shuffle = () => {
+        const list = document.querySelector("#contents.ytd-playlist-video-list-renderer") ||
+          document.querySelector("ytd-playlist-panel-renderer #items");
+        if (!list) { pe("No playlist list on this page.", 1800, "info"); return; }
+        const items = Array.from(list.children).filter((el) => el.tagName && el.tagName.toLowerCase().includes("playlist"));
+        if (items.length < 2) { pe("Nothing to shuffle.", 1600, "info"); return; }
+        for (let i = items.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          list.appendChild(items[j]);
+          [items[i], items[j]] = [items[j], items[i]];
+        }
+        pe("Shuffled " + items.length + " entries for this session.", 1800, "success");
+      };
+      const mount = () => {
+        const host = document.querySelector("ytd-playlist-header-renderer #buttons, ytd-playlist-panel-renderer #header #buttons");
+        if (!host || host.querySelector(".ytb-ui-shuffle")) return;
+        const button = Oo("Shuffle", shuffle);
+        button.classList.add("ytb-ui-shuffle");
+        button.title = "Shuffle the list order in this tab only";
+        host.appendChild(button);
+      };
+      ctx.addInterval(mount, 2500);
+      ctx.onNav(() => ctx.addTimeout(mount, 1200));
+      Yt["shuffle-tools"].push(() => {
+        document.querySelectorAll(".ytb-ui-shuffle").forEach((el) => el.remove());
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Add a shuffle button to playlists", "shuffleToolsOn"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Reorders the list in this tab only; your playlist on YouTube is not modified."));
+    },
+  });
+  // ---------------------------------------------------------------------------
+  // Data, identity and layout
+  // ---------------------------------------------------------------------------
+
+  // Export local data to files: watch history, notes, bookmarks, collections,
+  // the current playlist, and the subscription list.
+  xa.register({
+    id: "export-data", name: "Export Lists & History",
+    summary: "Save history, notes, playlists and subscriptions to a file.",
+    masterKey: "exportDataOn", keys: ["exportDataOn"],
+    apply() { },
+    settings(en) {
+      en.appendChild(Io("Enable export tools", "exportDataOn"));
+      const save = (name, text, type) => {
+        try {
+          const url = YourTubeResources.TrackedBlobURL.create(new Blob([text], { type: type || "application/json" }), "ytb-export");
+          if (!url) { pe("Export failed.", 1800, "error"); return; }
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = name;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(() => YourTubeResources.TrackedBlobURL.revoke(url), 4000);
+          pe("Saved " + name, 1800, "success");
+        } catch (_) { pe("Export failed.", 1800, "error"); }
+      };
+      const stamp = () => new Date().toISOString().slice(0, 10);
+      const row = To("div", "ytb-rowb");
+      row.style.flexWrap = "wrap";
+      row.appendChild(Oo("History (JSON)", async () => {
+        let rows = [];
+        try { rows = (await w("history")) || []; } catch (_) {}
+        if (!rows.length) { pe("No local history to export.", 1800, "info"); return; }
+        save("yourtube-history-" + stamp() + ".json", JSON.stringify(rows, null, 2));
+      }));
+      row.appendChild(Oo("History (CSV)", async () => {
+        let rows = [];
+        try { rows = (await w("history")) || []; } catch (_) {}
+        if (!rows.length) { pe("No local history to export.", 1800, "info"); return; }
+        const header = "videoId,title,channel,duration,lastPosition,progress,completed,lastWatched";
+        const body = rows.map((r) => [
+          r.videoId || "",
+          '"' + String(r.title || "").replace(/"/g, '""') + '"',
+          '"' + String(r.channel || "").replace(/"/g, '""') + '"',
+          Number(r.duration) || 0,
+          Number(r.lastPosition) || 0,
+          Number(r.progress) || 0,
+          r.completed ? 1 : 0,
+          Number(r.lastWatched) || 0,
+        ].join(",")).join("\n");
+        save("yourtube-history-" + stamp() + ".csv", header + "\n" + body, "text/csv");
+      }));
+      row.appendChild(Oo("Notes & bookmarks", async () => {
+        const out = { notes: {}, bookmarks: {}, collections: [] };
+        try { out.notes = (await w("kv")).filter((r) => r && typeof r.k === "string" && r.k.startsWith("note:")); } catch (_) {}
+        try { out.bookmarks = (await v("kv", "__yourtube_bookmarks__")) || {}; } catch (_) {}
+        try { out.collections = (await v("kv", "__yourtube_collections__")) || []; } catch (_) {}
+        save("yourtube-notes-" + stamp() + ".json", JSON.stringify(out, null, 2));
+      }));
+      row.appendChild(Oo("This playlist", () => {
+        const items = [];
+        document.querySelectorAll("ytd-playlist-video-renderer, ytd-playlist-panel-video-renderer").forEach((item) => {
+          const link = item.querySelector("a[href*='/watch?v=']");
+          const title = item.querySelector("#video-title, .yt-core-attributed-string");
+          if (!link) return;
+          const match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(link.getAttribute("href") || "");
+          if (!match) return;
+          items.push(match[1] + "\t" + ((title && title.textContent) || "").trim());
+        });
+        if (!items.length) { pe("Open a playlist first.", 1800, "info"); return; }
+        save("yourtube-playlist-" + stamp() + ".txt", items.join("\n"), "text/plain");
+      }));
+      row.appendChild(Oo("Subscriptions", () => {
+        const seen = new Map();
+        document.querySelectorAll("ytd-channel-renderer, ytd-grid-channel-renderer").forEach((card) => {
+          const link = card.querySelector("a[href*='/@'], a[href*='/channel/']");
+          const name = card.querySelector("#channel-title, #text");
+          if (!link) return;
+          const href = link.getAttribute("href") || "";
+          const handle = (href.match(/\/@([^\/?]+)/) || [])[1] || (href.match(/\/channel\/([\w-]+)/) || [])[1] || "";
+          if (!handle) return;
+          seen.set(handle, ((name && name.textContent) || "").trim());
+        });
+        if (!seen.size) { pe("Open your subscriptions page first.", 2200, "info"); return; }
+        const lines = Array.from(seen.entries()).map(([handle, name]) => name + "\t" + handle);
+        save("yourtube-subscriptions-" + stamp() + ".txt", lines.join("\n"), "text/plain");
+      }));
+      en.appendChild(row);
+      en.appendChild(To("div", "ytb-hist-note",
+        "Files are written from local data only. The subscription list is read from the channels page you have open."));
+    },
+  });
+
+  // Subscription groups: local folders for channels, with a filter for the
+  // subscriptions feed.
+  xa.register({
+    id: "sub-groups", name: "Subscription Groups",
+    summary: "Local channel folders and a filtered subscriptions feed.",
+    masterKey: "subGroupsOn", keys: ["subGroupsOn", "subGroupsActive"],
+    apply(ctx) {
+      if (!S.subGroupsOn) return;
+      const store = YourTubeEngine.createStore("__yourtube_groups__", {});
+      const groupNames = () => Object.keys(store.get() || {});
+      const activeChannels = () => {
+        const active = String(S.subGroupsActive || "");
+        if (!active) return null;
+        const data = store.get() || {};
+        const list = data[active];
+        return Array.isArray(list) && list.length ? new Set(list.map((c) => String(c).toLowerCase())) : null;
+      };
+      const channelOf = (card) => {
+        const link = card.querySelector("a[href*='/@'], a[href*='/channel/']");
+        if (!link) return "";
+        const href = link.getAttribute("href") || "";
+        return ((href.match(/\/@([^\/?]+)/) || [])[1] || (href.match(/\/channel\/([\w-]+)/) || [])[1] || "").toLowerCase();
+      };
+      const filterFeed = () => {
+        if (!location.pathname.startsWith("/feed/subscriptions")) return;
+        const allowed = activeChannels();
+        document.querySelectorAll("ytd-rich-item-renderer, ytd-video-renderer").forEach((card) => {
+          if (!allowed) {
+            if (card.dataset.ytbGroupHidden) { delete card.dataset.ytbGroupHidden; card.style.display = ""; }
+            return;
+          }
+          const channel = channelOf(card);
+          const hide = channel && !allowed.has(channel);
+          if (hide) {
+            if (!card.dataset.ytbGroupHidden) { card.dataset.ytbGroupHidden = "1"; card.style.display = "none"; }
+          } else if (card.dataset.ytbGroupHidden) {
+            delete card.dataset.ytbGroupHidden;
+            card.style.display = "";
+          }
+        });
+      };
+      const bar = () => {
+        if (!location.pathname.startsWith("/feed/subscriptions")) return;
+        const host = document.querySelector("ytd-browse #chips-wrapper, ytd-feed-filter-chip-bar-renderer #chips, ytd-browse #header");
+        if (!host || host.querySelector(".ytb-ui-groups")) return;
+        const names = groupNames();
+        const row = To("div", "ytb-ui-groups");
+        row.style.cssText = "display:flex;gap:6px;padding:6px 12px;flex-wrap:wrap";
+        const all = Oo("All", () => Ta("subGroupsActive", ""));
+        if (!S.subGroupsActive) all.classList.add("primary");
+        row.appendChild(all);
+        for (const name of names) {
+          const button = Oo(name, () => Ta("subGroupsActive", S.subGroupsActive === name ? "" : name));
+          if (S.subGroupsActive === name) button.classList.add("primary");
+          row.appendChild(button);
+        }
+        host.appendChild(row);
+      };
+      ctx.addInterval(() => { bar(); filterFeed(); }, 2500);
+      ctx.onNav(() => { ctx.addTimeout(bar, 1200); ctx.addTimeout(filterFeed, 1500); });
+      Yt["sub-groups"].push(() => {
+        document.querySelectorAll(".ytb-ui-groups").forEach((el) => el.remove());
+        document.querySelectorAll("[data-ytb-group-hidden]").forEach((el) => {
+          el.style.display = "";
+          delete el.dataset.ytbGroupHidden;
+        });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Subscription groups", "subGroupsOn"));
+      en.appendChild(Ro("Active group", "subGroupsActive", Object.assign({ "": "All channels" },
+        Object.fromEntries((YourTubeEngine && S.subGroupsOn ? Object.keys(YourTubeEngine.createStore("__yourtube_groups__", {}).get() || {}) : []).map((n) => [n, n])))));
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.placeholder = "New group name";
+      nameInput.className = "ytb-inp";
+      const row = To("div", "ytb-rowb");
+      row.appendChild(nameInput);
+      row.appendChild(Oo("Create group", () => {
+        const name = nameInput.value.trim();
+        if (!name) return;
+        const store = YourTubeEngine.createStore("__yourtube_groups__", {});
+        store.update((data) => { if (!Array.isArray(data[name])) data[name] = []; });
+        nameInput.value = "";
+        pe("Group '" + name + "' created. Use 'Add to group' on a channel page.", 2600, "success");
+      }));
+      en.appendChild(row);
+      const store = YourTubeEngine.createStore("__yourtube_groups__", {});
+      const list = To("div", "ytb-hist-note");
+      list.style.cssText = "margin-top:8px;white-space:pre-line";
+      const render = () => {
+        const data = store.get() || {};
+        const lines = Object.keys(data).map((name) => name + ": " + (data[name] || []).length + " channel(s)");
+        list.textContent = lines.length ? lines.join("\n") : "No groups yet.";
+      };
+      render();
+      en.appendChild(list);
+      if (typeof So === "function") So("cfg.changed", (ev) => { if (ev.key === "subGroupsActive") render(); });
+      en.appendChild(To("div", "ytb-hist-note",
+        "On a channel page, the 'Add to group' button stores that channel locally. The subscriptions feed can then be filtered by group."));
+    },
+  });
+
+  xa.register({
+    id: "ui-restore-2026", name: "Restore 2026 UI Regressions",
+    summary: "Brings back the subscriber count and tidies the 2026 watch layout.",
+    masterKey: "uiRestoreOn", keys: ["uiRestoreOn", "uiRestoreSubs", "uiRestoreInlineLikes"],
+    apply(ctx) {
+      if (!S.uiRestoreOn) return;
+      if (S.uiRestoreInlineLikes) {
+        const scrub = () => {
+          document.querySelectorAll("ytd-watch-metadata #info-container span, ytd-watch-metadata #info span").forEach((node) => {
+            if (node.dataset.ytbInlineLikes) return;
+            if (!/^[\d.,]+[KMB]?\s+likes$/i.test((node.textContent || "").trim())) return;
+            node.dataset.ytbInlineLikes = "1";
+            node.style.display = "none";
+          });
+        };
+        ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-inline-likes", scrub, 400), { childList: true, subtree: true });
+        ctx.addInterval(scrub, 3000);
+        Yt["ui-restore-2026"].push(() => {
+          document.querySelectorAll("[data-ytb-inline-likes]").forEach((el) => {
+            el.style.display = "";
+            delete el.dataset.ytbInlineLikes;
+          });
+        });
+      }
+      if (S.uiRestoreSubs) {
+        let appliedFor = "";
+        const loadSubs = (videoId) => {
+          YourTubeEngine.innerTube("next", { videoId })
+            .then((response) => {
+              const json = response && response.json;
+              if (!json) return;
+              const text = JSON.stringify(json);
+              const match = /"subscriberCountText":\{[^}]*"simpleText":"([^"]+)"/.exec(text) ||
+                /"subscriberCountText":\{"runs":\[\{"text":"([^"]+)"/.exec(text);
+              if (!match || !match[1]) return;
+              const host = document.querySelector("ytd-watch-metadata #owner, ytd-video-owner-renderer");
+              if (!host || host.querySelector(".ytb-ui-subs")) return;
+              const chip = To("span", "ytb-ui-subs", match[1]);
+              chip.style.cssText = "margin-left:8px;font-size:12px;color:#aaa";
+              chip.title = "Subscriber count, read from YouTube's own metadata";
+              host.appendChild(chip);
+            })
+            .catch(() => {});
+        };
+        const tick = () => {
+          if (!location.pathname.startsWith("/watch")) return;
+          const videoId = ie.videoId && ie.videoId();
+          if (!videoId || videoId === appliedFor) return;
+          appliedFor = videoId;
+          loadSubs(videoId);
+        };
+        ctx.addInterval(tick, 3000);
+        ctx.onNav(() => { appliedFor = ""; ctx.addTimeout(tick, 1500); });
+        Yt["ui-restore-2026"].push(() => {
+          document.querySelectorAll(".ytb-ui-subs").forEach((el) => el.remove());
+        });
+      }
+    },
+    settings(en) {
+      en.appendChild(Io("Restore 2026 layout regressions", "uiRestoreOn"));
+      en.appendChild(Io("Show the subscriber count again", "uiRestoreSubs"));
+      en.appendChild(Io("Hide the inline like count next to views", "uiRestoreInlineLikes"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "The subscriber count is read from YouTube's own metadata for the video, so it appears a moment after the page loads."));
+    },
+  });
+
+  xa.register({
+    id: "watch-tabs", name: "Tabbed Watch Page",
+    summary: "Details, comments, chapters and related as tabs.",
+    masterKey: "watchTabsOn", keys: ["watchTabsOn"],
+    apply(ctx) {
+      if (!S.watchTabsOn) return;
+      ctx.addStyle(
+        "html.ytb-ui-tabs[data-ytb-tab='details'] #comments,html.ytb-ui-tabs[data-ytb-tab='details'] #secondary," +
+        "html.ytb-ui-tabs[data-ytb-tab='chapters'] #comments,html.ytb-ui-tabs[data-ytb-tab='chapters'] #secondary," +
+        "html.ytb-ui-tabs[data-ytb-tab='comments'] #secondary,html.ytb-ui-tabs[data-ytb-tab='comments'] #related," +
+        "html.ytb-ui-tabs[data-ytb-tab='related'] #comments{display:none!important}" +
+        "html.ytb-ui-tabs[data-ytb-tab='related'] #secondary{width:100%!important;max-width:100%!important}" +
+        ".ytb-ui-tabs-bar{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}" +
+        ".ytb-ui-tabs-bar .ytb-btn.active{background:rgba(255,61,127,.18);border-color:rgba(255,61,127,.4);color:#ff8aa5}",
+      );
+      const TABS = [["all", "All"], ["details", "Details"], ["chapters", "Chapters"], ["comments", "Comments"], ["related", "Related"]];
+      const select = (tab) => {
+        if (tab === "all") {
+          document.documentElement.removeAttribute("data-ytb-tab");
+          document.documentElement.classList.remove("ytb-ui-tabs");
+        } else {
+          document.documentElement.classList.add("ytb-ui-tabs");
+          document.documentElement.setAttribute("data-ytb-tab", tab);
+          const target = tab === "comments" ? "#comments" : tab === "related" ? "#secondary" : tab === "chapters" ? "ytd-watch-metadata #description, #info-container" : "ytd-watch-metadata";
+          const node = document.querySelector(target);
+          if (node && node.scrollIntoView) node.scrollIntoView({ block: "start" });
+        }
+        document.querySelectorAll(".ytb-ui-tabs-bar .ytb-btn").forEach((button) => {
+          button.classList.toggle("active", button.dataset.ytbTab === tab);
+        });
+      };
+      const mount = () => {
+        if (!location.pathname.startsWith("/watch")) return;
+        const host = document.querySelector("ytd-watch-metadata #above-the-fold, ytd-watch-metadata");
+        if (!host || host.querySelector(".ytb-ui-tabs-bar")) return;
+        const bar = To("div", "ytb-ui-tabs-bar");
+        for (const [tab, label] of TABS) {
+          const button = Oo(label, () => select(tab));
+          button.dataset.ytbTab = tab;
+          if ((document.documentElement.getAttribute("data-ytb-tab") || "all") === tab) button.classList.add("active");
+          bar.appendChild(button);
+        }
+        host.insertBefore(bar, host.firstChild);
+      };
+      ctx.addInterval(mount, 2000);
+      ctx.onNav(() => ctx.addTimeout(mount, 1200));
+      Yt["watch-tabs"].push(() => {
+        document.querySelectorAll(".ytb-ui-tabs-bar").forEach((el) => el.remove());
+        document.documentElement.removeAttribute("data-ytb-tab");
+        document.documentElement.classList.remove("ytb-ui-tabs");
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Show watch page tabs", "watchTabsOn"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "The 'All' tab restores the normal page. Tabs hide the sections you are not looking at."));
+    },
+  });
+  // Keyboard shortcut binding: the global handler in the bootstrap dispatches
+  // through these specs, so a shortcut can be rebound in the dashboard.
+  const _YT_KEYMAP_DEFAULTS = {
+    forceWatched: "shift+keyw",
+    screenshot: "keyx",
+    stop: "shift+keys",
+    chapterPrev: "minus",
+    chapterNext: "equal",
+    speedUp: "alt+shift+period",
+    speedDown: "alt+shift+comma",
+  };
+  function _ytKeySpec(ev) {
+    try {
+      if (!ev) return "";
+      const parts = [];
+      if (ev.ctrlKey) parts.push("ctrl");
+      if (ev.altKey) parts.push("alt");
+      if (ev.shiftKey) parts.push("shift");
+      if (ev.metaKey) parts.push("meta");
+      const code = ev.code || "";
+      if (!code) return "";
+      parts.push(code);
+      return parts.join("+").toLowerCase();
+    } catch (_) { return ""; }
+  }
+
+  xa.register({
+    id: "keymap", name: "Keyboard Shortcuts",
+    summary: "Rebind the script's own shortcuts.",
+    masterKey: "keymapOn", keys: ["keymapOn", "keymap"],
+    apply() { },
+    settings(en) {
+      en.appendChild(Io("Enable custom shortcuts", "keymapOn"));
+      const ACTIONS = [
+        ["forceWatched", "Mark as watched"],
+        ["screenshot", "Screenshot"],
+        ["stop", "Stop playback"],
+        ["chapterPrev", "Previous chapter"],
+        ["chapterNext", "Next chapter"],
+        ["speedUp", "Speed up"],
+        ["speedDown", "Slow down"],
+      ];
+      const current = () => Object.assign({}, S.keymap && typeof S.keymap === "object" ? S.keymap : {});
+      const pretty = (spec) => String(spec || "").split("+").map((part) => {
+        if (part === "keyw") return "W";
+        if (part === "keys") return "S";
+        if (part === "keyx") return "X";
+        if (part === "minus") return "-";
+        if (part === "equal") return "=";
+        if (part === "period") return ".";
+        if (part === "comma") return ",";
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      }).join(" + ");
+      for (const [action, name] of ACTIONS) {
+        const row = To("div", "ytb-row");
+        row.appendChild(To("span", "ytb-lbl", name));
+        const value = To("span", "ytb-rngv", pretty(current()[action] || _YT_KEYMAP_DEFAULTS[action]));
+        row.appendChild(value);
+        row.appendChild(Oo("Record", () => {
+          pe("Press the new key combination for " + name + ".", 3000, "info");
+          const onKey = (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const spec = _ytKeySpec(ev);
+            if (!spec) return;
+            document.removeEventListener("keydown", onKey, true);
+            const map = current();
+            map[action] = spec;
+            Ta("keymap", map);
+            value.textContent = pretty(spec);
+            pe(name + " is now " + pretty(spec), 1800, "success");
+          };
+          document.addEventListener("keydown", onKey, true);
+        }));
+        en.appendChild(row);
+      }
+      en.appendChild(Oo("Reset shortcuts", () => {
+        Ta("keymap", {});
+        pe("Shortcuts reset to their defaults.", 1800, "success");
+      }));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Only the script's own shortcuts are rebound here; YouTube's built-in keys are untouched. Shortcuts are ignored while typing."));
+    },
+  });
+
+  // Channel page helper for the subscription groups feature.
+  xa.register({
+    id: "sub-group-add", name: "Add Channel to Group",
+    summary: "Adds the open channel to one of your groups.",
+    masterKey: "subGroupsOn", keys: [],
+    apply(ctx) {
+      if (!S.subGroupsOn) return;
+      const store = YourTubeEngine.createStore("__yourtube_groups__", {});
+      const handleOf = () => {
+        const path = location.pathname || "";
+        const match = /^\/(@[^\/?]+)|^\/channel\/([\w-]+)/.exec(path);
+        return match ? (match[1] || match[2] || "").toLowerCase() : "";
+      };
+      const mount = () => {
+        const handle = handleOf();
+        if (!handle) return;
+        const host = document.querySelector("ytd-channel-header-renderer #buttons, ytd-c4-tabbed-header-renderer #buttons, #page-header #buttons");
+        if (!host || host.querySelector(".ytb-ui-add-group")) return;
+        const button = Oo("Add to group", () => {
+          const names = Object.keys(store.get() || {});
+          const answer = typeof prompt === "function" ? prompt(
+            names.length ? "Group name (existing: " + names.join(", ") + ")" : "Group name",
+            names[0] || "",
+          ) : null;
+          if (!answer) return;
+          const name = String(answer).trim();
+          if (!name) return;
+          store.update((data) => {
+            if (!Array.isArray(data[name])) data[name] = [];
+            if (!data[name].includes(handle)) data[name].push(handle);
+          });
+          pe("Added to '" + name + "'.", 1800, "success");
+        });
+        button.classList.add("ytb-ui-add-group");
+        button.title = "Store this channel in a local group";
+        host.appendChild(button);
+      };
+      ctx.addInterval(mount, 2500);
+      ctx.onNav(() => ctx.addTimeout(mount, 1200));
+      Yt["sub-group-add"].push(() => {
+        document.querySelectorAll(".ytb-ui-add-group").forEach((el) => el.remove());
+      });
+    },
+    settings() { },
+  });
+  // ---------------------------------------------------------------------------
+  // Feed modes and search tools
+  // ---------------------------------------------------------------------------
+
+  xa.register({
+    id: "subs-only-home", name: "Subscriptions-Only Home",
+    summary: "Turns the front page into your subscriptions.",
+    masterKey: "subsOnlyHomeOn", keys: ["subsOnlyHomeOn", "subsOnlyRedirect"],
+    apply(ctx) {
+      if (!S.subsOnlyHomeOn) return;
+      if (S.subsOnlyRedirect) {
+        const go = () => {
+          try {
+            if (location.pathname === "/" || location.pathname === "") location.replace("/feed/subscriptions");
+          } catch (_) {}
+        };
+        go();
+        ctx.onNav(() => ctx.addTimeout(go, 100));
+        return;
+      }
+      ctx.addStyle(
+        "html.ytb-ui-subs-only ytd-browse[page-subtype='home'] ytd-rich-grid-renderer," +
+        "html.ytb-ui-subs-only ytd-browse[page-subtype='home'] #contents.ytd-rich-grid-renderer{display:none!important}" +
+        ".ytb-ui-subs-note{margin:24px auto;max-width:520px;padding:18px 20px;border:1px solid rgba(255,255,255,.12);" +
+        "border-radius:12px;background:rgba(255,255,255,.04);font:13px/1.6 system-ui;color:#ddd;text-align:center}",
+      );
+      const mount = () => {
+        if (location.pathname !== "/") {
+          document.documentElement.classList.remove("ytb-ui-subs-only");
+          document.querySelectorAll(".ytb-ui-subs-note").forEach((el) => el.remove());
+          return;
+        }
+        document.documentElement.classList.add("ytb-ui-subs-only");
+        const host = document.querySelector("ytd-browse[page-subtype='home']");
+        if (!host || host.querySelector(".ytb-ui-subs-note")) return;
+        const note = To("div", "ytb-ui-subs-note");
+        note.appendChild(To("div", null, "The home feed is hidden while Subscriptions-Only Home is on."));
+        const actions = To("div", "ytb-rowb");
+        actions.style.cssText = "justify-content:center;margin-top:12px";
+        actions.appendChild(Oo("Open subscriptions", () => { location.href = "/feed/subscriptions"; }, "primary"));
+        actions.appendChild(Oo("Show the feed once", () => {
+          document.documentElement.classList.remove("ytb-ui-subs-only");
+          pe("Feed shown until the next navigation.", 2200, "info");
+        }));
+        note.appendChild(actions);
+        host.appendChild(note);
+      };
+      ctx.addInterval(mount, 2000);
+      ctx.onNav(() => ctx.addTimeout(mount, 600));
+      Yt["subs-only-home"].push(() => {
+        document.documentElement.classList.remove("ytb-ui-subs-only");
+        document.querySelectorAll(".ytb-ui-subs-note").forEach((el) => el.remove());
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Hide the home feed", "subsOnlyHomeOn"));
+      en.appendChild(Io("Send the home page to subscriptions instead", "subsOnlyRedirect"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "With the redirect off, the feed is hidden and a note with a link is shown instead."));
+    },
+  });
+
+  // Client-side sorting of the results YouTube already returned. It reorders the
+  // cards on the page; it cannot fetch more results.
+  xa.register({
+    id: "sort-search", name: "Sort Search Results",
+    summary: "Reorders the results on the page by date, views or length.",
+    masterKey: "sortSearchOn", keys: ["sortSearchOn", "sortSearchBy"],
+    apply(ctx) {
+      if (!S.sortSearchOn) return;
+      ctx.addStyle(
+        ".ytb-ui-sort-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0 12px;font-size:12px;color:#aaa}" +
+        ".ytb-ui-sort-bar .ytb-btn.active{background:rgba(255,61,127,.18);border-color:rgba(255,61,127,.4);color:#ff8aa5}",
+      );
+      const parseViews = (text) => {
+        const match = /([\d.,]+)\s*([KMB])?\s*views/i.exec(String(text || ""));
+        if (!match) return -1;
+        const value = Number(String(match[1]).replace(/,/g, ""));
+        if (!Number.isFinite(value)) return -1;
+        const scale = match[2] ? { K: 1e3, M: 1e6, B: 1e9 }[match[2].toUpperCase()] : 1;
+        return value * scale;
+      };
+      const parseAge = (text) => {
+        const match = /(\d+)\s*(year|month|week|day|hour)/i.exec(String(text || ""));
+        if (!match) return -1;
+        const value = parseInt(match[1], 10) || 0;
+        const factor = { year: 365, month: 30, week: 7, day: 1, hour: 0.04 }[match[2].toLowerCase()];
+        return value * factor;
+      };
+      const durationOf = (card) => {
+        const badge = card.querySelector("ytd-thumbnail-overlay-time-status-renderer span, #time-status span, .badge-shape-wiz__text");
+        const text = ((badge && badge.textContent) || "").trim();
+        const parts = text.split(":").map((n) => parseInt(n, 10));
+        if (!parts.length || parts.some((n) => !Number.isFinite(n))) return 0;
+        return parts.reduce((total, value) => total * 60 + value, 0);
+      };
+      const sortBy = (mode) => {
+        const list = document.querySelector("ytd-search ytd-item-section-renderer #contents, #search ytd-item-section-renderer #contents");
+        if (!list) { pe("No results list on this page.", 1800, "info"); return; }
+        const cards = Array.from(list.querySelectorAll(":scope > ytd-video-renderer"));
+        if (cards.length < 2) { pe("Nothing to sort.", 1600, "info"); return; }
+        const meta = new Map();
+        for (const card of cards) {
+          const line = card.querySelector("#metadata-line, yt-content-metadata-view-model, .ytContentMetadataViewModelMetadataRow");
+          const text = (line && line.textContent) || "";
+          meta.set(card, {
+            views: parseViews(text),
+            age: parseAge(text),
+            duration: durationOf(card),
+          });
+        }
+        const value = (card) => {
+          const info = meta.get(card) || {};
+          if (mode === "views") return info.views < 0 ? -1 : info.views;
+          if (mode === "date") return info.age < 0 ? Number.MAX_SAFE_INTEGER : info.age;
+          if (mode === "duration") return info.duration;
+          return 0;
+        };
+        const sorted = cards.slice().sort((a, b) => {
+          if (mode === "date" || mode === "duration") return value(a) - value(b);
+          return value(b) - value(a);
+        });
+        for (const card of sorted) list.appendChild(card);
+        pe("Sorted " + cards.length + " results by " + mode + ".", 1800, "success");
+      };
+      const mount = () => {
+        if (!location.pathname.startsWith("/results")) return;
+        const host = document.querySelector("ytd-search #container.ytd-search, ytd-search #primary");
+        if (!host || host.querySelector(".ytb-ui-sort-bar")) return;
+        const bar = To("div", "ytb-ui-sort-bar");
+        bar.appendChild(To("span", null, "Sort:"));
+        for (const [mode, label] of [["date", "Newest"], ["views", "Most viewed"], ["duration", "Longest"]]) {
+          const button = Oo(label, () => sortBy(mode));
+          if (S.sortSearchBy === mode) button.classList.add("active");
+          bar.appendChild(button);
+        }
+        bar.appendChild(To("span", null, "reorders the results already on the page"));
+        host.insertBefore(bar, host.firstChild);
+      };
+      ctx.addInterval(mount, 2000);
+      ctx.onNav(() => ctx.addTimeout(mount, 900));
+      Yt["sort-search"].push(() => {
+        document.querySelectorAll(".ytb-ui-sort-bar").forEach((el) => el.remove());
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Add sort buttons to search results", "sortSearchOn"));
+      en.appendChild(Ro("Default order", "sortSearchBy", {
+        relevance: "YouTube's order",
+        date: "Newest first",
+        views: "Most viewed",
+        duration: "Longest first",
+      }));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Sorting only reorders the results YouTube already returned for the page."));
+    },
+  });

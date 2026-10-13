@@ -4917,3 +4917,305 @@
     },
     settings(en) { en.appendChild(Io("Leave fullscreen when the video ends", "autoExitFullscreenOn")); },
   });
+  // ---------------------------------------------------------------------------
+  // Playback and audio
+  // ---------------------------------------------------------------------------
+
+  // Shared WebAudio graph for the boost and leveling features. Media elements are
+  // routed once and cached at module scope: createMediaElementSource throws when
+  // called twice for the same element, and the element outlives feature re-applies.
+  // A DynamicsCompressorNode with threshold 0 / ratio 1 is transparent, so the
+  // graph can stay connected while leveling is off.
+  const _ytAudio = { ctx: null };
+  const _ytAudioGraphs = new WeakMap();
+  const _ytAudioEntry = (el) => {
+    try {
+      if (!el) return null;
+      if (!_ytAudio.ctx) {
+        const AudioCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtor) return null;
+        _ytAudio.ctx = new AudioCtor();
+      }
+      const ac = _ytAudio.ctx;
+      let entry = _ytAudioGraphs.get(el);
+      if (!entry) {
+        const source = ac.createMediaElementSource(el);
+        const gain = ac.createGain();
+        const comp = ac.createDynamicsCompressor();
+        comp.threshold.value = 0;
+        comp.knee.value = 0;
+        comp.ratio.value = 1;
+        comp.attack.value = 0.003;
+        comp.release.value = 0.25;
+        source.connect(gain);
+        gain.connect(comp);
+        comp.connect(ac.destination);
+        entry = { source, gain, comp };
+        _ytAudioGraphs.set(el, entry);
+      }
+      if (ac.state === "suspended") ac.resume().catch(() => {});
+      return entry;
+    } catch (_) { return null; }
+  };
+
+  xa.register({
+    id: "wheel-controls", name: "Mouse-Wheel Controls",
+    summary: "Wheel over the player changes volume, over the bar seeks.",
+    masterKey: "wheelControlsOn", keys: ["wheelControlsOn", "wheelVolumeStep", "wheelSeekStep"],
+    apply(ctx) {
+      if (!S.wheelControlsOn) return;
+      const volumeStep = () => Math.max(1, Math.min(25, Number(S.wheelVolumeStep) || 5));
+      const seekStep = () => Math.max(1, Math.min(60, Number(S.wheelSeekStep) || 5));
+      const onWheel = (ev) => {
+        const el = ie.el();
+        if (!el) return;
+        if (ev.shiftKey) {
+          ev.preventDefault();
+          const next = Math.max(0.0625, Math.min(16, Math.round((el.playbackRate + (ev.deltaY < 0 ? 0.1 : -0.1)) * 100) / 100));
+          el.playbackRate = next;
+          pe("Speed " + next + "x", 1200, "info");
+          return;
+        }
+        const overBar = ev.target && ev.target.closest &&
+          ev.target.closest(".ytp-progress-bar-container, .ytp-progress-bar, .ytp-progress-list");
+        if (overBar) {
+          ev.preventDefault();
+          const step = seekStep() * (ev.deltaY < 0 ? 1 : -1);
+          try { el.currentTime = Math.max(0, Math.min(el.duration || 0, el.currentTime + step)); } catch (_) {}
+          pe((step > 0 ? "Forward " : "Back ") + Math.abs(step) + "s", 900, "info");
+          return;
+        }
+        ev.preventDefault();
+        const next = Math.max(0, Math.min(1, Math.round((el.volume + (ev.deltaY < 0 ? volumeStep() : -volumeStep()) / 100) * 100) / 100));
+        el.volume = next;
+        el.muted = false;
+        pe("Volume " + Math.round(next * 100) + "%", 900, "info");
+      };
+      const bound = new WeakSet();
+      const bind = () => {
+        const player = document.getElementById("movie_player") || document.querySelector("#player-container, ytd-player");
+        if (!player || bound.has(player)) return;
+        bound.add(player);
+        ctx.addListener(player, "wheel", onWheel, { passive: false });
+      };
+      bind();
+      ctx.onNav(() => ctx.addTimeout(bind, 1200));
+    },
+    settings(en) {
+      en.appendChild(Io("Wheel over the player adjusts volume", "wheelControlsOn"));
+      en.appendChild(No("Volume step", "wheelVolumeStep", 1, 25, 1, (v) => v + "%"));
+      en.appendChild(No("Seek step (over the progress bar)", "wheelSeekStep", 1, 60, 1, (v) => v + "s"));
+      en.appendChild(To("div", "ytb-hist-note", "Shift+wheel over the player changes speed."));
+    },
+  });
+
+  xa.register({
+    id: "volume-boost", name: "Volume Boost",
+    summary: "Amplifies playback beyond 100%, optionally per channel.",
+    masterKey: "volumeBoostOn", keys: ["volumeBoostOn", "volumeBoostPct", "volumeBoostPerChannel"],
+    apply(ctx) {
+      if (!S.volumeBoostOn) return;
+      const store = YourTubeEngine.createStore("__yourtube_boost__", {});
+      const channelKey = () => { try { return (typeof Ne === "function" ? Ne() : "") || ""; } catch (_) { return ""; } };
+      const factor = () => {
+        let pct = Number(S.volumeBoostPct) || 150;
+        if (S.volumeBoostPerChannel) {
+          const channel = channelKey();
+          const saved = channel && store.get()[channel];
+          if (saved && Number.isFinite(saved.pct)) pct = saved.pct;
+        }
+        return Math.max(1, Math.min(3, pct / 100));
+      };
+      const applyGain = () => {
+        const el = ie.el();
+        const entry = _ytAudioEntry(el);
+        if (!entry) return;
+        const target = factor();
+        try {
+          if (Math.abs(entry.gain.gain.value - target) > 0.001) entry.gain.gain.value = target;
+        } catch (_) {}
+      };
+      const remember = () => {
+        if (!S.volumeBoostPerChannel) return;
+        const channel = channelKey();
+        if (!channel) return;
+        store.update((data) => {
+          data[channel] = { pct: Number(S.volumeBoostPct) || 150, at: Date.now() };
+          const keys = Object.keys(data);
+          if (keys.length > 300) {
+            keys.sort((a, b) => (data[a].at || 0) - (data[b].at || 0));
+            for (const key of keys.slice(0, keys.length - 300)) delete data[key];
+          }
+        });
+      };
+      applyGain();
+      ctx.onNav(() => { ctx.addTimeout(applyGain, 1200); ctx.addTimeout(remember, 2500); });
+      ctx.addInterval(applyGain, 4000);
+      ctx.addListener(document, "pointerdown", () => {
+        try { if (_ytAudio.ctx && _ytAudio.ctx.state === "suspended") _ytAudio.ctx.resume(); } catch (_) {}
+      }, { capture: true });
+      Yt["volume-boost"].push(() => {
+        try {
+          const el = ie.el();
+          const entry = el && _ytAudioGraphs.get(el);
+          if (entry) entry.gain.gain.value = 1;
+        } catch (_) {}
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Boost the volume", "volumeBoostOn"));
+      en.appendChild(No("Amount", "volumeBoostPct", 100, 300, 10, (v) => v + "%"));
+      en.appendChild(Io("Remember the boost per channel", "volumeBoostPerChannel"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Audio is routed through a WebAudio gain node. Turn this off if the player goes silent; DRM-protected content can refuse the route."));
+    },
+  });
+
+  xa.register({
+    id: "loudness-leveling", name: "Loudness Leveling",
+    summary: "Evens out quiet dialogue and loud music.",
+    masterKey: "loudnessLevelOn", keys: ["loudnessLevelOn", "loudnessStrength"],
+    apply(ctx) {
+      if (!S.loudnessLevelOn) return;
+      const strength = () => Math.max(1, Math.min(3, Number(S.loudnessStrength) || 2));
+      const applyComp = () => {
+        const el = ie.el();
+        const entry = _ytAudioEntry(el);
+        if (!entry) return;
+        const level = strength();
+        const threshold = level === 1 ? -12 : level === 2 ? -20 : -28;
+        const ratio = level === 1 ? 3 : level === 2 ? 8 : 16;
+        try {
+          entry.comp.threshold.value = threshold;
+          entry.comp.knee.value = 20;
+          entry.comp.ratio.value = ratio;
+          entry.comp.attack.value = 0.005;
+          entry.comp.release.value = 0.3;
+        } catch (_) {}
+      };
+      applyComp();
+      ctx.onNav(() => ctx.addTimeout(applyComp, 1200));
+      ctx.addInterval(applyComp, 4000);
+      Yt["loudness-leveling"].push(() => {
+        try {
+          const el = ie.el();
+          const entry = el && _ytAudioGraphs.get(el);
+          if (entry) {
+            entry.comp.threshold.value = 0;
+            entry.comp.knee.value = 0;
+            entry.comp.ratio.value = 1;
+          }
+        } catch (_) {}
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Level the loudness", "loudnessLevelOn"));
+      en.appendChild(No("Strength", "loudnessStrength", 1, 3, 1, (v) => ["Gentle", "Medium", "Strong"][v - 1] || String(v)));
+      en.appendChild(To("div", "ytb-hist-note",
+        "A compressor, not a normalizer: quiet dialogue comes up and peaks are held back, at the cost of some dynamic range."));
+    },
+  });
+
+  xa.register({
+    id: "sticky-quality", name: "Sticky Quality for Live",
+    summary: "Re-asserts your quality preference on livestreams.",
+    masterKey: "stickyQualityOn", keys: ["stickyQualityOn"],
+    apply(ctx) {
+      if (!S.stickyQualityOn) return;
+      const reassert = () => {
+        try {
+          if (!_isLiveStream()) return;
+          const el = ie.el();
+          if (!el || el.paused) return;
+          const levels = ie.levels();
+          if (!levels || !levels.length) return;
+          const want = S.qualityPref;
+          const available = levels.filter((l) => l && l !== "auto");
+          const target = available.indexOf(want) !== -1 ? want : available[0];
+          if (target) ie.setQuality(target);
+        } catch (_) {}
+      };
+      ctx.addInterval(reassert, 15000);
+      ctx.onNav(() => ctx.addTimeout(reassert, 4000));
+    },
+    settings(en) {
+      en.appendChild(Io("Keep my quality on livestreams", "stickyQualityOn"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Re-asserts the same preference used by 'Always Use My Preferred Quality'. YouTube can still adapt on its own."));
+    },
+  });
+
+  xa.register({
+    id: "wide-player", name: "Wide Player",
+    summary: "Expands the player to the full window width.",
+    masterKey: "widePlayerOn", keys: ["widePlayerOn"],
+    apply(ctx) {
+      if (!S.widePlayerOn) return;
+      ctx.addStyle(
+        "html.ytb-ui-wide ytd-watch-flexy #columns{flex-direction:column!important}" +
+        "html.ytb-ui-wide ytd-watch-flexy #primary,html.ytb-ui-wide ytd-watch-flexy #secondary{width:100%!important;max-width:100%!important}" +
+        "html.ytb-ui-wide ytd-watch-flexy #player,html.ytb-ui-wide ytd-watch-flexy #player-container," +
+        "html.ytb-ui-wide ytd-watch-flexy #player-container-inner,html.ytb-ui-wide ytd-watch-flexy #player-container-outer{width:100%!important;max-width:100%!important}",
+      );
+      document.documentElement.classList.add("ytb-ui-wide");
+      Yt["wide-player"].push(() => document.documentElement.classList.remove("ytb-ui-wide"));
+    },
+    settings(en) {
+      en.appendChild(Io("Expand the player to the window width", "widePlayerOn"));
+      en.appendChild(To("div", "ytb-hist-note", "Applies in normal mode; theater and fullscreen are unchanged."));
+    },
+  });
+
+  xa.register({
+    id: "shorts-speed", name: "Shorts Speed & Progress",
+    summary: "Sets a playback speed and shows a progress bar on Shorts.",
+    masterKey: "shortsSpeedOn", keys: ["shortsSpeedOn", "shortsSpeedDefault", "shortsProgressOn"],
+    apply(ctx) {
+      if (!S.shortsSpeedOn) return;
+      ctx.addStyle(
+        ".ytb-ui-shorts-progress{position:fixed;left:0;right:0;bottom:0;height:3px;z-index:2147483000;display:none;background:rgba(255,255,255,.14)}" +
+        ".ytb-ui-shorts-progress-fill{height:100%;width:0;background:#ff3d7f;transition:width .2s linear}",
+      );
+      const rate = () => Math.max(0.25, Math.min(4, Number(S.shortsSpeedDefault) || 1));
+      let lastVid = "";
+      let bar = null;
+      const ensureBar = () => {
+        if (!S.shortsProgressOn) return null;
+        if (bar && document.body && document.body.contains(bar)) return bar;
+        bar = To("div", "ytb-ui-shorts-progress");
+        bar.appendChild(To("div", "ytb-ui-shorts-progress-fill"));
+        if (document.body) document.body.appendChild(bar);
+        return bar;
+      };
+      const tick = () => {
+        const onShorts = location.pathname.startsWith("/shorts");
+        const el = ie.el();
+        const progress = ensureBar();
+        if (!onShorts || !el) {
+          if (progress) progress.style.display = "none";
+          return;
+        }
+        const vid = (ie.videoId && ie.videoId()) || "";
+        if (vid && vid !== lastVid) {
+          lastVid = vid;
+          try { el.playbackRate = rate(); } catch (_) {}
+        }
+        if (progress) {
+          progress.style.display = "block";
+          const pct = el.duration ? Math.min(100, (el.currentTime / el.duration) * 100) : 0;
+          progress.firstChild.style.width = pct + "%";
+        }
+      };
+      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-shortspeed", tick, 300), { childList: true, subtree: true });
+      ctx.addInterval(tick, 1000);
+      ctx.onNav(() => { lastVid = ""; ctx.addTimeout(tick, 600); });
+      Yt["shorts-speed"].push(() => {
+        if (bar) { try { bar.remove(); } catch (_) {} bar = null; }
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Set a Shorts playback speed", "shortsSpeedOn"));
+      en.appendChild(No("Speed", "shortsSpeedDefault", 0.25, 4, 0.25, (v) => v + "x"));
+      en.appendChild(Io("Show a progress bar", "shortsProgressOn"));
+    },
+  });

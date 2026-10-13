@@ -1,11 +1,11 @@
 # YourTube
 
 A client-side userscript that changes how YouTube looks and behaves: themes, feed
-filtering, playback controls, SponsorBlock, and a settings dashboard with more
-than 130 feature cards. Everything runs in your browser. There is no account, no
-server, and no analytics.
+filtering, playback controls, SponsorBlock, and a settings dashboard with 169
+feature cards. Everything runs in your browser. There is no account, no server,
+and no analytics.
 
-Current version: **1.0.0**
+Latest release: [github.com/mheci/YourTube/releases](https://github.com/mheci/YourTube/releases)
 
 ---
 
@@ -13,7 +13,7 @@ Current version: **1.0.0**
 
 **Appearance**
 
-- 200 built-in themes for light and dark mode, plus one-color custom themes
+- 200 built-in themes — 100 dark, 100 light — plus one-color custom themes
   generated from any accent color.
 - A theme engine that rewrites YouTube's design tokens (backgrounds, text,
   chips, dialogs, player chrome, logo and toolbar icons) rather than patching
@@ -22,14 +22,15 @@ Current version: **1.0.0**
   and filled buttons pick their label color from the fill's measured luminance,
   so nothing becomes unreadable.
 - Optional layout work: dense grid, compact spacing, decluttering of page
-  elements, reading-size boost, and a night scheduler that swaps themes on a
-  clock.
+  elements, reading-size boost, restoring the subscriber count the 2026 watch
+  page dropped, and a night scheduler that swaps themes on a clock.
 
 **Feed and comments**
 
 - Hide or dim videos you have already watched; filter by title or channel
   keywords; hide Shorts across every surface; hide live content, premieres,
-  auto-dubbed videos, AI panels, community posts and mix/radio shelves.
+  auto-dubbed videos, AI panels and the Ask pill, community posts and
+  mix/radio shelves.
 - Anti-Repeat Memory records the videos your feeds render and hides the ones you
   have scrolled past before, with a configurable grace period and forget window.
 - Hide low-view videos below a threshold, show views-per-day and upload dates on
@@ -46,6 +47,8 @@ Current version: **1.0.0**
 
 - Default speed, per-channel speed memory, loop, A/B segment repeat, quality
   preference, captions behavior, and ad-skip.
+- Optional player cleanups: remove the dark edge gradient and the up-next
+  overlay.
 - Mouse-wheel volume, seek and speed control; volume boost up to 300% with
   optional per-channel memory; loudness leveling; sticky quality during
   livestreams; wide player mode; auto-exit fullscreen when a video ends.
@@ -63,7 +66,7 @@ Current version: **1.0.0**
   prefix of the video ID; view reports are UUID-only.
 - **Return YouTube Dislike** — dislike counts and a like/dislike ratio bar.
 - **DeArrow** — community titles for the watch page and community thumbnails for
-  cards, each with a way back to the original.
+  cards, with a one-click way back to the original title.
 - Live chat cleanup: hide superchats and membership messages, or compact the
   message layout.
 
@@ -143,6 +146,11 @@ YourTube is client-side, but four features use the network:
 DeArrow and Return YouTube Dislike are off by default. Everything else stays in
 your browser: there is no telemetry, and no data is sent to the project.
 
+The userscript manager itself fetches two small libraries from
+`cdn.jsdelivr.net` (lz-string and culori) and the script icon from
+`raw.githubusercontent.com` when it installs or updates YourTube. The script
+makes no runtime request to either host.
+
 ---
 
 ## Compatibility
@@ -163,7 +171,7 @@ longer exist so they can be fixed.
 ```bash
 npm ci                     # toolchain (jsdom for the test harnesses)
 npm run build              # rebuild yourtube.user.js from the src/ mirrors
-npm test                   # full gate: build, checks, audits, unit suites, boot harness
+npm test                   # full gate: build, checks, audits, unit suites, boot and stability harnesses
 npm run audit:keys         # settings integrity: dead defaults, invisible settings, dead controls
 npm run audit:selectors    # bit rot: YouTube tokens that no longer exist (needs network)
 npm run audit:dashboard    # runtime card registry check
@@ -174,6 +182,10 @@ comments. Anything outside those regions lives directly in the bundle.
 `docs/ARCHITECTURE.md` has the region map, the apply/teardown contract that
 feature cards must follow, and the release procedure.
 
+The gate includes a stability harness that toggles every feature on and off
+twice, replays a navigation storm and a bfcache restore, and fails if timers,
+observers, listeners or card DOM state grow between passes.
+
 The published userscript must be byte-identical to a rebuild from source; CI
 enforces that on every push and tag, and a weekly workflow re-checks the
 published release against a rebuild of its tag.
@@ -181,11 +193,11 @@ published release against a rebuild of its tag.
 Releases are tag-driven:
 
 ```bash
-npm version 1.0.1 --no-git-tag-version
+npm version <version> --no-git-tag-version
 npm test
-git commit -am "release 1.0.1"
-git tag -a v1.0.1 -m "YourTube 1.0.1"
-git push && git push origin v1.0.1
+git commit -am "release <version>"
+git tag -a v<version> -m "YourTube <version>"
+git push && git push origin v<version>
 ```
 
 ---

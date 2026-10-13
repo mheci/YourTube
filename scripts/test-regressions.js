@@ -314,3 +314,32 @@ for (const dead of ["themeAccentHue", "themeFxHoverLift", "themeFxRipple", "them
 assert.ok(bundle.includes("themeFxReducedMotion"), "THEME-DEAD-01: themeFxReducedMotion is consumed and kept");
 
 console.log("Regression suite passed.");
+
+// --- feed hygiene and player chrome additions ---
+assert.ok(/id: "seen-memory"/.test(bundle) && /__yourtube_seen__/.test(bundle) &&
+  /now - at <= limit && now - at > grace/.test(bundle),
+  "FEED-SEEN-01: anti-repeat memory records and hides with a grace period");
+assert.ok(/id: "hide-low-views"/.test(bundle) && /lowViewThreshold/.test(bundle) &&
+  bundle.includes("([\\d.,]+)\\s*([KMB])?\\s*views") && bundle.includes("{ K: 1e3, M: 1e6, B: 1e9 }"),
+  "FEED-LOWVIEW-01: view counts are parsed (with K/M/B) and compared to the threshold");
+assert.ok(/id: "card-metadata"/.test(bundle) && /cardMetaVelocity/.test(bundle) && /cardMetaDate/.test(bundle),
+  "FEED-META-01: velocity and upload-date badges present");
+assert.ok(/id: "search-filler"/.test(bundle) && /related to your search\|people also search for/.test(bundle) &&
+  /ytd-search-refinement-card-renderer/.test(bundle),
+  "FEED-FILLER-01: search filler sections are removed by element and by label");
+assert.ok(/id: "hide-community-posts"/.test(bundle) && /ytd-backstage-post-thread-renderer/.test(bundle),
+  "FEED-POSTS-01: community posts can be hidden");
+assert.ok(/id: "hide-mixes"/.test(bundle) && /start_radio=1/.test(bundle) && /ytd-compact-radio-renderer/.test(bundle),
+  "FEED-MIXES-01: mixes and radios can be hidden");
+assert.ok(/id: "player-gradient"/.test(bundle) && /\.ytp-gradient-top, \.ytp-gradient-bottom\{display:none/.test(bundle),
+  "PLAYER-GRADIENT-01: player gradient toggle present");
+assert.ok(/id: "hide-upnext"/.test(bundle) && /\.ytp-autonav-endscreen-countdown-container/.test(bundle) &&
+  /\.ytp-endscreen-content/.test(bundle),
+  "PLAYER-UPNEXT-01: up-next overlay and end-screen wall can be hidden");
+assert.ok(/id: "hide-ai-ask"/.test(bundle) && /ask about this video/.test(bundle) && /ytd-ask-button-renderer/.test(bundle),
+  "PLAYER-ASK-01: the AI Ask button is matched by element and by label");
+assert.ok(/id: "auto-exit-fullscreen"/.test(bundle) && /document\.exitFullscreen\(\)/.test(bundle),
+  "PLAYER-FS-01: fullscreen exits when the video ends");
+assert.ok(/textScaleScope/.test(bundle) && /"watch" === S\.textScaleScope/.test(bundle) === false &&
+  /S\.textScaleScope === "watch"/.test(bundle),
+  "TEXTSCALE-01: reading size can be limited to the watch page");

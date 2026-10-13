@@ -1195,6 +1195,16 @@ algoBlockChannels: "",
         endWindDownOn: !1, windDownSec: 10,
         shortsMarathonOn: !1, shortsMarathonN: 15,
         feedFreshnessOn: !1, feedMaxAgeMonths: 6,
+        antiRepeatOn: !1, antiRepeatDays: 14, antiRepeatGraceMin: 30,
+        hideLowViewsOn: !1, lowViewThreshold: 1000,
+        cardMetaOn: !1, cardMetaVelocity: !0, cardMetaDate: !1,
+        searchFillerOff: !1,
+        hideCommunityPostsOn: !1,
+        hideMixesOn: !1,
+        hidePlayerGradientOn: !1,
+        hideUpNextOn: !1,
+        hideAiAskOn: !1,
+        autoExitFullscreenOn: !1,
         channelSnoozeOn: !1, channelSnoozeList: "",
         dupTitleSpotterOn: !1,
         playlistWatchedMarkerOn: !1,
@@ -1202,7 +1212,7 @@ algoBlockChannels: "",
         historyLocalHideOn: !1,
         copyLinkCleanerOn: !1,
         nightSchedulerOn: !1, nightStart: "21:00", nightEnd: "07:00",
-        textScaleOn: !1, textScalePct: 115,storageDashboardOn: !1,
+        textScaleOn: !1, textScalePct: 115, textScaleScope: "site", storageDashboardOn: !1,
         healthCheckOn: !1,
                 frameStepperOn: !1, frameFps: 30,
         playlistResumeOn: !1,
@@ -32005,13 +32015,15 @@ const Nr = [
   xa.register({
     id: "text-scale", name: "Reading Size Boost",
     summary: "Bigger text for descriptions and comments.",
-    masterKey: "textScaleOn", keys: ["textScaleOn", "textScalePct"],
+    masterKey: "textScaleOn", keys: ["textScaleOn", "textScalePct", "textScaleScope"],
     apply(ctx) {
       if (!S.textScaleOn) return;
       const pct = Math.max(100, Math.min(180, Number(S.textScalePct) || 115));
-      const css = "#description-inline-expander, ytd-text-inline-expander, #description {" +
+      const watchOnly = S.textScaleScope === "watch";
+      const scope = watchOnly ? "ytd-watch-flexy " : "";
+      const css = scope + "#description-inline-expander, " + scope + "ytd-text-inline-expander, " + scope + "#description {" +
         "font-size:" + pct + "% !important;line-height:1.5 !important}" +
-        "ytd-comment-view-model #content-text, ytd-comment-thread-renderer #content-text {" +
+        scope + "ytd-comment-view-model #content-text, " + scope + "ytd-comment-thread-renderer #content-text {" +
         "font-size:" + pct + "% !important}";
       const undo = YourTubeResources.Dom.css(css, "ytb-ui-textscale");
       Yt["text-scale"].push(undo);
@@ -32019,6 +32031,10 @@ const Nr = [
     settings(en) {
       en.appendChild(Io("Bigger reading text", "textScaleOn"));
       en.appendChild(No("Size", "textScalePct", 100, 180, 5, v => v + "%"));
+      en.appendChild(Ro("Apply to", "textScaleScope", {
+        site: "Everywhere",
+        watch: "Watch page only",
+      }));
     },
   });
 
@@ -32558,6 +32574,376 @@ const Nr = [
         ["Highlight timestamp links", "highlightTimestampLinksOn"],
       ]);
     },
+  });
+  // ---------------------------------------------------------------------------
+  // Feed hygiene
+  // ---------------------------------------------------------------------------
+
+  // Remembers the videos whose cards have been rendered in feeds, sidebars and
+  // search results, then hides the ones seen before. The grace period keeps the
+  // current scroll position stable: a card is only hidden on a later visit, not
+  // while you are looking at it.
+  xa.register({
+    id: "seen-memory", name: "Anti-Repeat Memory",
+    summary: "Hides videos you have already scrolled past, for a while.",
+    masterKey: "antiRepeatOn", keys: ["antiRepeatOn", "antiRepeatDays", "antiRepeatGraceMin"],
+    apply(ctx) {
+      if (!S.antiRepeatOn) return;
+      const seen = YourTubeEngine.createStore("__yourtube_seen__", {});
+      const CARD_SELECTOR = "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, " +
+        "ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model";
+      const videoIdOf = (card) => {
+        try {
+          const link = card.querySelector("a[href*='/watch?v='], a[href*='&v=']");
+          if (!link) return "";
+          const match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(link.getAttribute("href") || "");
+          return match ? match[1] : "";
+        } catch (_) { return ""; }
+      };
+      const maxAgeMs = () => Math.max(1, Math.min(365, Number(S.antiRepeatDays) || 14)) * 86400000;
+      const graceMs = () => Math.max(1, Math.min(1440, Number(S.antiRepeatGraceMin) || 30)) * 60000;
+      const trimStore = (map) => {
+        const keys = Object.keys(map);
+        if (keys.length <= 5000) return;
+        keys.sort((a, b) => (map[a] || 0) - (map[b] || 0));
+        for (const key of keys.slice(0, keys.length - 5000)) delete map[key];
+      };
+      let lastScan = 0;
+      const scan = () => {
+        const now = Date.now();
+        if (now - lastScan < 1500) return;
+        lastScan = now;
+        const playing = (ie.videoId && ie.videoId()) || "";
+        const data = seen.get();
+        const limit = maxAgeMs();
+        const grace = graceMs();
+        let recorded = 0;
+        document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
+          const id = videoIdOf(card);
+          if (!id) return;
+          const at = data[id] || 0;
+          const hide = !!(at && now - at <= limit && now - at > grace && id !== playing);
+          if (hide) {
+            if (!card.dataset.ytbSeen) { card.dataset.ytbSeen = "1"; card.style.display = "none"; }
+          } else if (card.dataset.ytbSeen) {
+            delete card.dataset.ytbSeen;
+            card.style.display = "";
+          }
+          if (!at || now - at > 600000) { data[id] = now; recorded++; }
+        });
+        if (recorded) {
+          trimStore(data);
+          seen.set(data);
+        }
+      };
+      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-seen", scan, 400), { childList: true, subtree: true });
+      ctx.addInterval(scan, 4000);
+      ctx.onNav(() => ctx.addTimeout(scan, 800));
+      Yt["seen-memory"].push(() => {
+        document.querySelectorAll("[data-ytb-seen]").forEach((el) => {
+          el.style.display = "";
+          delete el.dataset.ytbSeen;
+        });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Hide videos I have already seen", "antiRepeatOn"));
+      en.appendChild(No("Forget after", "antiRepeatDays", 1, 365, 1, (v) => v + " days"));
+      en.appendChild(No("Grace period", "antiRepeatGraceMin", 5, 1440, 5, (v) => v + " min"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Cards are recorded when they appear, and hidden on a later visit. The list stays in your browser."));
+    },
+  });
+
+  // Hides cards whose view count is below the threshold. Cards without a view
+  // count (live, upcoming, some shorts) are left alone.
+  xa.register({
+    id: "hide-low-views", name: "Hide Low-View Videos",
+    summary: "Hides cards below a view-count threshold.",
+    masterKey: "hideLowViewsOn", keys: ["hideLowViewsOn", "lowViewThreshold"],
+    apply(ctx) {
+      if (!S.hideLowViewsOn) return;
+      const CARD_SELECTOR = "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer";
+      const META_SELECTOR = "#metadata-line, yt-content-metadata-view-model, .ytContentMetadataViewModelMetadataRow";
+      const threshold = () => Math.max(0, Math.min(10000000, Number(S.lowViewThreshold) || 1000));
+      const parseViews = (text) => {
+        const match = /([\d.,]+)\s*([KMB])?\s*views/i.exec(String(text || ""));
+        if (!match) return -1;
+        const value = Number(String(match[1]).replace(/,/g, ""));
+        if (!Number.isFinite(value)) return -1;
+        const scale = match[2] ? { K: 1e3, M: 1e6, B: 1e9 }[match[2].toUpperCase()] : 1;
+        return value * scale;
+      };
+      const scan = () => {
+        const limit = threshold();
+        document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
+          const meta = card.querySelector(META_SELECTOR);
+          if (!meta) return;
+          const views = parseViews(meta.textContent);
+          if (views < 0) return;
+          const hide = views < limit;
+          if (hide) {
+            if (!card.dataset.ytbLowView) { card.dataset.ytbLowView = "1"; card.style.display = "none"; }
+          } else if (card.dataset.ytbLowView) {
+            delete card.dataset.ytbLowView;
+            card.style.display = "";
+          }
+        });
+      };
+      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-lowview", scan, 400), { childList: true, subtree: true });
+      ctx.addInterval(scan, 4000);
+      ctx.onNav(() => ctx.addTimeout(scan, 800));
+      Yt["hide-low-views"].push(() => {
+        document.querySelectorAll("[data-ytb-low-view]").forEach((el) => {
+          el.style.display = "";
+          delete el.dataset.ytbLowView;
+        });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Hide low-view videos", "hideLowViewsOn"));
+      en.appendChild(No("Minimum views", "lowViewThreshold", 0, 100000, 500, (v) => (v >= 1000 ? Math.round(v / 1000) + "K" : String(v))));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Counts are read from the card's own metadata, so abbreviated values (1.2K views) are approximate."));
+    },
+  });
+
+  // Adds upload age and view velocity to card metadata. The credibility layer
+  // already reports channel reach; this reports how fast a video is being
+  // watched, which is the useful signal when a feed is full of old uploads.
+  xa.register({
+    id: "card-metadata", name: "Card Metadata Badges",
+    summary: "Adds upload date and views-per-day to feed and search cards.",
+    masterKey: "cardMetaOn", keys: ["cardMetaOn", "cardMetaVelocity", "cardMetaDate"],
+    apply(ctx) {
+      if (!S.cardMetaOn) return;
+      YourTubeEngine.injectCSS();
+      const CARD_SELECTOR = "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer";
+      const META_SELECTOR = "#metadata-line, yt-content-metadata-view-model, .ytContentMetadataViewModelMetadataRow";
+      const parseViews = (text) => {
+        const match = /([\d.,]+)\s*([KMB])?\s*views/i.exec(String(text || ""));
+        if (!match) return -1;
+        const value = Number(String(match[1]).replace(/,/g, ""));
+        if (!Number.isFinite(value)) return -1;
+        const scale = match[2] ? { K: 1e3, M: 1e6, B: 1e9 }[match[2].toUpperCase()] : 1;
+        return value * scale;
+      };
+      const parseAgeDays = (text) => {
+        const match = /(\d+)\s*(year|month|week|day|hour)/i.exec(String(text || ""));
+        if (!match) return -1;
+        const value = parseInt(match[1], 10) || 0;
+        const factor = { year: 365, month: 30, week: 7, day: 1, hour: 0.04 }[match[2].toLowerCase()];
+        return value * factor;
+      };
+      const formatCount = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n)));
+      const scan = () => {
+        document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
+          if (card.dataset.ytbMeta) return;
+          const meta = card.querySelector(META_SELECTOR);
+          if (!meta) { card.dataset.ytbMeta = "1"; return; }
+          const text = meta.textContent || "";
+          const views = parseViews(text);
+          const ageDays = parseAgeDays(text);
+          if (views < 0 && ageDays < 0) { card.dataset.ytbMeta = "1"; return; }
+          const parts = [];
+          if (S.cardMetaVelocity && views >= 0 && ageDays > 0.04) {
+            parts.push("~" + formatCount(views / ageDays) + "/day");
+          }
+          if (S.cardMetaDate && ageDays >= 0) {
+            const when = new Date(Date.now() - ageDays * 86400000);
+            parts.push(when.toISOString().slice(0, 10));
+          }
+          if (!parts.length) { card.dataset.ytbMeta = "1"; return; }
+          const badge = To("span", "ytb-ui-cred-badge", parts.join(" · "));
+          badge.style.cssText = "background:rgba(255,255,255,.08);color:#bbb";
+          badge.title = "Views per day since upload, and the upload date";
+          meta.appendChild(badge);
+          card.dataset.ytbMeta = "1";
+        });
+      };
+      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-meta", scan, 400), { childList: true, subtree: true });
+      ctx.addInterval(scan, 5000);
+      ctx.onNav(() => ctx.addTimeout(scan, 900));
+    },
+    settings(en) {
+      en.appendChild(Io("Show extra card metadata", "cardMetaOn"));
+      en.appendChild(Io("Views per day", "cardMetaVelocity"));
+      en.appendChild(Io("Upload date", "cardMetaDate"));
+    },
+  });
+
+  // Removes the filler sections YouTube injects into search results. Matching is
+  // by element first, with an English text fallback for sections that have no
+  // stable id of their own.
+  xa.register({
+    id: "search-filler", name: "Clean Up Search Filler",
+    summary: "Removes related-search and similar filler sections.",
+    masterKey: "searchFillerOff", keys: ["searchFillerOff"],
+    apply(ctx) {
+      if (!S.searchFillerOff) return;
+      ctx.addStyle(
+        "ytd-search-refinement-card-renderer, ytd-search-pyv-renderer, " +
+        "ytd-horizontal-card-list-renderer[is-search-refinement]{display:none!important}",
+      );
+      const FILLER = /^(related to your search|people also search for|others also searched for|search instead for|more results for)/i;
+      const scan = () => {
+        if (!location.pathname.startsWith("/results")) return;
+        document.querySelectorAll("ytd-item-section-renderer, ytd-shelf-renderer").forEach((section) => {
+          if (section.dataset.ytbFiller) return;
+          const header = section.querySelector("#title-container #title, #title, .ytd-item-section-header-renderer");
+          const label = ((header && header.textContent) || "").trim();
+          if (!FILLER.test(label)) return;
+          section.dataset.ytbFiller = "1";
+          section.style.display = "none";
+        });
+      };
+      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-filler", scan, 400), { childList: true, subtree: true });
+      ctx.addInterval(scan, 4000);
+      ctx.onNav(() => ctx.addTimeout(scan, 900));
+      Yt["search-filler"].push(() => {
+        document.querySelectorAll("[data-ytb-filler]").forEach((el) => {
+          el.style.display = "";
+          delete el.dataset.ytbFiller;
+        });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Remove search filler sections", "searchFillerOff"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Hides the related-search and similar sections below results. 'Did you mean' suggestions are kept."));
+    },
+  });
+
+  xa.register({
+    id: "hide-community-posts", name: "Hide Community Posts",
+    summary: "Removes posts and polls from feeds and shelves.",
+    masterKey: "hideCommunityPostsOn", keys: ["hideCommunityPostsOn"],
+    apply(ctx) {
+      S.hideCommunityPostsOn && ctx.addStyle(
+        "ytd-post-renderer, ytd-backstage-post-thread-renderer, ytd-shared-post-renderer, " +
+        "ytd-rich-item-renderer:has(ytd-post-renderer), " +
+        "ytd-rich-section-renderer:has(ytd-post-renderer), " +
+        "ytd-rich-section-renderer:has(ytd-backstage-post-thread-renderer), " +
+        "ytd-rich-item-renderer:has(ytd-backstage-post-thread-renderer){display:none!important}",
+      );
+    },
+    settings(en) { en.appendChild(Io("Hide community posts", "hideCommunityPostsOn")); },
+  });
+
+  xa.register({
+    id: "hide-mixes", name: "Hide Mix / Radio Playlists",
+    summary: "Removes auto-generated mixes and radios from every surface.",
+    masterKey: "hideMixesOn", keys: ["hideMixesOn"],
+    apply(ctx) {
+      S.hideMixesOn && ctx.addStyle(
+        "ytd-compact-radio-renderer, ytd-radio-renderer, ytd-rich-section-renderer:has(ytd-radio-renderer), " +
+        "ytd-rich-item-renderer:has(ytd-radio-renderer), " +
+        "ytd-playlist-renderer:has(a[href*='start_radio=1']), " +
+        "ytd-compact-playlist-renderer:has(a[href*='start_radio=1']), " +
+        "ytd-rich-item-renderer:has(a[href*='start_radio=1']){display:none!important}",
+      );
+    },
+    settings(en) { en.appendChild(Io("Hide mixes and radios", "hideMixesOn")); },
+  });
+
+  // ---------------------------------------------------------------------------
+  // Player chrome
+  // ---------------------------------------------------------------------------
+
+  xa.register({
+    id: "player-gradient", name: "Remove Player Gradient",
+    summary: "Removes the dark fade YouTube paints over the player edges.",
+    masterKey: "hidePlayerGradientOn", keys: ["hidePlayerGradientOn"],
+    apply(ctx) {
+      S.hidePlayerGradientOn && ctx.addStyle(
+        ".ytp-gradient-top, .ytp-gradient-bottom{display:none!important}",
+      );
+    },
+    settings(en) {
+      en.appendChild(Io("Remove the player gradient", "hidePlayerGradientOn"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Without the fade, player controls can be hard to read over bright footage."));
+    },
+  });
+
+  xa.register({
+    id: "hide-upnext", name: "Hide Up-Next Overlay",
+    summary: "Removes the autoplay countdown and the end-screen video wall.",
+    masterKey: "hideUpNextOn", keys: ["hideUpNextOn"],
+    apply(ctx) {
+      S.hideUpNextOn && ctx.addStyle(
+        ".ytp-autonav-endscreen-countdown-container, .ytp-autonav-endscreen, " +
+        ".ytp-autonav-toggle-button-container, .ytp-endscreen-content, .ytp-ce-element, " +
+        ".ytp-ce-covering-overlay, .ytp-ce-element-shadow{display:none!important}",
+      );
+    },
+    settings(en) {
+      en.appendChild(Io("Hide the up-next overlay", "hideUpNextOn"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Hides the countdown and end-screen wall. Playback still stops at the end of the video."));
+    },
+  });
+
+  // The 2026 "Ask" pill has no stable element name across experiments, so this
+  // matches its label instead of its tag.
+  xa.register({
+    id: "hide-ai-ask", name: "Hide the AI Ask Button",
+    summary: "Removes the Ask pill from feeds, the watch page and comments.",
+    masterKey: "hideAiAskOn", keys: ["hideAiAskOn"],
+    apply(ctx) {
+      if (!S.hideAiAskOn) return;
+      ctx.addStyle(
+        "ytd-ask-button-renderer, yt-ask-button-view-model, [is-ask-button], " +
+        "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-ask']{display:none!important}",
+      );
+      const EXACT = /^(ask|ask ai|ask about this video|ask about this channel)$/i;
+      const scrub = () => {
+        document.querySelectorAll("button, yt-button-shape, ytd-button-renderer, yt-chip-cloud-chip-renderer").forEach((node) => {
+          if (node.dataset.ytbAsk) return;
+          const label = ((node.getAttribute("aria-label") || node.getAttribute("title") || "")).trim();
+          const text = (node.textContent || "").trim();
+          if (!EXACT.test(label) && !EXACT.test(text)) return;
+          node.dataset.ytbAsk = "1";
+          node.style.display = "none";
+        });
+      };
+      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ask", scrub, 300), { childList: true, subtree: true });
+      ctx.addInterval(scrub, 3000);
+      Yt["hide-ai-ask"].push(() => {
+        document.querySelectorAll("[data-ytb-ask]").forEach((el) => {
+          el.style.display = "";
+          delete el.dataset.ytbAsk;
+        });
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Hide the AI Ask button", "hideAiAskOn"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "YouTube serves this button under different names in different experiments, so it is matched by its label."));
+    },
+  });
+
+  xa.register({
+    id: "auto-exit-fullscreen", name: "Auto-Exit Fullscreen",
+    summary: "Leaves fullscreen when the video ends.",
+    masterKey: "autoExitFullscreenOn", keys: ["autoExitFullscreenOn"],
+    apply(ctx) {
+      if (!S.autoExitFullscreenOn) return;
+      const onEnded = () => {
+        try {
+          if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        } catch (_) {}
+      };
+      const bind = () => {
+        const el = ie.el();
+        if (!el || el.dataset.ytbFsExit) return;
+        el.dataset.ytbFsExit = "1";
+        ctx.addListener(el, "ended", onEnded);
+      };
+      bind();
+      ctx.onNav(() => ctx.addTimeout(bind, 1200));
+    },
+    settings(en) { en.appendChild(Io("Leave fullscreen when the video ends", "autoExitFullscreenOn")); },
   });
   (async function () {
     try {

@@ -256,6 +256,12 @@
           return true;
         }
 
+        // A write that lands before load() has merged the stored record would
+        // persist defaults over real data, so wait for the initial read first.
+        if (this._loadPromise && !this._loaded) {
+          try { await this._loadPromise; } catch (_) {}
+        }
+
         const snapshot = this._data;
         this._flushes++;
         try {
@@ -663,6 +669,9 @@
         if (!entry) return null;
         const element = entry.ref && typeof entry.ref.deref === "function" ? entry.ref.deref() : null;
         if (!element) {
+          if (this._registry && entry.token) {
+            try { this._registry.unregister(entry.token); } catch (_) {}
+          }
           this._map.delete(key);
           this._cleaned++;
           return null;
@@ -1002,8 +1011,13 @@
 
       if (getDocument() && typeof document.addEventListener === "function") {
         document.addEventListener("visibilitychange", () => {
-          if (isHidden()) stop();
-          else poke();
+          // Tasks with pauseHidden: false (the sleep timer) must keep ticking
+          // while the tab is hidden, so only stop when nothing can run.
+          if (isHidden()) {
+            if (!hasRunnableTask()) stop();
+          } else {
+            poke();
+          }
         }, true);
       }
 

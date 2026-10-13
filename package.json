@@ -1,9 +1,9 @@
 {
   "name": "yourtube",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Client-side YouTube customization userscript with SponsorBlock integration, themes, feed filtering and playback tools",
-  "license": "Unlicense",
+  "license": "MIT",
   "scripts": {
     "build": "node scripts/build-userscript.js",
     "check": "node scripts/check.js && node scripts/check-release.js && node scripts/check-xray.js",

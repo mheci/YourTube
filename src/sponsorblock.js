@@ -282,21 +282,6 @@
         return Categories.filter(c => S["sb_" + c.id + "_en"]).map(c => c.id);
       };
 
-      const getActionTypes = () => {
-        const types = new Set();
-        const cats = getEnabledCategories();
-        Categories.forEach(c => {
-          if (!cats.includes(c.id)) return;
-          const act = S["sb_" + c.id + "_act"] || "skip";
-          if (act === "skip" || act === "mute") types.add("skip");
-          if (act === "mute") types.add("mute");
-          if (c.id === "poi_highlight" && act !== "disabled") types.add("poi");
-          if (c.id === "chapter" && act !== "disabled") types.add("chapter");
-          if (c.id === "exclusive_access" && act !== "disabled") types.add("full");
-        });
-        return Array.from(types);
-      };
-
       const getActionOptions = (categoryId) => {
         const options = {
           skip: Actions.skip,
@@ -365,7 +350,7 @@
       };
 
       return {
-        getEnabledCategories, getActionTypes, getCategoryAction, getActionOptions,
+        getEnabledCategories, getCategoryAction, getActionOptions,
         getConfigKey, getRenderKey, getServerUrl,
         onlySkipIfVip, incognito, skipCountdown, betterBeAwareCats, showInSeekbar,
       };
@@ -647,12 +632,7 @@
         if (usePrivacy) {
           fullHash = await hashFull(videoId);
           prefix = fullHash ? fullHash.slice(0, PRIVACY_HASH_LENGTH) : null;
-          if (!prefix) {
-
-            try { if (typeof u === "function") u("SB privacy lookup skipped: SHA-256 unavailable"); } catch (_) {}
-            return [];
-          }
-          prefix = prefix.slice(0, PRIVACY_HASH_LENGTH);
+          if (!prefix) return [];
         }
         const plans = [];
         const pushPlan = (id, url, privacy = false) => plans.push({ id, url, privacy });
@@ -764,13 +744,18 @@
 
         const survivors = normalized.filter((s) => s.segment[1] > s.segment[0]);
 
-        for (let i = 0; i < survivors.length - 1; i++) {
-          const cur = survivors[i], next = survivors[i + 1];
-          if (next.segment[0] < segmentEndFor(cur)) next.segment[0] = segmentEndFor(cur);
+        // Clamp each start to the furthest end seen so far. Sweeping avoids the
+        // per-pair drift where a covered segment drags later ones forward.
+        let maxEnd = 0;
+        const clamped = [];
+        for (const seg of survivors) {
+          if (seg.segment[0] < maxEnd) seg.segment[0] = maxEnd;
+          if (seg.segment[1] > seg.segment[0]) clamped.push(seg);
+          maxEnd = Math.max(maxEnd, seg.segment[1]);
         }
         return {
 
-          segments: survivors.filter((s) => s.segment[1] > s.segment[0]),
+          segments: clamped,
           matched: extracted.matched,
           prefixed: extracted.prefixed,
           valid: extracted.valid,
@@ -908,12 +893,10 @@
       };
 
       const fetchWithRetry = async (videoId, abortSignal) => {
-        let lastError = null;
         for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
           try {
             return await fetchSegments(videoId, abortSignal);
           } catch (err) {
-            lastError = err;
             if (err && err.name === "AbortError" && abortSignal && abortSignal.aborted) throw err;
 
             const fatal = err && (err.status === 400 || err.status === 0 || err.status === 429);
@@ -930,8 +913,6 @@
             }
           }
         }
-        Metrics.recordApiError();
-        throw lastError;
       };
 
       const requestResponse = async (url, opts = {}, abortSignal = null) => {
@@ -1381,7 +1362,6 @@
       };
     })();
 
-    const segmentEndFor = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
     const Player = (() => {
       const segmentEndOf = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
       const isTimeInSegment = (seg, time) => time >= seg.segment[0] && time < segmentEndOf(seg);
@@ -1441,6 +1421,7 @@
         clearCountdownOverlay();
         const videoEl = ie.el();
         if (!videoEl) return;
+        const armedForVideo = State.videoId;
         const cd = Settings.skipCountdown();
         const remaining = Math.max(1, Math.min(5, Math.round(cd.time)));
         let overlay = document.getElementById("YourTube-sb-countdown");
@@ -1465,6 +1446,9 @@
         State.countdownTaskId = setTimeout(() => {
           State.countdownTaskId = 0;
           try { overlay.remove(); } catch (_) {}
+          // The video element is reused across navigations; only seek when the
+          // timer is still armed for the video it was scheduled on.
+          if (!armedForVideo || State.videoId !== armedForVideo) return;
           try { videoEl.currentTime = targetTime; } catch (_) {}
         }, remaining * 1000);
       };
@@ -1546,10 +1530,14 @@
 
         if (action === "skip") {
 
-          if (Settings.betterBeAwareCats().has(seg.category) && !State.betterBeAwareWarned.has(seg.UUID)) {
-            State.betterBeAwareWarned.add(seg.UUID);
-            const meta = Categories.find(c => c.id === seg.category);
-            try { pe("Heads up — " + (meta ? meta.label : seg.category) + " segment", 2600, "info"); } catch (_) {}
+          if (Settings.betterBeAwareCats().has(seg.category)) {
+            // "Warn instead of skipping" means these categories are never
+            // skipped; the toast is shown once per segment per video.
+            if (!State.betterBeAwareWarned.has(seg.UUID)) {
+              State.betterBeAwareWarned.add(seg.UUID);
+              const meta = Categories.find(c => c.id === seg.category);
+              try { pe("Heads up — " + (meta ? meta.label : seg.category) + " segment", 2600, "info"); } catch (_) {}
+            }
             return;
           }
 
@@ -1599,6 +1587,18 @@
         State.activeSegmentIndex = -1;
         resetMuteState();
         clearCountdownOverlay();
+        // A manual seek into a segment that was already skipped is a deliberate
+        // re-watch: keep it from being yanked forward again for this pass.
+        try {
+          const videoEl = ie.el();
+          if (videoEl) {
+            const t = videoEl.currentTime;
+            for (const seg of State.segments) {
+              if (!seg.UUID || !State.processedUUIDs.has(seg.UUID)) continue;
+              if (t >= seg.segment[0] && t < segmentEndOf(seg)) State.undoneUUIDs.add(seg.UUID);
+            }
+          }
+        } catch (_) {}
       };
 
       const handleRateChange = () => {
@@ -1612,6 +1612,10 @@
         State.undoneUUIDs.clear();
         State.undoUntilTs = 0;
         clearCountdownOverlay();
+        if (typeof document.getElementById === "function") {
+          const hud = document.getElementById("YourTube-sb-hud");
+          if (hud) hud.className = "";
+        }
       };
 
       const handleEvent = (ev) => {
@@ -1850,6 +1854,7 @@
       const showFloatingHUD = (seg, savedSec) => {
         if (!S.sbToast) return;
         clearTimeout(hudTimer);
+        const hudVideoId = State.videoId;
 
         let hud = document.getElementById("YourTube-sb-hud");
         if (!hud) {
@@ -1878,6 +1883,7 @@
         hud.className = "show";
 
         hud.querySelector("#hud-undo-btn").addEventListener("click", () => {
+          if (State.videoId !== hudVideoId) { hud.className = ""; return; }
           const videoEl = ie.el();
           if (videoEl) {
             videoEl.currentTime = seg.segment[0];
@@ -1902,11 +1908,13 @@
             result.ok ? 1500 : 3200, result.ok ? "success" : "error");
         };
         hud.querySelector("#hud-vote-up").addEventListener("click", () => {
+          if (State.videoId !== hudVideoId) { hud.className = ""; return; }
           API.voteOnSegment(seg.UUID, 1).then((r) => reportVote("Upvote", r));
           hud.className = "";
         });
 
         hud.querySelector("#hud-vote-down").addEventListener("click", () => {
+          if (State.videoId !== hudVideoId) { hud.className = ""; return; }
           API.voteOnSegment(seg.UUID, 0).then((r) => reportVote("Downvote", r));
           hud.className = "";
         });
@@ -2108,9 +2116,9 @@
                 if (returned.length) {
                   remember(returned);
                 } else {
-                  SponsorBlockEngine.invalidate(videoId);
+                  // refreshCurrent already invalidates and re-inits, so calling
+                  // invalidate first would force two full lookups.
                   SponsorBlockEngine.refreshCurrent && SponsorBlockEngine.refreshCurrent();
-
                   setTimeout(() => API.rememberOwnedSegments(videoId, known), 2500);
                 }
                 closeSubmissionEditor();
@@ -2313,8 +2321,15 @@
       State.segments = [];
       State.processedUUIDs.clear();
       State.undoneUUIDs.clear();
+      State.betterBeAwareWarned.clear();
       State.undoUntilTs = 0;
       State.activeSegmentIndex = -1;
+      // A countdown armed for the previous video must not fire on this one.
+      if (State.countdownTaskId) { try { clearTimeout(State.countdownTaskId); } catch (_) {} State.countdownTaskId = 0; }
+      if (typeof document.getElementById === "function") {
+        const countdownOverlay = document.getElementById("YourTube-sb-countdown");
+        if (countdownOverlay) { try { countdownOverlay.remove(); } catch (_) {} }
+      }
       UI.clearMarks();
 
       if (!videoId || !VIDEO_ID_RE.test(String(videoId))) {
@@ -2375,8 +2390,9 @@
         return canCommit(videoId, generation) ? State.segments.slice() : [];
       } catch (err) {
         if (err && err.name !== "AbortError") {
+          // The API layer already counted transport failures; this path only
+          // logs, so the metric is not double-counted here.
           try { h("[SB] init error for " + videoId + ":", err); } catch (_) {}
-          Metrics.recordApiError();
         }
         if (canCommit(videoId, generation)) {
 

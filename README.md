@@ -182,4 +182,4 @@ docs/                   architecture notes and the pre-rebrand code review
 
 ## License
 
-Unlicense. See `LICENSE`.
+MIT. See `LICENSE`.

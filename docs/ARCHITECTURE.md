@@ -66,12 +66,13 @@ Line numbers drift; the anchors are stable. Use the anchor text, not the numbers
 
 | Command | What it protects |
 |---|---|
-| `npm test` | build determinism, syntax, theme table, xray safety, dashboard audit, unit suites, boot harness |
+| `npm test` | build determinism, syntax, theme table, xray safety, dashboard audit, unit suites, boot and stability harnesses |
 | `npm run audit:keys` | settings integrity: dead defaults, invisible settings, dead controls (`--strict` to fail) |
 | `npm run audit:selectors` | bit rot: YouTube tokens that no longer exist in live HTML/JS/CSS (`--strict` to fail; needs network) |
 | `node scripts/audit-dashboard.cjs` | runtime card registry: duplicate ids, missing names/apply |
 | `node scripts/test-import-roundtrip.js` | the real settings import path end-to-end in jsdom |
 | `node scripts/test-regressions.js` | pins for every fix from the v1.1.7 review |
+| `node scripts/harness-stability.js` | apply/teardown cycles for all 169 cards, a navigation storm and a bfcache restore, counting live timers, observers and listeners for growth |
 
 Suggested cadence: run `audit:keys` in CI (deterministic, no network), and
 `audit:selectors` weekly or before a release, treating its output as a review

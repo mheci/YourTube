@@ -133,14 +133,21 @@
 `;
     let cssInjected = false;
     const injectCSS = () => {
-      if (cssInjected) return;
+      // The latch alone can wedge styling if the style element is ever removed
+      // by the page or another teardown; re-inject when it is gone.
+      if (cssInjected && document.getElementById("ytb-engine")) return;
       cssInjected = true;
       try {
         YourTubeResources.Dom.css(CSS, "engine");
       } catch (_) {}
     };
     const ytbStores = [];
+    const storeCache = new Map();
     const createStore = (key, initial) => {
+      // One store per key: re-applies and the settings pane must share state,
+      // and leaked instances used to overwrite each other on unload.
+      const cached = storeCache.get(key);
+      if (cached) return cached;
       const store = new YourTubeResources.StateStore(key, initial, {
         storage: {
           get: async (storeKey) => {
@@ -162,6 +169,7 @@
         onChange: (fn) => store.onChange(fn),
         offChange: (fn) => store.offChange(fn),
       };
+      storeCache.set(key, api);
       ytbStores.push(api);
       return api;
     };
@@ -344,6 +352,12 @@
         mountScheduled = true;
         YourTubeEngine.scheduleOnReady(ctx, mount, { attempts: 8, delayMs: 400 });
       };
+      // SPA re-renders can detach the panel; re-arm the mount on navigation.
+      ctx.onNav(() => {
+        if (root.parentNode) return;
+        mountScheduled = false;
+        ensureMount();
+      });
       const activate = (id, force) => {
         if (!sections.has(id)) return;
         activeId = id;
@@ -468,6 +482,7 @@
       if (existing) return existing;
       const ctx = getAudioCtx();
       if (!ctx) return null;
+      let createdSource = null;
       try {
         // If the volume boost already routed this element, join its chain
         // instead of asking createMediaElementSource for the same element twice.
@@ -498,6 +513,7 @@
 
         if (!source && typeof ctx.createMediaElementSource === "function") {
           source = ctx.createMediaElementSource(video);
+          createdSource = source;
           rerouted = true;
         }
         if (!source) return null;
@@ -525,12 +541,19 @@
         }
         return entry;
       } catch (_) {
+        // If the element was already routed into this context, remember the
+        // failure so later calls stop retrying (the route cannot be undone).
+        if (createdSource) {
+          try {
+            perVideo.set(video, { ctx, source: createdSource, analyser: null, stream: null, rerouted: true, dead: true, buf: new Uint8Array(0), resumeHandler: null });
+          } catch (_) {}
+        }
         return null;
       }
     };
     const readEnergy = (video) => {
       const entry = analyserFor(video);
-      if (!entry) return { energy: 0, speech: 0, isQuiet: true, isSpeech: false, active: false };
+      if (!entry || !entry.analyser) return { energy: 0, speech: 0, isQuiet: true, isSpeech: false, active: false };
       const buf = entry.buf;
       entry.analyser.getByteFrequencyData(buf);
       let sum = 0, speechBand = 0;
@@ -549,6 +572,7 @@
     const release = (video) => {
       const entry = perVideo.get(video);
       if (!entry) return;
+      if (entry.dead) { perVideo.delete(video); return; }
       if (typeof video.removeEventListener === "function" && entry.resumeHandler) {
         try { video.removeEventListener("play", entry.resumeHandler); } catch (_) {}
         entry.resumeHandler = null;
@@ -1441,6 +1465,14 @@
       let tickerId = 0;
       let skipSignals = 0;
       const skipLatched = new Set();
+      const latchSkip = (videoId) => {
+        // Bound the latch set: it only prevents re-latching within a session.
+        if (skipLatched.size > 200) {
+          const first = skipLatched.values().next().value;
+          if (first !== undefined) skipLatched.delete(first);
+        }
+        skipLatched.add(videoId);
+      };
 
       const start = () => {
         if (monitoring) return;
@@ -1479,7 +1511,7 @@
           SignalTracker.trackWatch(videoId, currentTime, duration);
 
           if (!skipLatched.has(videoId) && unwantedScore > wantedScore && currentTime > 5 && currentTime < duration * 0.3) {
-            skipLatched.add(videoId);
+            latchSkip(videoId);
             skipSignals++;
           }
 
@@ -1491,6 +1523,7 @@
 
       const stop = () => {
         monitoring = false;
+        skipLatched.clear();
         if (tickerId) {
           YourTubeResources.SharedTicker.remove(tickerId);
           tickerId = 0;
@@ -2052,7 +2085,11 @@
       scanner.start();
       ctx.onNav(() => scanner.request({ priority: true }));
       ctx.addObserver(document.body, () => scanner.request({ priority: true }), { childList: true, subtree: true });
-      Yt["credibility-layer"].push(() => scanner.dispose());
+      Yt["credibility-layer"].push(() => {
+        scanner.dispose();
+        document.querySelectorAll(".ytb-ui-cred-badge").forEach((el) => el.remove());
+        document.querySelectorAll("[data-ytb-cred]").forEach((el) => { delete el.dataset.ytbCred; });
+      });
     },
     settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
 
@@ -2066,10 +2103,15 @@
         ud.dataset.ytbChecked = "1";
         const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/);
         if (!dm) return;
-        const age = Date.now() - new Date(dm[1]).getTime();
+        const when = new Date(dm[1]).getTime();
+        // "Season 3, 2020" also matches the shape but is not a date; without
+        // this guard the badge renders "NaN years old".
+        if (!Number.isFinite(when)) return;
+        const age = Date.now() - when;
         if (age <= 365 * 24 * 60 * 60 * 1000 * 2) return;
         const badge = document.createElement("span");
         badge.className = "ytb-ui-pill";
+        badge.dataset.ytbOutdated = "1";
         badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px";
         badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old";
         badge.title = "Over 2 years old. May be outdated.";
@@ -2079,7 +2121,10 @@
       YourTubeEngine.scheduleOnReady(ctx, check, { attempts: 8, delayMs: 600 });
 
       ctx.onNav(() => ctx.addTimeout(check, 700));
-      Yt["dead-link-detector"].push(() => {});
+      Yt["dead-link-detector"].push(() => {
+        document.querySelectorAll("[data-ytb-outdated]").forEach((el) => el.remove());
+        document.querySelectorAll("[data-ytb-checked]").forEach((el) => { delete el.dataset.ytbChecked; });
+      });
     },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
 
@@ -2461,8 +2506,12 @@
         for (const [key, tierKey] of map) {
           const target = !!t[tierKey];
           if (!!S[key] !== target) {
-            S[key] = target;
-            try { g.emit("cfg.changed", { key, val: target }); } catch (_) {}
+            // Route through the config setter so the change is persisted and
+            // batched like every other setting.
+            try { Ta(key, target); } catch (_) {
+              S[key] = target;
+              try { g.emit("cfg.changed", { key, val: target }); } catch (_) {}
+            }
           }
         }
       };
@@ -2559,6 +2608,15 @@
           Yt["perf-mode"].push(() => { try { bodyObs.disconnect(); } catch (e) {} });
           Yt["perf-mode"].push(() => { try { thumbObserver.disconnect(); } catch (e) {} });
           Yt["perf-mode"].push(() => { clearTimeout(thumbObsTimer); });
+          Yt["perf-mode"].push(() => {
+            // Restore downgraded thumbnails and clear the observation flags so
+            // a re-enable can process them again.
+            document.querySelectorAll("img[data-ytb-perf-src]").forEach((img) => {
+              try { if (img.dataset.ytbPerfSrc) img.src = img.dataset.ytbPerfSrc; } catch (_) {}
+              delete img.dataset.ytbPerfSrc;
+              delete img.dataset.ytbPerfObserved;
+            });
+          });
           ctx.addInterval(observeThumbs, 5000);
         } catch (e) {}
       }
@@ -3125,7 +3183,7 @@
 
   const YourTubePack = (() => {
 
-    const elBinder = () => {
+    const elBinder = (cardId) => {
       const bound = new WeakSet();
       const bind = (ctx, ev, fn, opts) => {
         const el = ie.el();
@@ -3138,13 +3196,17 @@
       return (ctx, ev, fn, opts) => {
         bind(ctx, ev, fn, opts);
         // The player element is replaced on miniplayer/theater changes, so keep
-        // a rebind hook and a short-lived recovery ticker; the ticker gives up
-        // on its own if the element never appears.
+        // a rebind hook and a short-lived recovery ticker; the ticker is torn
+        // down with the card so a disabled feature cannot rebind afterwards.
         ctx.onNav(() => bind(ctx, ev, fn, opts));
         let attempts = 90;
+        let disposed = false;
         const iv = YourTubeResources.SharedTicker.add(() => {
-          if (bind(ctx, ev, fn, opts) || --attempts <= 0) YourTubeResources.SharedTicker.remove(iv);
+          if (disposed || bind(ctx, ev, fn, opts) || --attempts <= 0) YourTubeResources.SharedTicker.remove(iv);
         }, 2000, { pauseHidden: true, label: "ytb-ui-elbinder" });
+        if (cardId && Yt[cardId]) {
+          Yt[cardId].push(() => { disposed = true; YourTubeResources.SharedTicker.remove(iv); });
+        }
       };
     };
     const guardKey = (ev) => {
@@ -3240,7 +3302,7 @@
           })).filter(c => c.title);
         } catch (_) { chapters = null; }
       };
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("chapter-auto-skip");
       const check = () => {
         loadChapters();
         if (!chapters || !chapters.length) return;
@@ -3258,6 +3320,9 @@
       };
       binder(ctx, "timeupdate", YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-chskip", check, 400));
       ctx.addInterval(check, 2000);
+      // Chapter lists belong to one video; drop them on navigation so a stale
+      // list cannot skip into the new video's timeline.
+      ctx.onNav(() => { chapters = null; chVid = ""; });
       Yt["chapter-auto-skip"].push(() => { chapters = null; chVid = ""; });
     },
     settings(en) {
@@ -3396,10 +3461,11 @@
           for (const r of rows) lines.push("- `" + YourTubePack.fmtTs(r.t) + "` " + r.text.replace(/\n/g, " "));
           lines.push("");
         }
-        const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a"); a.href = url; a.download = "YourTube-notes.md"; a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        const url = YourTubeResources.TrackedBlobURL.create(new Blob([lines.join("\n")], { type: "text/markdown" }), "ytb-notes-md");
+        if (url) {
+          const a = document.createElement("a"); a.href = url; a.download = "YourTube-notes.md"; a.click();
+          setTimeout(() => YourTubeResources.TrackedBlobURL.revoke(url), 4000);
+        }
       }); }
       Yt["timestamp-notes"].push(() => { if (box) { box.remove(); box = null; } });
     },
@@ -3416,7 +3482,7 @@
     apply(ctx) {
       if (!S.pauseRewindOn) return;
       const secs = () => Math.max(1, Math.min(30, Number(S.pauseRewindSec) || 3));
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("pause-auto-rewind");
       binder(ctx, "pause", () => {
         const el = ie.el();
         if (!el || el.ended || _isLiveStream()) return;
@@ -3510,7 +3576,7 @@
       if (!S.stretchReminderOn) return;
       let watched = 0, lastPauseAt = Date.now();
       const every = () => Math.max(15, Math.min(120, Number(S.stretchEveryMin) || 45)) * 60000;
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("stretch-reminder");
       binder(ctx, "pause", () => { lastPauseAt = Date.now(); });
       binder(ctx, "play", () => {
 
@@ -3655,7 +3721,7 @@
         }
       };
       patch();
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("end-winddown");
       binder(ctx, "ended", () => { if (!overlay) showGate(); });
       ctx.onNav(() => { clearCountdown(); if (overlay) { overlay.remove(); overlay = null; } gateActive = false; });
       ctx.addListener(document, "keydown", (ev) => {
@@ -3857,7 +3923,12 @@
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-plmark", scan, 400), { childList: true, subtree: true });
       ctx.onNav(() => ctx.addTimeout(scan, 800));
       Yt["playlist-watched-marker"].push(() => {
-        document.querySelectorAll("[data-ytb-watched]").forEach((t) => { t.style.opacity = ""; delete t.dataset.ytbWatched; });
+        document.querySelectorAll("[data-ytb-watched]").forEach((t) => {
+          t.style.opacity = "";
+          const title = t.getAttribute("title") || "";
+          if (title.indexOf(" ✓ watched") !== -1) t.setAttribute("title", title.replace(/ ?✓ watched/g, ""));
+          delete t.dataset.ytbWatched;
+        });
       });
     },
     settings(en) {
@@ -3935,8 +4006,11 @@
         ev.preventDefault(); ev.stopPropagation();
         hidden.update((d) => {
           const at = d.indexOf(m[1]);
-          if (at === -1) { d.push(m[1]); pe("Hidden from history view.", 1500, "success"); }
-          else { d.splice(at, 1); pe("Restored to history view.", 1500, "info"); }
+          if (at === -1) {
+            d.push(m[1]);
+            if (d.length > 500) d.splice(0, d.length - 500);
+            pe("Hidden from history view.", 1500, "success");
+          } else { d.splice(at, 1); pe("Restored to history view.", 1500, "info"); }
         });
       }, true);
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-hlh", scan, 350), { childList: true, subtree: true });
@@ -4222,7 +4296,7 @@
       const store = YourTubeEngine.createStore("__yourtube_pl_resume__", {});
       const plId = () => { try { return new URL(location.href).searchParams.get("list"); } catch (_) { return null; } };
       let saveTick = 0;
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("playlist-resume");
       binder(ctx, "timeupdate", () => {
         const p = plId(), el = ie.el();
         if (!p || !el || !Number.isFinite(el.currentTime)) return;
@@ -4281,7 +4355,7 @@
         return ie.channel() || "";
       };
       const legacyKey = () => { try { return ie.channel() || ""; } catch (_) { return ""; } };
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("channel-volume");
       binder(ctx, "loadedmetadata", tryApply);
       binder(ctx, "play", tryApply);
       function tryApply() {
@@ -4294,7 +4368,7 @@
         }
       }
 
-      const binder2 = YourTubePack.elBinder();
+      const binder2 = YourTubePack.elBinder("channel-volume");
       binder2(ctx, "volumechange", () => {
         const el = ie.el(), ch = chKey();
         if (!el || !ch) return;
@@ -5005,12 +5079,16 @@
         const limit = Math.min(nodes.length, 400);
         for (let i = 0; i < limit; i++) {
           const node = nodes[i];
-          if (node.dataset.ytbAsk) continue;
           const label = ((node.getAttribute("aria-label") || node.getAttribute("title") || "")).trim();
           const text = (node.textContent || "").trim();
-          if (!EXACT.test(label) && !EXACT.test(text)) continue;
-          node.dataset.ytbAsk = "1";
-          node.style.display = "none";
+          const match = EXACT.test(label) || EXACT.test(text);
+          if (match) {
+            if (!node.dataset.ytbAsk) { node.dataset.ytbAsk = "1"; node.style.display = "none"; }
+          } else if (node.dataset.ytbAsk) {
+            // YouTube reuses button nodes; clear the hide when the label changes.
+            delete node.dataset.ytbAsk;
+            node.style.display = "";
+          }
         }
       };
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ask", scrub, 300), { childList: true, subtree: true });
@@ -5086,7 +5164,9 @@
         // If the silence detector already routed this element, build on its
         // chain instead of calling createMediaElementSource a second time.
         const shared = YourTubePlayback.entryFor(el);
-        if (shared && shared.rerouted && shared.ctx && shared.source && shared.analyser) {
+        if (shared && !shared.dead && shared.ctx && shared.source && shared.analyser) {
+          // Join the existing source (stream tap or element route) instead of
+          // asking createMediaElementSource for the same element twice.
           const gain = shared.ctx.createGain();
           const comp = makeComp(shared.ctx);
           try { shared.source.disconnect(); } catch (_) {}
@@ -5291,6 +5371,14 @@
           const want = S.qualityPref;
           const available = levels.filter((l) => l && l !== "auto");
           if (!available.length) return;
+          // Skip when the player is already on the target: re-asserting every
+          // 15s fights YouTube's own adaptation for no reason.
+          const current = (() => {
+            try {
+              const api = ie.api && ie.api();
+              return api && typeof api.getPlaybackQuality === "function" ? api.getPlaybackQuality() : "";
+            } catch (_) { return ""; }
+          })();
           let target = available.indexOf(want) !== -1 ? want : "";
           if (!target) {
             // Prefer the closest level at or below the preference rather than
@@ -5302,7 +5390,7 @@
             const below = byHeight.filter((entry) => entry.h <= wantHeight).pop();
             target = (below && below.l) || byHeight[0].l;
           }
-          if (target) ie.setQuality(target);
+          if (target && current !== target) ie.setQuality(target);
         } catch (_) {}
       };
       ctx.addInterval(reassert, 15000);
@@ -5421,8 +5509,8 @@
             document.querySelector("ytd-toggle-button-renderer:nth-of-type(2) button");
         } catch (_) { return null; }
       };
-      const render = (data) => {
-        if (!data || typeof data.dislikes !== "number") return;
+      const render = (videoId, data) => {
+        if (!videoId || !data || typeof data.dislikes !== "number") return;
         const button = dislikeButton();
         if (!button) return;
         let count = button.querySelector(".ytb-ui-ryd-count");
@@ -5434,7 +5522,12 @@
         count.title = "Dislike count from the Return YouTube Dislike API";
         if (!S.returnDislikeBar) return;
         const host = button.closest("ytd-menu-renderer, #top-row, #actions-inner") || button.parentElement;
-        if (!host || host.querySelector(".ytb-ui-ryd-bar")) return;
+        if (!host) return;
+        const existing = host.querySelector(".ytb-ui-ryd-bar");
+        // The actions row is reused across navigations; a bar left over from a
+        // previous video must be replaced, not treated as current.
+        if (existing && existing.dataset.ytbRydFor === videoId) return;
+        if (existing) existing.remove();
         const total = (data.likes || 0) + (data.dislikes || 0);
         if (!total) return;
         const likePct = Math.round(((data.likes || 0) / total) * 100);
@@ -5450,6 +5543,7 @@
         label.appendChild(To("span", null, format(data.likes || 0) + " likes"));
         label.appendChild(To("span", null, (100 - likePct) + "% dislike"));
         label.appendChild(To("span", null, format(data.dislikes || 0) + " dislikes"));
+        bar.dataset.ytbRydFor = videoId;
         bar.appendChild(track);
         bar.appendChild(label);
         host.appendChild(bar);
@@ -5457,7 +5551,7 @@
       const load = (videoId) => {
         if (!videoId) return;
         const cached = cache.get(videoId);
-        if (cached) { render(cached); return; }
+        if (cached) { render(videoId, cached); return; }
         if (inFlight >= 2) return;
         inFlight++;
         YourTubeEngine.fetchJson("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId))
@@ -5465,7 +5559,7 @@
             const data = result && result.ok ? result.json : null;
             if (!data || typeof data.dislikes !== "number") return;
             cache.set(videoId, data);
-            if (videoId === (ie.videoId && ie.videoId())) render(data);
+            if (videoId === (ie.videoId && ie.videoId())) render(videoId, data);
           })
           .catch(() => {})
           .then(() => { inFlight--; });
@@ -5510,8 +5604,13 @@
       let titleAppliedFor = "";
       let originalTitle = "";
       let previousDocTitle = "";
+      let revertedFor = "";
+      let applyAlive = true;
       const thumbOriginals = new Map();
       const applyTitle = (videoId, data) => {
+        // Never write a late response into a different video (or after teardown).
+        if (!applyAlive || revertedFor === videoId) return;
+        if (ie.videoId && ie.videoId() !== videoId) return;
         if (!S.deArrowTitles || !data || !Array.isArray(data.titles) || !data.titles.length) return;
         if (titleAppliedFor === videoId) return;
         const best = data.titles.find((entry) => entry && !entry.original && entry.title) || null;
@@ -5533,13 +5632,17 @@
             ev.stopPropagation();
             target.textContent = originalTitle;
             if (previousDocTitle) { try { document.title = previousDocTitle; } catch (_) {} }
-            titleAppliedFor = "";
+            // Keep the gate set so the next watch tick does not re-apply the
+            // community title the user just dismissed.
+            titleAppliedFor = videoId;
+            revertedFor = videoId;
             chip.remove();
           });
           heading.appendChild(chip);
         }
       };
       const applyThumb = (card, videoId, data) => {
+        if (!applyAlive || !card || !card.isConnected) return;
         if (!S.deArrowThumbs || !data || !Array.isArray(data.thumbnails) || !data.thumbnails.length) return;
         const best = data.thumbnails.find((entry) => entry && !entry.original && Number.isFinite(entry.timestamp)) || null;
         if (!best) return;
@@ -5599,11 +5702,14 @@
         titleAppliedFor = "";
         originalTitle = "";
         previousDocTitle = "";
+        revertedFor = "";
         resetBudget();
         ctx.addTimeout(watchTick, 1500);
         ctx.addTimeout(cardScan, 2500);
       });
       Yt["dearrow"].push(() => {
+        // Stop late responses from writing into the page first.
+        applyAlive = false;
         // Restore the title, the document title and every replaced thumbnail.
         if (titleAppliedFor) {
           const heading = document.querySelector("ytd-watch-metadata h1, h1.ytd-watch-metadata, #title h1");
@@ -6281,13 +6387,18 @@
         const name = nameInput.value.trim();
         if (!name) return;
         const store = YourTubeEngine.createStore("__yourtube_groups__", {});
+        let status = "ok";
         store.update((data) => {
-          if (Array.isArray(data[name])) return;
-          if (Object.keys(data).length >= 50) { pe("Group limit reached (50).", 2000, "info"); return; }
+          if (Array.isArray(data[name])) { status = "exists"; return; }
+          if (Object.keys(data).length >= 50) { status = "limit"; return; }
           data[name] = [];
         });
+        if (status === "limit") { pe("Group limit reached (50).", 2000, "info"); return; }
         nameInput.value = "";
-        pe("Group '" + name + "' created. Use 'Add to group' on a channel page.", 2600, "success");
+        pe(status === "exists"
+          ? "Group '" + name + "' already exists."
+          : "Group '" + name + "' created. Use 'Add to group' on a channel page.",
+          2600, status === "exists" ? "info" : "success");
       }));
       en.appendChild(row);
       const store = YourTubeEngine.createStore("__yourtube_groups__", {});
@@ -6352,20 +6463,34 @@
             .then((response) => {
               const json = response && response.json;
               if (!json) return;
+              // The response can land after a navigation; only use it for the
+              // video it was requested for.
+              if (videoId !== (ie.videoId && ie.videoId())) return;
               const text = findSubscriberText(json, 0);
               if (!text) return;
               const host = document.querySelector("ytd-watch-metadata #owner, ytd-video-owner-renderer");
-              if (!host || host.querySelector(".ytb-ui-subs")) {
+              if (!host) {
                 // The owner block can render after the response; retry a few
                 // times instead of dropping the chip for this video.
-                if (!host && attempt < 4) ctx.addTimeout(() => loadSubs(videoId, attempt + 1), 1500);
+                if (attempt < 4) ctx.addTimeout(() => loadSubs(videoId, attempt + 1), 1500);
                 else appliedFor = "";
                 return;
               }
-              const chip = To("span", "ytb-ui-subs", text);
-              chip.style.cssText = "margin-left:8px;font-size:12px;color:#aaa";
-              chip.title = "Subscriber count, read from YouTube's own metadata";
-              host.appendChild(chip);
+              const chip = host.querySelector(".ytb-ui-subs");
+              if (chip) {
+                // The owner block is reused across navigations; refresh a stale
+                // chip instead of re-fetching forever.
+                if (chip.dataset.ytbSubsFor !== videoId) {
+                  chip.dataset.ytbSubsFor = videoId;
+                  chip.textContent = text;
+                }
+                return;
+              }
+              const fresh = To("span", "ytb-ui-subs", text);
+              fresh.dataset.ytbSubsFor = videoId;
+              fresh.style.cssText = "margin-left:8px;font-size:12px;color:#aaa";
+              fresh.title = "Subscriber count, read from YouTube's own metadata";
+              host.appendChild(fresh);
             })
             .catch(() => {});
         };
@@ -6572,14 +6697,19 @@
         );
         if (!host || host.querySelector(".ytb-ui-add-group")) return;
         const addTo = (name) => {
+          let status = "ok";
           store.update((data) => {
             if (!Array.isArray(data[name])) {
-              if (Object.keys(data).length >= 50) { pe("Group limit reached (50).", 2000, "info"); return; }
+              if (Object.keys(data).length >= 50) { status = "limit"; return; }
               data[name] = [];
             }
-            if (!data[name].includes(handle) && data[name].length < 500) data[name].push(handle);
+            if (data[name].includes(handle)) { status = "duplicate"; return; }
+            if (data[name].length >= 500) { status = "full"; return; }
+            data[name].push(handle);
           });
-          pe("Added to '" + name + "'.", 1800, "success");
+          if (status === "limit") { pe("Group limit reached (50).", 2000, "info"); return; }
+          if (status === "full") { pe("This group is full (500 channels).", 2000, "info"); return; }
+          pe(status === "duplicate" ? "Already in '" + name + "'." : "Added to '" + name + "'.", 1800, status === "duplicate" ? "info" : "success");
         };
         const button = Oo("Add to group", () => {
           const names = Object.keys(store.get() || {});
@@ -6700,7 +6830,8 @@
           return 0;
         };
         const sorted = cards.slice().sort((a, b) => {
-          if (mode === "date" || mode === "duration") return value(a) - value(b);
+          // Age ascending is newest first; duration and views descending.
+          if (mode === "date") return value(a) - value(b);
           return value(b) - value(a);
         });
         const fragment = document.createDocumentFragment();

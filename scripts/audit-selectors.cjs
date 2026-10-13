@@ -71,6 +71,7 @@ for (const m of src.matchAll(/(?<![\w-])\.((?:ytd|ytm|yt|shorts|ytLockup|ytGrid|
 
 (async () => {
   let hay = "";
+  let cssFailures = 0;
   try {
     const home = await withTimeout(fetch("https://www.youtube.com/", { headers: UA }));
     const html = await home.text();
@@ -81,16 +82,19 @@ for (const m of src.matchAll(/(?<![\w-])\.((?:ytd|ytm|yt|shorts|ytLockup|ytGrid|
       hay += await js.text();
     }
     // class tokens live in YouTube's stylesheets, not only in the JS bundle
-    const cssUrls = [...new Set([...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g)].map((m) => m[1]))].slice(0, 6);
+    const cssUrls = [...new Set([...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g)].map((m) => m[1]))].slice(0, 12);
     for (const href of cssUrls) {
       try {
         const css = await withTimeout(fetch(href.startsWith("http") ? href : "https://www.youtube.com" + href, { headers: UA }));
         hay += await css.text();
-      } catch (_) {}
+      } catch (_) { cssFailures++; }
     }
   } catch (e) {
     console.log(`audit-selectors: could not reach YouTube (${e && e.message}); skipping.`);
     process.exit(0);
+  }
+  if (cssFailures) {
+    console.log(`audit-selectors: ${cssFailures} stylesheet fetch(es) failed; token results may be incomplete.`);
   }
 
   const absent = [];

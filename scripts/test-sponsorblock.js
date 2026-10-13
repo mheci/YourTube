@@ -64,6 +64,7 @@ function normalize(payload, privacy) {
 (async () => {
   console.log(`Testing SponsorBlock lookup plans for ${videoId} (privacy prefix ${prefix})`);
   let failures = 0;
+  let networkFailures = 0;
   let directSegments = null;
   for (const plan of plans) {
     try {
@@ -85,13 +86,24 @@ function normalize(payload, privacy) {
       }
       if (!result.segments.length && !expectedStatus) console.log(text.slice(0, 240));
     } catch (error) {
+      const message = String((error && error.message) || error);
+      // Distinguish an unreachable API from a wrong response: the smoke test
+      // cannot verify anything without the network, but HTTP/parse mismatches
+      // must still fail.
+      if (/fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|network|timed? ?out/i.test(message)) {
+        networkFailures++;
+        console.log(`\n[${plan.name}] SKIP (network unavailable: ${message})`);
+        continue;
+      }
       failures++;
-      console.log(`\n[${plan.name}] ERROR ${error && error.message ? error.message : error}`);
+      console.log(`\n[${plan.name}] ERROR ${message}`);
     }
   }
   if (failures) {
     console.error(`\n${failures} SponsorBlock plan(s) failed.`);
     process.exitCode = 1;
+  } else if (networkFailures) {
+    console.log(`\nAll ${plans.length} lookup plans skipped: SponsorBlock is unreachable from this environment.`);
   } else {
     console.log(`\nAll ${plans.length} lookup plans completed successfully${directSegments === null ? "" : ` (${directSegments} direct segments)`}.`);
   }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.1.1
+// @version      1.2.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -1896,9 +1896,25 @@ algoBlockChannels: "",
     const r = n.ver || 0;
     if (r <= A) return;
     A = r;
+    // Keys edited in this tab but not yet flushed: the remote snapshot would
+    // silently drop them, so re-apply them after it lands.
+    let pendingKeys = null;
+    try {
+      if (O) {
+        const stored = q();
+        if (stored && typeof stored === "object") {
+          pendingKeys = [];
+          for (const k of Object.keys(S)) if (k !== "__ts" && k !== "__ver" && S[k] !== stored[k]) pendingKeys.push(k);
+          for (const k of Object.keys(stored)) if (k !== "__ts" && k !== "__ver" && !(k in S)) pendingKeys.push(k);
+        }
+      }
+    } catch (e) {}
     const o = Object.assign({}, S),
       i = Object.assign({}, n.data);
     (delete i.__ts, delete i.__ver, j(i));
+    if (pendingKeys && pendingKeys.length) {
+      for (const k of pendingKeys) S[k] = o[k];
+    }
     const d = new Set();
     for (const e of Object.keys(S)) S[e] !== o[e] && d.add(e);
     for (const e of Object.keys(o)) e in S || d.add(e);
@@ -1931,6 +1947,13 @@ algoBlockChannels: "",
 
     try { Ze(); } catch (er) {}
     try { Qe(); } catch (er) {}
+    try {
+      // The resume gate must not stay installed after the feature is reset.
+      if (window.__ytbRealPlay && HTMLMediaElement.prototype.play !== window.__ytbRealPlay) {
+        HTMLMediaElement.prototype.play = window.__ytbRealPlay;
+      }
+      Je._playGate = !1;
+    } catch (er) {}
     try { _fwDisarm(); } catch (er) {}
     Z = new AbortController();
     oe.vid = void 0;
@@ -2151,7 +2174,11 @@ algoBlockChannels: "",
     };
     const reportAsyncError = (value) => {
       if (!value || typeof value.then !== "function") return;
-      value.catch(() => {});
+      value.catch((error) => {
+        // Rejections from feature callbacks used to vanish; keep them in the
+        // logger ring so diagnostics can see them.
+        try { Logger.error("async", (error && (error.message || String(error))) || "rejected"); } catch (_) {}
+      });
     };
 
     class Bus {
@@ -2339,7 +2366,9 @@ algoBlockChannels: "",
                 }
               }
             }
-          } catch (_) {}
+          } catch (_) {
+            try { console.error("[StateStore:" + this._key + "] load failed; starting from defaults"); } catch (_) {}
+          }
           this._loaded = true;
           return this._data;
         })();
@@ -2361,6 +2390,12 @@ algoBlockChannels: "",
         try {
           updater(this._data);
         } catch (error) {
+          // The updater may have mutated part of the data before throwing;
+          // persist and announce that state so memory and storage cannot
+          // diverge silently, then keep the existing throw contract.
+          this._mutated = true;
+          this._scheduleFlush();
+          this._emitChange(key, this._data);
           try { console.error("[StateStore:" + this._key + "] update failed:", error); } catch (_) {}
           throw new Error("[StateStore:" + this._key + "] update failed: " + (error instanceof Error ? error.message : String(error)));
         }
@@ -2405,6 +2440,10 @@ algoBlockChannels: "",
           return true;
         } catch (_) {
           this._flushRetries = (this._flushRetries || 0) + 1;
+          if (this._flushRetries >= 3) {
+            this._flushFailures = (this._flushFailures || 0) + 1;
+            try { console.error("[StateStore:" + this._key + "] could not persist after retries; changes may be lost"); } catch (_) {}
+          }
           if (this._flushRetries < 3 && !this._timer) {
             this._timer = setTimeout(() => {
               this._timer = 0;
@@ -2425,7 +2464,7 @@ algoBlockChannels: "",
       }
 
       stats() {
-        return { key: this._key, loaded: this._loaded, dirty: this._dirty, flushes: this._flushes, pendingFlush: this._timer !== 0 };
+        return { key: this._key, loaded: this._loaded, dirty: this._dirty, flushes: this._flushes, flushFailures: this._flushFailures || 0, pendingFlush: this._timer !== 0 };
       }
     }
 
@@ -2497,13 +2536,19 @@ algoBlockChannels: "",
         let timer = 0;
         let poll = 0;
         let done = false;
+        let rejectPromise = null;
         const cancel = () => {
           if (done || cancelled) return;
           cancelled = true;
-          if (timer) clearTimeout(timer);
-          if (poll) clearInterval(poll);
+          done = true;
+          if (timer) { clearTimeout(timer); timer = 0; }
+          if (poll) { clearInterval(poll); poll = 0; }
+          // Settle the promise: callers awaiting when() must not hang forever
+          // after a cancel.
+          if (rejectPromise) { try { rejectPromise(new Error("Dom.when: cancelled")); } catch (_) {} }
         };
         const promise = new Promise((resolve, reject) => {
+          rejectPromise = reject;
           const find = () => {
             try {
               const found = root
@@ -2736,7 +2781,12 @@ algoBlockChannels: "",
         return true;
       }
 
-      has(key) { return this.peek(key) !== undefined; }
+      has(key) {
+        const entry = this._map.get(key);
+        if (!entry) return false;
+        if (this._expiredEntry(entry)) { this._remove(key, "expired"); return false; }
+        return true;
+      }
       delete(key) { return this._remove(key); }
       clear() {
         this._pending.clear();
@@ -2874,28 +2924,41 @@ algoBlockChannels: "",
         if (timeoutHandle) { clearTimeout(timeoutHandle); timeoutHandle = 0; }
       };
 
+      const flushPending = () => {
+        rafHandle = 0;
+        timeoutHandle = 0;
+        const batch = pendingBatch;
+        pendingBatch = [];
+        for (const [id, sub] of subscribers) {
+          const relevant = (sub.target || sub.selector || sub.predicate)
+            ? batch.filter((mutation) => isRelevantMutation(mutation, sub))
+            : batch;
+          if (!relevant.length && !sub.fireOnEmpty) continue;
+          try { reportAsyncError(sub.callback(relevant, { id, root: observedRoot, total: batch.length })); } catch (_) {}
+        }
+      };
+
       const scheduleFlush = () => {
         if ((rafHandle || timeoutHandle) || !pendingBatch.length) return;
         const doc = getDocument();
-        const flush = () => {
-          rafHandle = 0;
-          timeoutHandle = 0;
-          const batch = pendingBatch;
-          pendingBatch = [];
-          for (const [id, sub] of subscribers) {
-            const relevant = (sub.target || sub.selector || sub.predicate)
-              ? batch.filter((mutation) => isRelevantMutation(mutation, sub))
-              : batch;
-            if (!relevant.length && !sub.fireOnEmpty) continue;
-            try { reportAsyncError(sub.callback(relevant, { id, root: observedRoot, total: batch.length })); } catch (_) {}
-          }
-        };
         if (typeof requestAnimationFrame === "function" && doc && !doc.hidden) {
-          rafHandle = requestAnimationFrame(flush);
+          rafHandle = requestAnimationFrame(flushPending);
         } else {
-          timeoutHandle = setTimeout(flush, 16);
+          timeoutHandle = setTimeout(flushPending, 16);
         }
       };
+
+      // rAF is suspended while the tab is hidden; if a flush is armed with rAF
+      // when the tab hides, convert it to a timer so mutations are not held
+      // until the tab is shown again.
+      if (getDocument() && typeof document.addEventListener === "function") {
+        document.addEventListener("visibilitychange", () => {
+          if (!rafHandle || !document.hidden) return;
+          if (typeof cancelAnimationFrame === "function") { try { cancelAnimationFrame(rafHandle); } catch (_) {} }
+          rafHandle = 0;
+          if (!timeoutHandle && pendingBatch.length) timeoutHandle = setTimeout(flushPending, 16);
+        }, true);
+      }
 
       const isRelevantMutation = (mutation, sub) => {
         if (!mutation || !sub) return false;
@@ -2980,6 +3043,10 @@ algoBlockChannels: "",
             const queued = observer.takeRecords();
             if (queued && queued.length) {
               for (let i = 0; i < queued.length; i++) pendingBatch.push(queued[i]);
+              if (pendingBatch.length > MAX_PENDING_MUTATIONS) {
+                droppedMutations += pendingBatch.length - MAX_PENDING_MUTATIONS;
+                pendingBatch = pendingBatch.slice(pendingBatch.length - MAX_PENDING_MUTATIONS);
+              }
               scheduleFlush();
             }
           } catch (_) {}
@@ -3343,7 +3410,10 @@ algoBlockChannels: "",
             : Math.min(maxBackoffMs, Math.max(baseIntervalMs, currentDelay * 2));
           if (rerunAfter && !disposed) {
             rerunAfter = false;
-            request();
+            // The re-request already passed the min-gap gate when it arrived
+            // mid-scan; re-entering request() here would drop it because
+            // lastRunAt was just set.
+            run();
           }
         };
 
@@ -4234,7 +4304,8 @@ algoBlockChannels: "",
 
         const e2 = Ve.keys()[0];
         try {
-          URL.revokeObjectURL(Ve.get(e2));
+          const url = Ve.get(e2);
+          if (url) YourTubeResources.TrackedBlobURL.revoke(url);
         } catch (e) {}
         Ve.delete(e2);
       }
@@ -5304,6 +5375,8 @@ algoBlockChannels: "",
       initPromise: null,
       initPromiseVideoId: null,
       lastInitCompletedAt: 0,
+      lastFailedLookupVideoId: "",
+      lastFailedLookupAt: 0,
       undoUntilTs: 0,
 
       vipByUserID: new Map(),
@@ -5326,6 +5399,9 @@ algoBlockChannels: "",
     };
 
     const initUserId = () => {
+      // Stable for the session: overlapping inits used to race and could
+      // generate two different IDs.
+      if (State.userId && State.userId.length === 30) return;
       let uid = S.sbUserId;
       if (!uid || uid.length !== 30) {
         const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -5681,6 +5757,7 @@ algoBlockChannels: "",
       const writtenKeys = new Set();
       const MAX_WRITTEN_KEYS = 1000;
       const scannedVideos = new Set();
+      const MAX_SCANNED_VIDEOS = 500;
 
       const set = async (videoId, configKey, segments) => {
         const cacheKey = "sb:" + videoId + ":" + configKey;
@@ -5749,6 +5826,7 @@ algoBlockChannels: "",
         }
 
         if (!scannedVideos.has(videoId)) {
+          if (scannedVideos.size >= MAX_SCANNED_VIDEOS) scannedVideos.clear();
           scannedVideos.add(videoId);
           try {
             const rows = await w("kv");
@@ -6353,7 +6431,8 @@ algoBlockChannels: "",
           userInfoCache.set(cacheKey, vip);
           return vip;
         } catch (_) {
-          return false;
+          // Failure is not a "not VIP" verdict: callers must not cache it.
+          return null;
         }
       };
 
@@ -7356,7 +7435,8 @@ algoBlockChannels: "",
               } else {
                 pe("Submission failed: " + (result.message || "unknown error"), 3600, "error");
               }
-            });
+            })
+            .catch(() => pe("Submission failed: unexpected error", 3200, "error"));
         });
 
         panel.querySelector("#ed-cancel").addEventListener("click", () => {
@@ -7481,7 +7561,7 @@ algoBlockChannels: "",
         const uid = vipQueue.shift();
         vipInFlight++;
         API.getIsUserVIP(uid, null)
-          .then((vip) => { rememberVip(uid, vip === true ? true : vip === false ? false : undefined); })
+          .then((vip) => { if (vip === true || vip === false) rememberVip(uid, vip); })
           .catch(() => {})
           .then(() => { vipInFlight--; pumpVipQueue(); });
       }
@@ -7528,10 +7608,14 @@ algoBlockChannels: "",
         const segments = await API.fetchWithRetry(videoId, abortSignal);
         const privacySkip = typeof API.takePrivacyUnavailable === "function" && API.takePrivacyUnavailable();
         if (!privacySkip) await Cache.set(videoId, configKey, segments);
+        State.lastFailedLookupVideoId = "";
         return segments;
       } catch (err) {
         if (err && err.name === "AbortError") throw err;
-
+        // Remember the failure so init() can back off and the card's refresh
+        // can report it instead of "0 segments" as a success.
+        State.lastFailedLookupVideoId = videoId;
+        State.lastFailedLookupAt = Date.now();
         try {
           const fallback = await Cache.get(videoId, configKey, true);
           return fallback && Array.isArray(fallback.data) ? fallback.data : [];
@@ -7614,8 +7698,9 @@ algoBlockChannels: "",
         }
 
         const freshSegments = await fetchPromise;
+        const lookupFailed = State.lastFailedLookupVideoId === videoId && Date.now() - State.lastFailedLookupAt < 60000;
         if (canCommit(videoId, generation)) {
-          applySegments(videoId, generation, freshSegments, hidden, { cached: false });
+          applySegments(videoId, generation, freshSegments, hidden, { cached: false, error: lookupFailed });
           State.lastInitCompletedAt = Date.now();
         }
         return canCommit(videoId, generation) ? State.segments.slice() : [];
@@ -7646,6 +7731,12 @@ algoBlockChannels: "",
       if (!force && State.initPromise && State.initPromiseVideoId === videoId) {
         Metrics.recordDeduped();
         return State.initPromise;
+      }
+      // Back off after a failed lookup: navigation schedules several retries
+      // and a storm can trip SponsorBlock's rate limit.
+      if (!force && !revalidate && videoId && State.lastFailedLookupVideoId === videoId && Date.now() - State.lastFailedLookupAt < 20000) {
+        Metrics.recordDeduped();
+        return State.segments.slice();
       }
       if (!force && !revalidate && videoId && State.videoId === videoId && Date.now() - State.lastInitCompletedAt < recentWindowMs) {
         return State.segments.slice();
@@ -7706,6 +7797,14 @@ algoBlockChannels: "",
       State.betterBeAwareWarned.clear();
       State.vipByUserID.clear();
       State.lastWakeLookupAt = 0;
+      State.lastFailedLookupVideoId = "";
+      // Body-mounted singletons must not survive a disabled card.
+      if (State.countdownTaskId) { try { clearTimeout(State.countdownTaskId); } catch (_) {} State.countdownTaskId = 0; }
+      if (typeof document.getElementById === "function") {
+        try { const overlay = document.getElementById("YourTube-sb-countdown"); if (overlay) overlay.remove(); } catch (_) {}
+        try { const editor = document.getElementById("YourTube-sb-editor"); if (editor) editor.className = ""; } catch (_) {}
+        try { const hud = document.getElementById("YourTube-sb-hud"); if (hud) hud.className = ""; } catch (_) {}
+      }
     };
 
     const invalidate = async (videoId) => {
@@ -7734,6 +7833,9 @@ algoBlockChannels: "",
       const videoId = State.videoId || ie.videoId();
       if (!videoId) return [];
       await invalidate(videoId);
+      if (State.lastFailedLookupVideoId === videoId && Date.now() - State.lastFailedLookupAt < 60000) {
+        throw new Error("lookup failed");
+      }
       return State.segments.slice();
     };
 
@@ -8483,7 +8585,6 @@ algoBlockChannels: "",
   let jt = !1,
     _fwRunSeq = 0,
     zt = 0;
-  const Wt = new Map();
   function Ut() {
     const e = Date.now();
     if (e - zt < 400) return;
@@ -8636,8 +8737,14 @@ algoBlockChannels: "",
     if (auth) headers["Authorization"] = auth;
     if (typeof GM_xmlhttpRequest !== "function") {
       if (typeof fetch !== "function") return Promise.resolve(null);
-      return fetch(url, { method: "POST", headers: headers, body: JSON.stringify(payload), credentials: "include" })
-        .then((r) => r.json().then((json) => ({ status: r.status, json })).catch(() => ({ status: r.status, json: null })))
+      const signal = (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function")
+        ? (() => { try { return AbortSignal.timeout(9000); } catch (_) { return undefined; } })()
+        : undefined;
+      return fetch(url, { method: "POST", headers: headers, body: JSON.stringify(payload), credentials: "include", signal })
+        .then((r) => {
+          if (!r.ok) return { status: r.status, json: null };
+          return r.json().then((json) => ({ status: r.status, json })).catch(() => ({ status: r.status, json: null }));
+        })
         .catch(() => null);
     }
     return new Promise((resolve) => {
@@ -8663,7 +8770,8 @@ algoBlockChannels: "",
       context: { client: { clientName: "WEB", clientVersion: page.ver, hl: page.hl, gl: page.gl } },
       browseId: "FEhistory",
     }, auth);
-    if (!resp || !resp.json) return null;
+    // undefined marks a transport failure (retry); null is a signed-out skip.
+    if (!resp || !resp.json) return undefined;
     try { return JSON.stringify(resp.json).indexOf('"videoId":"' + videoId + '"') >= 0; } catch (e) { return false; }
   }
 
@@ -8785,6 +8893,7 @@ algoBlockChannels: "",
       const has = await _fwHistoryHas(videoId, page);
       if (has === null) { stats.verified = "skipped"; break; }
       if (has === true) { stats.verified = true; break; }
+      if (has === undefined) stats.transportFailed = true;
       if (attempt < 4) {
         try { pe("Force Watched: not in history yet, retry " + attempt + "/4", 2000, "info"); } catch (e) {}
         await new Promise((r) => setTimeout(r, 3000 * attempt));
@@ -8812,11 +8921,16 @@ algoBlockChannels: "",
     } else if (!1 === S.forceWatchedLocalHistory) {
       try { if (runToken === _fwRunSeq) jt = !1; } catch (_) {}
       try { pe("Force Watched: turn on account history and/or local history for this to do anything.", 3200, "info"); } catch (_) {}
+    } else {
+      // Account history off, local history on: nothing to verify, so release
+      // the guard immediately instead of leaving it latched for a minute.
+      try { if (runToken === _fwRunSeq) jt = !1; } catch (_) {}
+      try { pe("Force Watched: marked in local history only (account verification is off).", 3200, "info"); } catch (_) {}
     }
   }
   const Yt = {};
   let Gt = 0;
-  const Xt = {
+  var Xt = {
     visible:
       "undefined" == typeof document || "visible" === document.visibilityState,
     focused: "undefined" == typeof document || document.hasFocus(),
@@ -9282,6 +9396,9 @@ algoBlockChannels: "",
         try {
           const a = t.apply(ua(e));
           a && "function" == typeof a.then && a.catch((t) => fa(e, t));
+          // A clean apply clears the crash counter: quarantine should reflect
+          // repeated current failures, not a lifetime tally.
+          ya.delete(e);
         } catch (t) {
           fa(e, t);
         }
@@ -11076,6 +11193,15 @@ algoBlockChannels: "",
           } catch (_) {}
         }
         if (!pathRegex) {
+          // Accept the literal form too (:matches-path(/watch)); dropping it
+          // silently loses real filter-list entries.
+          const literal = selector.match(/:matches-path\(([^)]+)\)/);
+          const body = literal && literal[1].trim();
+          if (body) {
+            try { pathRegex = new RegExp(escapeRegex(body), "i"); } catch (_) {}
+          }
+        }
+        if (!pathRegex) {
 
         return null;
       }
@@ -11116,6 +11242,11 @@ algoBlockChannels: "",
         stripped.push(selector.slice(last));
         selector = stripped.join('').trim();
         if (!selector) selector = '*';
+        if (!hasTextPatterns.length && !hasTextSelector) {
+          // Every :has-text() argument failed to compile; a filter with no
+          // compiled pattern would be re-scanned forever as a no-op.
+          return null;
+        }
       }
 
       let hasChildSelector = null;
@@ -11156,7 +11287,7 @@ algoBlockChannels: "",
     const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const MAX_REGEX_SOURCE = 300;
-    const MAX_SELECTOR_LENGTH = 2000;
+    const MAX_SELECTOR_LENGTH = 500;
     const MAX_TEXT_SCAN = 4000;
     const MAX_CANDIDATES = 5000;
 
@@ -26724,7 +26855,7 @@ const Nr = [
                 { sensitivity: "base" },
               ),
             ),
-          h = u.length,
+          h = Math.min(u.length, 40),
           m = document.createDocumentFragment();
         for (let e = 0; e < h; e++) m.appendChild(Do(u[e]));
         (l.appendChild(m),
@@ -26881,7 +27012,29 @@ const Nr = [
               n = 0,
               r = 0,
               o = 0;
-            (e.addEventListener("pointerdown", (i) => {
+            const onResizeMove = (i) => {
+              if (!t || !wo) return;
+              const rect = wo.getBoundingClientRect(),
+                d = Yp_clampRect(
+                  rect.left,
+                  rect.top,
+                  r + (i.clientX - a),
+                  o + (i.clientY - n),
+                );
+              ((wo.style.width = d.w + "px"),
+                (wo.style.height = d.h + "px"));
+            };
+            const onResizeUp = () => {
+              if (!t) return;
+              t = !1;
+              window.removeEventListener("pointermove", onResizeMove, !0);
+              window.removeEventListener("pointerup", onResizeUp, !0);
+              if (!wo) return;
+              wo.classList.remove("resizing");
+              const e = wo.getBoundingClientRect();
+              jo(e.left, e.top, e.width, e.height);
+            };
+            e.addEventListener("pointerdown", (i) => {
               if (0 === i.button) {
                 ((t = !0),
                   (a = i.clientX),
@@ -26894,34 +27047,12 @@ const Nr = [
                 try {
                   e.setPointerCapture(i.pointerId);
                 } catch (e) {}
+                // Registered per drag so closing the dashboard cannot leave
+                // window listeners behind.
+                window.addEventListener("pointermove", onResizeMove, !0);
+                window.addEventListener("pointerup", onResizeUp, !0);
               }
-            }),
-              window.addEventListener(
-                "pointermove",
-                (e) => {
-                  if (!t) return;
-                  const i = wo.getBoundingClientRect(),
-                    d = Yp_clampRect(
-                      i.left,
-                      i.top,
-                      r + (e.clientX - a),
-                      o + (e.clientY - n),
-                    );
-                  ((wo.style.width = d.w + "px"),
-                    (wo.style.height = d.h + "px"));
-                },
-                !0,
-              ),
-              window.addEventListener(
-                "pointerup",
-                () => {
-                  if (!t) return;
-                  ((t = !1), wo.classList.remove("resizing"));
-                  const e = wo.getBoundingClientRect();
-                  jo(e.left, e.top, e.width, e.height);
-                },
-                !0,
-              ));
+            });
           })(),
           window.addEventListener("resize", Wo, { passive: !0 }),
           requestAnimationFrame(() => {
@@ -28124,6 +28255,8 @@ const Nr = [
         pausedDialogConfirmBtn: _ytbPausedDialogConfirmBtn,
 
         apply: (id) => xa.apply(id),
+        quarantined: () => Array.from(va.keys()).filter((id) => xa.isQuarantined(id)),
+        resources: () => YourTubeResources.stats(),
         get cfg() { return S; },
         features: () => xa.list(),
         fetchWrapped: () => !!(e.fetch && e.fetch.__ytbWrapped),
@@ -28265,14 +28398,21 @@ const Nr = [
 `;
     let cssInjected = false;
     const injectCSS = () => {
-      if (cssInjected) return;
+      // The latch alone can wedge styling if the style element is ever removed
+      // by the page or another teardown; re-inject when it is gone.
+      if (cssInjected && document.getElementById("ytb-engine")) return;
       cssInjected = true;
       try {
         YourTubeResources.Dom.css(CSS, "engine");
       } catch (_) {}
     };
     const ytbStores = [];
+    const storeCache = new Map();
     const createStore = (key, initial) => {
+      // One store per key: re-applies and the settings pane must share state,
+      // and leaked instances used to overwrite each other on unload.
+      const cached = storeCache.get(key);
+      if (cached) return cached;
       const store = new YourTubeResources.StateStore(key, initial, {
         storage: {
           get: async (storeKey) => {
@@ -28294,6 +28434,7 @@ const Nr = [
         onChange: (fn) => store.onChange(fn),
         offChange: (fn) => store.offChange(fn),
       };
+      storeCache.set(key, api);
       ytbStores.push(api);
       return api;
     };
@@ -28476,6 +28617,12 @@ const Nr = [
         mountScheduled = true;
         YourTubeEngine.scheduleOnReady(ctx, mount, { attempts: 8, delayMs: 400 });
       };
+      // SPA re-renders can detach the panel; re-arm the mount on navigation.
+      ctx.onNav(() => {
+        if (root.parentNode) return;
+        mountScheduled = false;
+        ensureMount();
+      });
       const activate = (id, force) => {
         if (!sections.has(id)) return;
         activeId = id;
@@ -28600,6 +28747,7 @@ const Nr = [
       if (existing) return existing;
       const ctx = getAudioCtx();
       if (!ctx) return null;
+      let createdSource = null;
       try {
         // If the volume boost already routed this element, join its chain
         // instead of asking createMediaElementSource for the same element twice.
@@ -28630,6 +28778,7 @@ const Nr = [
 
         if (!source && typeof ctx.createMediaElementSource === "function") {
           source = ctx.createMediaElementSource(video);
+          createdSource = source;
           rerouted = true;
         }
         if (!source) return null;
@@ -28657,12 +28806,19 @@ const Nr = [
         }
         return entry;
       } catch (_) {
+        // If the element was already routed into this context, remember the
+        // failure so later calls stop retrying (the route cannot be undone).
+        if (createdSource) {
+          try {
+            perVideo.set(video, { ctx, source: createdSource, analyser: null, stream: null, rerouted: true, dead: true, buf: new Uint8Array(0), resumeHandler: null });
+          } catch (_) {}
+        }
         return null;
       }
     };
     const readEnergy = (video) => {
       const entry = analyserFor(video);
-      if (!entry) return { energy: 0, speech: 0, isQuiet: true, isSpeech: false, active: false };
+      if (!entry || !entry.analyser) return { energy: 0, speech: 0, isQuiet: true, isSpeech: false, active: false };
       const buf = entry.buf;
       entry.analyser.getByteFrequencyData(buf);
       let sum = 0, speechBand = 0;
@@ -28681,6 +28837,7 @@ const Nr = [
     const release = (video) => {
       const entry = perVideo.get(video);
       if (!entry) return;
+      if (entry.dead) { perVideo.delete(video); return; }
       if (typeof video.removeEventListener === "function" && entry.resumeHandler) {
         try { video.removeEventListener("play", entry.resumeHandler); } catch (_) {}
         entry.resumeHandler = null;
@@ -29573,6 +29730,14 @@ const Nr = [
       let tickerId = 0;
       let skipSignals = 0;
       const skipLatched = new Set();
+      const latchSkip = (videoId) => {
+        // Bound the latch set: it only prevents re-latching within a session.
+        if (skipLatched.size > 200) {
+          const first = skipLatched.values().next().value;
+          if (first !== undefined) skipLatched.delete(first);
+        }
+        skipLatched.add(videoId);
+      };
 
       const start = () => {
         if (monitoring) return;
@@ -29611,7 +29776,7 @@ const Nr = [
           SignalTracker.trackWatch(videoId, currentTime, duration);
 
           if (!skipLatched.has(videoId) && unwantedScore > wantedScore && currentTime > 5 && currentTime < duration * 0.3) {
-            skipLatched.add(videoId);
+            latchSkip(videoId);
             skipSignals++;
           }
 
@@ -29623,6 +29788,7 @@ const Nr = [
 
       const stop = () => {
         monitoring = false;
+        skipLatched.clear();
         if (tickerId) {
           YourTubeResources.SharedTicker.remove(tickerId);
           tickerId = 0;
@@ -30184,7 +30350,11 @@ const Nr = [
       scanner.start();
       ctx.onNav(() => scanner.request({ priority: true }));
       ctx.addObserver(document.body, () => scanner.request({ priority: true }), { childList: true, subtree: true });
-      Yt["credibility-layer"].push(() => scanner.dispose());
+      Yt["credibility-layer"].push(() => {
+        scanner.dispose();
+        document.querySelectorAll(".ytb-ui-cred-badge").forEach((el) => el.remove());
+        document.querySelectorAll("[data-ytb-cred]").forEach((el) => { delete el.dataset.ytbCred; });
+      });
     },
     settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
 
@@ -30198,10 +30368,15 @@ const Nr = [
         ud.dataset.ytbChecked = "1";
         const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/);
         if (!dm) return;
-        const age = Date.now() - new Date(dm[1]).getTime();
+        const when = new Date(dm[1]).getTime();
+        // "Season 3, 2020" also matches the shape but is not a date; without
+        // this guard the badge renders "NaN years old".
+        if (!Number.isFinite(when)) return;
+        const age = Date.now() - when;
         if (age <= 365 * 24 * 60 * 60 * 1000 * 2) return;
         const badge = document.createElement("span");
         badge.className = "ytb-ui-pill";
+        badge.dataset.ytbOutdated = "1";
         badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px";
         badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old";
         badge.title = "Over 2 years old. May be outdated.";
@@ -30211,7 +30386,10 @@ const Nr = [
       YourTubeEngine.scheduleOnReady(ctx, check, { attempts: 8, delayMs: 600 });
 
       ctx.onNav(() => ctx.addTimeout(check, 700));
-      Yt["dead-link-detector"].push(() => {});
+      Yt["dead-link-detector"].push(() => {
+        document.querySelectorAll("[data-ytb-outdated]").forEach((el) => el.remove());
+        document.querySelectorAll("[data-ytb-checked]").forEach((el) => { delete el.dataset.ytbChecked; });
+      });
     },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
 
@@ -30593,8 +30771,12 @@ const Nr = [
         for (const [key, tierKey] of map) {
           const target = !!t[tierKey];
           if (!!S[key] !== target) {
-            S[key] = target;
-            try { g.emit("cfg.changed", { key, val: target }); } catch (_) {}
+            // Route through the config setter so the change is persisted and
+            // batched like every other setting.
+            try { Ta(key, target); } catch (_) {
+              S[key] = target;
+              try { g.emit("cfg.changed", { key, val: target }); } catch (_) {}
+            }
           }
         }
       };
@@ -30691,6 +30873,15 @@ const Nr = [
           Yt["perf-mode"].push(() => { try { bodyObs.disconnect(); } catch (e) {} });
           Yt["perf-mode"].push(() => { try { thumbObserver.disconnect(); } catch (e) {} });
           Yt["perf-mode"].push(() => { clearTimeout(thumbObsTimer); });
+          Yt["perf-mode"].push(() => {
+            // Restore downgraded thumbnails and clear the observation flags so
+            // a re-enable can process them again.
+            document.querySelectorAll("img[data-ytb-perf-src]").forEach((img) => {
+              try { if (img.dataset.ytbPerfSrc) img.src = img.dataset.ytbPerfSrc; } catch (_) {}
+              delete img.dataset.ytbPerfSrc;
+              delete img.dataset.ytbPerfObserved;
+            });
+          });
           ctx.addInterval(observeThumbs, 5000);
         } catch (e) {}
       }
@@ -31257,7 +31448,7 @@ const Nr = [
 
   const YourTubePack = (() => {
 
-    const elBinder = () => {
+    const elBinder = (cardId) => {
       const bound = new WeakSet();
       const bind = (ctx, ev, fn, opts) => {
         const el = ie.el();
@@ -31270,13 +31461,17 @@ const Nr = [
       return (ctx, ev, fn, opts) => {
         bind(ctx, ev, fn, opts);
         // The player element is replaced on miniplayer/theater changes, so keep
-        // a rebind hook and a short-lived recovery ticker; the ticker gives up
-        // on its own if the element never appears.
+        // a rebind hook and a short-lived recovery ticker; the ticker is torn
+        // down with the card so a disabled feature cannot rebind afterwards.
         ctx.onNav(() => bind(ctx, ev, fn, opts));
         let attempts = 90;
+        let disposed = false;
         const iv = YourTubeResources.SharedTicker.add(() => {
-          if (bind(ctx, ev, fn, opts) || --attempts <= 0) YourTubeResources.SharedTicker.remove(iv);
+          if (disposed || bind(ctx, ev, fn, opts) || --attempts <= 0) YourTubeResources.SharedTicker.remove(iv);
         }, 2000, { pauseHidden: true, label: "ytb-ui-elbinder" });
+        if (cardId && Yt[cardId]) {
+          Yt[cardId].push(() => { disposed = true; YourTubeResources.SharedTicker.remove(iv); });
+        }
       };
     };
     const guardKey = (ev) => {
@@ -31372,7 +31567,7 @@ const Nr = [
           })).filter(c => c.title);
         } catch (_) { chapters = null; }
       };
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("chapter-auto-skip");
       const check = () => {
         loadChapters();
         if (!chapters || !chapters.length) return;
@@ -31390,6 +31585,9 @@ const Nr = [
       };
       binder(ctx, "timeupdate", YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-chskip", check, 400));
       ctx.addInterval(check, 2000);
+      // Chapter lists belong to one video; drop them on navigation so a stale
+      // list cannot skip into the new video's timeline.
+      ctx.onNav(() => { chapters = null; chVid = ""; });
       Yt["chapter-auto-skip"].push(() => { chapters = null; chVid = ""; });
     },
     settings(en) {
@@ -31528,10 +31726,11 @@ const Nr = [
           for (const r of rows) lines.push("- `" + YourTubePack.fmtTs(r.t) + "` " + r.text.replace(/\n/g, " "));
           lines.push("");
         }
-        const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a"); a.href = url; a.download = "YourTube-notes.md"; a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        const url = YourTubeResources.TrackedBlobURL.create(new Blob([lines.join("\n")], { type: "text/markdown" }), "ytb-notes-md");
+        if (url) {
+          const a = document.createElement("a"); a.href = url; a.download = "YourTube-notes.md"; a.click();
+          setTimeout(() => YourTubeResources.TrackedBlobURL.revoke(url), 4000);
+        }
       }); }
       Yt["timestamp-notes"].push(() => { if (box) { box.remove(); box = null; } });
     },
@@ -31548,7 +31747,7 @@ const Nr = [
     apply(ctx) {
       if (!S.pauseRewindOn) return;
       const secs = () => Math.max(1, Math.min(30, Number(S.pauseRewindSec) || 3));
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("pause-auto-rewind");
       binder(ctx, "pause", () => {
         const el = ie.el();
         if (!el || el.ended || _isLiveStream()) return;
@@ -31642,7 +31841,7 @@ const Nr = [
       if (!S.stretchReminderOn) return;
       let watched = 0, lastPauseAt = Date.now();
       const every = () => Math.max(15, Math.min(120, Number(S.stretchEveryMin) || 45)) * 60000;
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("stretch-reminder");
       binder(ctx, "pause", () => { lastPauseAt = Date.now(); });
       binder(ctx, "play", () => {
 
@@ -31787,7 +31986,7 @@ const Nr = [
         }
       };
       patch();
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("end-winddown");
       binder(ctx, "ended", () => { if (!overlay) showGate(); });
       ctx.onNav(() => { clearCountdown(); if (overlay) { overlay.remove(); overlay = null; } gateActive = false; });
       ctx.addListener(document, "keydown", (ev) => {
@@ -31989,7 +32188,12 @@ const Nr = [
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-plmark", scan, 400), { childList: true, subtree: true });
       ctx.onNav(() => ctx.addTimeout(scan, 800));
       Yt["playlist-watched-marker"].push(() => {
-        document.querySelectorAll("[data-ytb-watched]").forEach((t) => { t.style.opacity = ""; delete t.dataset.ytbWatched; });
+        document.querySelectorAll("[data-ytb-watched]").forEach((t) => {
+          t.style.opacity = "";
+          const title = t.getAttribute("title") || "";
+          if (title.indexOf(" ✓ watched") !== -1) t.setAttribute("title", title.replace(/ ?✓ watched/g, ""));
+          delete t.dataset.ytbWatched;
+        });
       });
     },
     settings(en) {
@@ -32067,8 +32271,11 @@ const Nr = [
         ev.preventDefault(); ev.stopPropagation();
         hidden.update((d) => {
           const at = d.indexOf(m[1]);
-          if (at === -1) { d.push(m[1]); pe("Hidden from history view.", 1500, "success"); }
-          else { d.splice(at, 1); pe("Restored to history view.", 1500, "info"); }
+          if (at === -1) {
+            d.push(m[1]);
+            if (d.length > 500) d.splice(0, d.length - 500);
+            pe("Hidden from history view.", 1500, "success");
+          } else { d.splice(at, 1); pe("Restored to history view.", 1500, "info"); }
         });
       }, true);
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-hlh", scan, 350), { childList: true, subtree: true });
@@ -32354,7 +32561,7 @@ const Nr = [
       const store = YourTubeEngine.createStore("__yourtube_pl_resume__", {});
       const plId = () => { try { return new URL(location.href).searchParams.get("list"); } catch (_) { return null; } };
       let saveTick = 0;
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("playlist-resume");
       binder(ctx, "timeupdate", () => {
         const p = plId(), el = ie.el();
         if (!p || !el || !Number.isFinite(el.currentTime)) return;
@@ -32413,7 +32620,7 @@ const Nr = [
         return ie.channel() || "";
       };
       const legacyKey = () => { try { return ie.channel() || ""; } catch (_) { return ""; } };
-      const binder = YourTubePack.elBinder();
+      const binder = YourTubePack.elBinder("channel-volume");
       binder(ctx, "loadedmetadata", tryApply);
       binder(ctx, "play", tryApply);
       function tryApply() {
@@ -32426,7 +32633,7 @@ const Nr = [
         }
       }
 
-      const binder2 = YourTubePack.elBinder();
+      const binder2 = YourTubePack.elBinder("channel-volume");
       binder2(ctx, "volumechange", () => {
         const el = ie.el(), ch = chKey();
         if (!el || !ch) return;
@@ -33137,12 +33344,16 @@ const Nr = [
         const limit = Math.min(nodes.length, 400);
         for (let i = 0; i < limit; i++) {
           const node = nodes[i];
-          if (node.dataset.ytbAsk) continue;
           const label = ((node.getAttribute("aria-label") || node.getAttribute("title") || "")).trim();
           const text = (node.textContent || "").trim();
-          if (!EXACT.test(label) && !EXACT.test(text)) continue;
-          node.dataset.ytbAsk = "1";
-          node.style.display = "none";
+          const match = EXACT.test(label) || EXACT.test(text);
+          if (match) {
+            if (!node.dataset.ytbAsk) { node.dataset.ytbAsk = "1"; node.style.display = "none"; }
+          } else if (node.dataset.ytbAsk) {
+            // YouTube reuses button nodes; clear the hide when the label changes.
+            delete node.dataset.ytbAsk;
+            node.style.display = "";
+          }
         }
       };
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ask", scrub, 300), { childList: true, subtree: true });
@@ -33218,7 +33429,9 @@ const Nr = [
         // If the silence detector already routed this element, build on its
         // chain instead of calling createMediaElementSource a second time.
         const shared = YourTubePlayback.entryFor(el);
-        if (shared && shared.rerouted && shared.ctx && shared.source && shared.analyser) {
+        if (shared && !shared.dead && shared.ctx && shared.source && shared.analyser) {
+          // Join the existing source (stream tap or element route) instead of
+          // asking createMediaElementSource for the same element twice.
           const gain = shared.ctx.createGain();
           const comp = makeComp(shared.ctx);
           try { shared.source.disconnect(); } catch (_) {}
@@ -33423,6 +33636,14 @@ const Nr = [
           const want = S.qualityPref;
           const available = levels.filter((l) => l && l !== "auto");
           if (!available.length) return;
+          // Skip when the player is already on the target: re-asserting every
+          // 15s fights YouTube's own adaptation for no reason.
+          const current = (() => {
+            try {
+              const api = ie.api && ie.api();
+              return api && typeof api.getPlaybackQuality === "function" ? api.getPlaybackQuality() : "";
+            } catch (_) { return ""; }
+          })();
           let target = available.indexOf(want) !== -1 ? want : "";
           if (!target) {
             // Prefer the closest level at or below the preference rather than
@@ -33434,7 +33655,7 @@ const Nr = [
             const below = byHeight.filter((entry) => entry.h <= wantHeight).pop();
             target = (below && below.l) || byHeight[0].l;
           }
-          if (target) ie.setQuality(target);
+          if (target && current !== target) ie.setQuality(target);
         } catch (_) {}
       };
       ctx.addInterval(reassert, 15000);
@@ -33553,8 +33774,8 @@ const Nr = [
             document.querySelector("ytd-toggle-button-renderer:nth-of-type(2) button");
         } catch (_) { return null; }
       };
-      const render = (data) => {
-        if (!data || typeof data.dislikes !== "number") return;
+      const render = (videoId, data) => {
+        if (!videoId || !data || typeof data.dislikes !== "number") return;
         const button = dislikeButton();
         if (!button) return;
         let count = button.querySelector(".ytb-ui-ryd-count");
@@ -33566,7 +33787,12 @@ const Nr = [
         count.title = "Dislike count from the Return YouTube Dislike API";
         if (!S.returnDislikeBar) return;
         const host = button.closest("ytd-menu-renderer, #top-row, #actions-inner") || button.parentElement;
-        if (!host || host.querySelector(".ytb-ui-ryd-bar")) return;
+        if (!host) return;
+        const existing = host.querySelector(".ytb-ui-ryd-bar");
+        // The actions row is reused across navigations; a bar left over from a
+        // previous video must be replaced, not treated as current.
+        if (existing && existing.dataset.ytbRydFor === videoId) return;
+        if (existing) existing.remove();
         const total = (data.likes || 0) + (data.dislikes || 0);
         if (!total) return;
         const likePct = Math.round(((data.likes || 0) / total) * 100);
@@ -33582,6 +33808,7 @@ const Nr = [
         label.appendChild(To("span", null, format(data.likes || 0) + " likes"));
         label.appendChild(To("span", null, (100 - likePct) + "% dislike"));
         label.appendChild(To("span", null, format(data.dislikes || 0) + " dislikes"));
+        bar.dataset.ytbRydFor = videoId;
         bar.appendChild(track);
         bar.appendChild(label);
         host.appendChild(bar);
@@ -33589,7 +33816,7 @@ const Nr = [
       const load = (videoId) => {
         if (!videoId) return;
         const cached = cache.get(videoId);
-        if (cached) { render(cached); return; }
+        if (cached) { render(videoId, cached); return; }
         if (inFlight >= 2) return;
         inFlight++;
         YourTubeEngine.fetchJson("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId))
@@ -33597,7 +33824,7 @@ const Nr = [
             const data = result && result.ok ? result.json : null;
             if (!data || typeof data.dislikes !== "number") return;
             cache.set(videoId, data);
-            if (videoId === (ie.videoId && ie.videoId())) render(data);
+            if (videoId === (ie.videoId && ie.videoId())) render(videoId, data);
           })
           .catch(() => {})
           .then(() => { inFlight--; });
@@ -33642,8 +33869,13 @@ const Nr = [
       let titleAppliedFor = "";
       let originalTitle = "";
       let previousDocTitle = "";
+      let revertedFor = "";
+      let applyAlive = true;
       const thumbOriginals = new Map();
       const applyTitle = (videoId, data) => {
+        // Never write a late response into a different video (or after teardown).
+        if (!applyAlive || revertedFor === videoId) return;
+        if (ie.videoId && ie.videoId() !== videoId) return;
         if (!S.deArrowTitles || !data || !Array.isArray(data.titles) || !data.titles.length) return;
         if (titleAppliedFor === videoId) return;
         const best = data.titles.find((entry) => entry && !entry.original && entry.title) || null;
@@ -33665,13 +33897,17 @@ const Nr = [
             ev.stopPropagation();
             target.textContent = originalTitle;
             if (previousDocTitle) { try { document.title = previousDocTitle; } catch (_) {} }
-            titleAppliedFor = "";
+            // Keep the gate set so the next watch tick does not re-apply the
+            // community title the user just dismissed.
+            titleAppliedFor = videoId;
+            revertedFor = videoId;
             chip.remove();
           });
           heading.appendChild(chip);
         }
       };
       const applyThumb = (card, videoId, data) => {
+        if (!applyAlive || !card || !card.isConnected) return;
         if (!S.deArrowThumbs || !data || !Array.isArray(data.thumbnails) || !data.thumbnails.length) return;
         const best = data.thumbnails.find((entry) => entry && !entry.original && Number.isFinite(entry.timestamp)) || null;
         if (!best) return;
@@ -33731,11 +33967,14 @@ const Nr = [
         titleAppliedFor = "";
         originalTitle = "";
         previousDocTitle = "";
+        revertedFor = "";
         resetBudget();
         ctx.addTimeout(watchTick, 1500);
         ctx.addTimeout(cardScan, 2500);
       });
       Yt["dearrow"].push(() => {
+        // Stop late responses from writing into the page first.
+        applyAlive = false;
         // Restore the title, the document title and every replaced thumbnail.
         if (titleAppliedFor) {
           const heading = document.querySelector("ytd-watch-metadata h1, h1.ytd-watch-metadata, #title h1");
@@ -34413,13 +34652,18 @@ const Nr = [
         const name = nameInput.value.trim();
         if (!name) return;
         const store = YourTubeEngine.createStore("__yourtube_groups__", {});
+        let status = "ok";
         store.update((data) => {
-          if (Array.isArray(data[name])) return;
-          if (Object.keys(data).length >= 50) { pe("Group limit reached (50).", 2000, "info"); return; }
+          if (Array.isArray(data[name])) { status = "exists"; return; }
+          if (Object.keys(data).length >= 50) { status = "limit"; return; }
           data[name] = [];
         });
+        if (status === "limit") { pe("Group limit reached (50).", 2000, "info"); return; }
         nameInput.value = "";
-        pe("Group '" + name + "' created. Use 'Add to group' on a channel page.", 2600, "success");
+        pe(status === "exists"
+          ? "Group '" + name + "' already exists."
+          : "Group '" + name + "' created. Use 'Add to group' on a channel page.",
+          2600, status === "exists" ? "info" : "success");
       }));
       en.appendChild(row);
       const store = YourTubeEngine.createStore("__yourtube_groups__", {});
@@ -34484,20 +34728,34 @@ const Nr = [
             .then((response) => {
               const json = response && response.json;
               if (!json) return;
+              // The response can land after a navigation; only use it for the
+              // video it was requested for.
+              if (videoId !== (ie.videoId && ie.videoId())) return;
               const text = findSubscriberText(json, 0);
               if (!text) return;
               const host = document.querySelector("ytd-watch-metadata #owner, ytd-video-owner-renderer");
-              if (!host || host.querySelector(".ytb-ui-subs")) {
+              if (!host) {
                 // The owner block can render after the response; retry a few
                 // times instead of dropping the chip for this video.
-                if (!host && attempt < 4) ctx.addTimeout(() => loadSubs(videoId, attempt + 1), 1500);
+                if (attempt < 4) ctx.addTimeout(() => loadSubs(videoId, attempt + 1), 1500);
                 else appliedFor = "";
                 return;
               }
-              const chip = To("span", "ytb-ui-subs", text);
-              chip.style.cssText = "margin-left:8px;font-size:12px;color:#aaa";
-              chip.title = "Subscriber count, read from YouTube's own metadata";
-              host.appendChild(chip);
+              const chip = host.querySelector(".ytb-ui-subs");
+              if (chip) {
+                // The owner block is reused across navigations; refresh a stale
+                // chip instead of re-fetching forever.
+                if (chip.dataset.ytbSubsFor !== videoId) {
+                  chip.dataset.ytbSubsFor = videoId;
+                  chip.textContent = text;
+                }
+                return;
+              }
+              const fresh = To("span", "ytb-ui-subs", text);
+              fresh.dataset.ytbSubsFor = videoId;
+              fresh.style.cssText = "margin-left:8px;font-size:12px;color:#aaa";
+              fresh.title = "Subscriber count, read from YouTube's own metadata";
+              host.appendChild(fresh);
             })
             .catch(() => {});
         };
@@ -34704,14 +34962,19 @@ const Nr = [
         );
         if (!host || host.querySelector(".ytb-ui-add-group")) return;
         const addTo = (name) => {
+          let status = "ok";
           store.update((data) => {
             if (!Array.isArray(data[name])) {
-              if (Object.keys(data).length >= 50) { pe("Group limit reached (50).", 2000, "info"); return; }
+              if (Object.keys(data).length >= 50) { status = "limit"; return; }
               data[name] = [];
             }
-            if (!data[name].includes(handle) && data[name].length < 500) data[name].push(handle);
+            if (data[name].includes(handle)) { status = "duplicate"; return; }
+            if (data[name].length >= 500) { status = "full"; return; }
+            data[name].push(handle);
           });
-          pe("Added to '" + name + "'.", 1800, "success");
+          if (status === "limit") { pe("Group limit reached (50).", 2000, "info"); return; }
+          if (status === "full") { pe("This group is full (500 channels).", 2000, "info"); return; }
+          pe(status === "duplicate" ? "Already in '" + name + "'." : "Added to '" + name + "'.", 1800, status === "duplicate" ? "info" : "success");
         };
         const button = Oo("Add to group", () => {
           const names = Object.keys(store.get() || {});
@@ -34832,7 +35095,8 @@ const Nr = [
           return 0;
         };
         const sorted = cards.slice().sort((a, b) => {
-          if (mode === "date" || mode === "duration") return value(a) - value(b);
+          // Age ascending is newest first; duration and views descending.
+          if (mode === "date") return value(a) - value(b);
           return value(b) - value(a);
         });
         const fragment = document.createDocumentFragment();
@@ -35397,7 +35661,7 @@ const Nr = [
             }
           } catch (_) {}
           const _now = Date.now();
-          if (_missingStyle || (!_markers && _now - _lastMarkerReapply > 3e5)) {
+          if ((_missingStyle || !_markers) && _now - _lastMarkerReapply > 3e5) {
             _lastMarkerReapply = _now;
             h(
               "watchdog: re-applying features (" +
@@ -35406,6 +35670,15 @@ const Nr = [
             );
             try {
               xa.applyAll();
+            } catch (e) {}
+            try {
+              // Drop ids whose element did not come back, so a stale entry
+              // cannot wedge the watchdog into re-applying forever.
+              if (xa._styleIds) {
+                for (const _sid of Array.from(xa._styleIds)) {
+                  if (!document.getElementById(_sid)) xa._styleIds.delete(_sid);
+                }
+              }
             } catch (e) {}
             try {
               ft();

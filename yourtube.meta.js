@@ -22,6 +22,7 @@
 // @grant        GM_addStyle
 // @grant        GM_info
 // @connect      sponsor.ajay.app
+// @connect      returnyoutubedislikeapi.com
 // @connect      www.youtube.com
 // @connect      s.youtube.com
 // @connect      self

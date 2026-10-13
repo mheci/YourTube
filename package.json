@@ -1,0 +1,24 @@
+{
+  "name": "yourtube",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Client-side YouTube customization userscript with SponsorBlock integration, themes, feed filtering and playback tools",
+  "license": "Unlicense",
+  "scripts": {
+    "build": "node scripts/build-userscript.js",
+    "check": "node scripts/check.js && node scripts/check-release.js && node scripts/check-xray.js",
+    "audit:dashboard": "node scripts/audit-dashboard.cjs",
+    "audit:keys": "node scripts/audit-keys.cjs",
+    "audit:selectors": "node scripts/audit-selectors.cjs",
+    "test:unit": "node scripts/test-unit.js && node scripts/test-sponsorblock-parity.js && node scripts/test-resources.js && node scripts/test-ublock.js && node scripts/test-sponsorblock-privacy.js && node scripts/test-engine-pins.js && node scripts/test-bundle-pins.js && node scripts/test-regressions.js && node scripts/test-import-roundtrip.js",
+    "test": "npm run build && npm run check && npm run audit:dashboard && npm run test:unit && npm run test:engine && npm run test:boot",
+    "test:boot": "node scripts/harness-boot.js",
+    "test:engine": "node scripts/test-engine.js"
+  },
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

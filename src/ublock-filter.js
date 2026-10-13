@@ -67,6 +67,15 @@
           } catch (_) {}
         }
         if (!pathRegex) {
+          // Accept the literal form too (:matches-path(/watch)); dropping it
+          // silently loses real filter-list entries.
+          const literal = selector.match(/:matches-path\(([^)]+)\)/);
+          const body = literal && literal[1].trim();
+          if (body) {
+            try { pathRegex = new RegExp(escapeRegex(body), "i"); } catch (_) {}
+          }
+        }
+        if (!pathRegex) {
 
         return null;
       }
@@ -107,6 +116,11 @@
         stripped.push(selector.slice(last));
         selector = stripped.join('').trim();
         if (!selector) selector = '*';
+        if (!hasTextPatterns.length && !hasTextSelector) {
+          // Every :has-text() argument failed to compile; a filter with no
+          // compiled pattern would be re-scanned forever as a no-op.
+          return null;
+        }
       }
 
       let hasChildSelector = null;
@@ -147,7 +161,7 @@
     const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const MAX_REGEX_SOURCE = 300;
-    const MAX_SELECTOR_LENGTH = 2000;
+    const MAX_SELECTOR_LENGTH = 500;
     const MAX_TEXT_SCAN = 4000;
     const MAX_CANDIDATES = 5000;
 

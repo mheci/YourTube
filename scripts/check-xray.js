@@ -29,7 +29,11 @@ function stripComments(src) {
 let violations = 0;
 for (const file of TARGETS) {
   let raw;
-  try { raw = fs.readFileSync(file, "utf8"); } catch (_) { continue; }
+  try { raw = fs.readFileSync(file, "utf8"); } catch (err) {
+    violations++;
+    console.error(`XRAY VIOLATION ${path.relative(ROOT, file)}: unreadable target (${err && err.message ? err.message : err})`);
+    continue;
+  }
   const src = stripComments(raw);
   RE_ASSIGN.lastIndex = 0;
   let m;

@@ -16,7 +16,7 @@ const files = ["yourtube.user.js", "yourtube.meta.js"]
   .concat(
     fs
       .readdirSync(path.join(root, "scripts"))
-      .filter((f) => f.endsWith(".js") && f !== "check.js")
+      .filter((f) => (f.endsWith(".js") || f.endsWith(".cjs")) && f !== "check.js")
       .map((f) => path.join("scripts", f)),
   );
 

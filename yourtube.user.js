@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.1.0
+// @version      1.1.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -1509,11 +1509,8 @@ algoBlockChannels: "",
     if (!e || "object" != typeof e) return {};
     const t = {};
 
-    for (const [a, v] of Object.entries(e)) {
-      if (a === "__proto__" || a === "constructor" || a === "prototype") continue;
-      t[a] = v;
-    }
     for (const [a, n] of Object.entries(s)) {
+      if (a === "__proto__" || a === "constructor" || a === "prototype") continue;
       if (!(a in e)) continue;
       const r = e[a],
         o = typeof n;
@@ -1539,6 +1536,16 @@ algoBlockChannels: "",
               : r;
     }
     return t;
+  }
+  function _ytSanitizeHistoryRow(e) {
+    const row = Object.assign({}, e);
+    if (typeof row.title === "string") row.title = row.title.slice(0, 300);
+    if (typeof row.channel === "string") row.channel = row.channel.slice(0, 200);
+    for (const k of ["duration", "lastPosition", "progress", "lastWatched", "totalWatchTime"]) {
+      const n = Number(row[k]);
+      row[k] = isFinite(n) ? n : 0;
+    }
+    return row;
   }
   function q() {
     try {
@@ -2383,6 +2390,12 @@ algoBlockChannels: "",
           return true;
         }
 
+        // A write that lands before load() has merged the stored record would
+        // persist defaults over real data, so wait for the initial read first.
+        if (this._loadPromise && !this._loaded) {
+          try { await this._loadPromise; } catch (_) {}
+        }
+
         const snapshot = this._data;
         this._flushes++;
         try {
@@ -2790,6 +2803,9 @@ algoBlockChannels: "",
         if (!entry) return null;
         const element = entry.ref && typeof entry.ref.deref === "function" ? entry.ref.deref() : null;
         if (!element) {
+          if (this._registry && entry.token) {
+            try { this._registry.unregister(entry.token); } catch (_) {}
+          }
           this._map.delete(key);
           this._cleaned++;
           return null;
@@ -3129,8 +3145,13 @@ algoBlockChannels: "",
 
       if (getDocument() && typeof document.addEventListener === "function") {
         document.addEventListener("visibilitychange", () => {
-          if (isHidden()) stop();
-          else poke();
+          // Tasks with pauseHidden: false (the sleep timer) must keep ticking
+          // while the tab is hidden, so only stop when nothing can run.
+          if (isHidden()) {
+            if (!hasRunnableTask()) stop();
+          } else {
+            poke();
+          }
         }, true);
       }
 
@@ -5492,21 +5513,6 @@ algoBlockChannels: "",
         return Categories.filter(c => S["sb_" + c.id + "_en"]).map(c => c.id);
       };
 
-      const getActionTypes = () => {
-        const types = new Set();
-        const cats = getEnabledCategories();
-        Categories.forEach(c => {
-          if (!cats.includes(c.id)) return;
-          const act = S["sb_" + c.id + "_act"] || "skip";
-          if (act === "skip" || act === "mute") types.add("skip");
-          if (act === "mute") types.add("mute");
-          if (c.id === "poi_highlight" && act !== "disabled") types.add("poi");
-          if (c.id === "chapter" && act !== "disabled") types.add("chapter");
-          if (c.id === "exclusive_access" && act !== "disabled") types.add("full");
-        });
-        return Array.from(types);
-      };
-
       const getActionOptions = (categoryId) => {
         const options = {
           skip: Actions.skip,
@@ -5575,7 +5581,7 @@ algoBlockChannels: "",
       };
 
       return {
-        getEnabledCategories, getActionTypes, getCategoryAction, getActionOptions,
+        getEnabledCategories, getCategoryAction, getActionOptions,
         getConfigKey, getRenderKey, getServerUrl,
         onlySkipIfVip, incognito, skipCountdown, betterBeAwareCats, showInSeekbar,
       };
@@ -5857,12 +5863,7 @@ algoBlockChannels: "",
         if (usePrivacy) {
           fullHash = await hashFull(videoId);
           prefix = fullHash ? fullHash.slice(0, PRIVACY_HASH_LENGTH) : null;
-          if (!prefix) {
-
-            try { if (typeof u === "function") u("SB privacy lookup skipped: SHA-256 unavailable"); } catch (_) {}
-            return [];
-          }
-          prefix = prefix.slice(0, PRIVACY_HASH_LENGTH);
+          if (!prefix) return [];
         }
         const plans = [];
         const pushPlan = (id, url, privacy = false) => plans.push({ id, url, privacy });
@@ -5974,13 +5975,18 @@ algoBlockChannels: "",
 
         const survivors = normalized.filter((s) => s.segment[1] > s.segment[0]);
 
-        for (let i = 0; i < survivors.length - 1; i++) {
-          const cur = survivors[i], next = survivors[i + 1];
-          if (next.segment[0] < segmentEndFor(cur)) next.segment[0] = segmentEndFor(cur);
+        // Clamp each start to the furthest end seen so far. Sweeping avoids the
+        // per-pair drift where a covered segment drags later ones forward.
+        let maxEnd = 0;
+        const clamped = [];
+        for (const seg of survivors) {
+          if (seg.segment[0] < maxEnd) seg.segment[0] = maxEnd;
+          if (seg.segment[1] > seg.segment[0]) clamped.push(seg);
+          maxEnd = Math.max(maxEnd, seg.segment[1]);
         }
         return {
 
-          segments: survivors.filter((s) => s.segment[1] > s.segment[0]),
+          segments: clamped,
           matched: extracted.matched,
           prefixed: extracted.prefixed,
           valid: extracted.valid,
@@ -6118,12 +6124,10 @@ algoBlockChannels: "",
       };
 
       const fetchWithRetry = async (videoId, abortSignal) => {
-        let lastError = null;
         for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
           try {
             return await fetchSegments(videoId, abortSignal);
           } catch (err) {
-            lastError = err;
             if (err && err.name === "AbortError" && abortSignal && abortSignal.aborted) throw err;
 
             const fatal = err && (err.status === 400 || err.status === 0 || err.status === 429);
@@ -6140,8 +6144,6 @@ algoBlockChannels: "",
             }
           }
         }
-        Metrics.recordApiError();
-        throw lastError;
       };
 
       const requestResponse = async (url, opts = {}, abortSignal = null) => {
@@ -6591,7 +6593,6 @@ algoBlockChannels: "",
       };
     })();
 
-    const segmentEndFor = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
     const Player = (() => {
       const segmentEndOf = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
       const isTimeInSegment = (seg, time) => time >= seg.segment[0] && time < segmentEndOf(seg);
@@ -6651,6 +6652,7 @@ algoBlockChannels: "",
         clearCountdownOverlay();
         const videoEl = ie.el();
         if (!videoEl) return;
+        const armedForVideo = State.videoId;
         const cd = Settings.skipCountdown();
         const remaining = Math.max(1, Math.min(5, Math.round(cd.time)));
         let overlay = document.getElementById("YourTube-sb-countdown");
@@ -6675,6 +6677,9 @@ algoBlockChannels: "",
         State.countdownTaskId = setTimeout(() => {
           State.countdownTaskId = 0;
           try { overlay.remove(); } catch (_) {}
+          // The video element is reused across navigations; only seek when the
+          // timer is still armed for the video it was scheduled on.
+          if (!armedForVideo || State.videoId !== armedForVideo) return;
           try { videoEl.currentTime = targetTime; } catch (_) {}
         }, remaining * 1000);
       };
@@ -6756,10 +6761,14 @@ algoBlockChannels: "",
 
         if (action === "skip") {
 
-          if (Settings.betterBeAwareCats().has(seg.category) && !State.betterBeAwareWarned.has(seg.UUID)) {
-            State.betterBeAwareWarned.add(seg.UUID);
-            const meta = Categories.find(c => c.id === seg.category);
-            try { pe("Heads up — " + (meta ? meta.label : seg.category) + " segment", 2600, "info"); } catch (_) {}
+          if (Settings.betterBeAwareCats().has(seg.category)) {
+            // "Warn instead of skipping" means these categories are never
+            // skipped; the toast is shown once per segment per video.
+            if (!State.betterBeAwareWarned.has(seg.UUID)) {
+              State.betterBeAwareWarned.add(seg.UUID);
+              const meta = Categories.find(c => c.id === seg.category);
+              try { pe("Heads up — " + (meta ? meta.label : seg.category) + " segment", 2600, "info"); } catch (_) {}
+            }
             return;
           }
 
@@ -6809,6 +6818,18 @@ algoBlockChannels: "",
         State.activeSegmentIndex = -1;
         resetMuteState();
         clearCountdownOverlay();
+        // A manual seek into a segment that was already skipped is a deliberate
+        // re-watch: keep it from being yanked forward again for this pass.
+        try {
+          const videoEl = ie.el();
+          if (videoEl) {
+            const t = videoEl.currentTime;
+            for (const seg of State.segments) {
+              if (!seg.UUID || !State.processedUUIDs.has(seg.UUID)) continue;
+              if (t >= seg.segment[0] && t < segmentEndOf(seg)) State.undoneUUIDs.add(seg.UUID);
+            }
+          }
+        } catch (_) {}
       };
 
       const handleRateChange = () => {
@@ -6822,6 +6843,10 @@ algoBlockChannels: "",
         State.undoneUUIDs.clear();
         State.undoUntilTs = 0;
         clearCountdownOverlay();
+        if (typeof document.getElementById === "function") {
+          const hud = document.getElementById("YourTube-sb-hud");
+          if (hud) hud.className = "";
+        }
       };
 
       const handleEvent = (ev) => {
@@ -7060,6 +7085,7 @@ algoBlockChannels: "",
       const showFloatingHUD = (seg, savedSec) => {
         if (!S.sbToast) return;
         clearTimeout(hudTimer);
+        const hudVideoId = State.videoId;
 
         let hud = document.getElementById("YourTube-sb-hud");
         if (!hud) {
@@ -7088,6 +7114,7 @@ algoBlockChannels: "",
         hud.className = "show";
 
         hud.querySelector("#hud-undo-btn").addEventListener("click", () => {
+          if (State.videoId !== hudVideoId) { hud.className = ""; return; }
           const videoEl = ie.el();
           if (videoEl) {
             videoEl.currentTime = seg.segment[0];
@@ -7112,11 +7139,13 @@ algoBlockChannels: "",
             result.ok ? 1500 : 3200, result.ok ? "success" : "error");
         };
         hud.querySelector("#hud-vote-up").addEventListener("click", () => {
+          if (State.videoId !== hudVideoId) { hud.className = ""; return; }
           API.voteOnSegment(seg.UUID, 1).then((r) => reportVote("Upvote", r));
           hud.className = "";
         });
 
         hud.querySelector("#hud-vote-down").addEventListener("click", () => {
+          if (State.videoId !== hudVideoId) { hud.className = ""; return; }
           API.voteOnSegment(seg.UUID, 0).then((r) => reportVote("Downvote", r));
           hud.className = "";
         });
@@ -7318,9 +7347,9 @@ algoBlockChannels: "",
                 if (returned.length) {
                   remember(returned);
                 } else {
-                  SponsorBlockEngine.invalidate(videoId);
+                  // refreshCurrent already invalidates and re-inits, so calling
+                  // invalidate first would force two full lookups.
                   SponsorBlockEngine.refreshCurrent && SponsorBlockEngine.refreshCurrent();
-
                   setTimeout(() => API.rememberOwnedSegments(videoId, known), 2500);
                 }
                 closeSubmissionEditor();
@@ -7523,8 +7552,15 @@ algoBlockChannels: "",
       State.segments = [];
       State.processedUUIDs.clear();
       State.undoneUUIDs.clear();
+      State.betterBeAwareWarned.clear();
       State.undoUntilTs = 0;
       State.activeSegmentIndex = -1;
+      // A countdown armed for the previous video must not fire on this one.
+      if (State.countdownTaskId) { try { clearTimeout(State.countdownTaskId); } catch (_) {} State.countdownTaskId = 0; }
+      if (typeof document.getElementById === "function") {
+        const countdownOverlay = document.getElementById("YourTube-sb-countdown");
+        if (countdownOverlay) { try { countdownOverlay.remove(); } catch (_) {} }
+      }
       UI.clearMarks();
 
       if (!videoId || !VIDEO_ID_RE.test(String(videoId))) {
@@ -7585,8 +7621,9 @@ algoBlockChannels: "",
         return canCommit(videoId, generation) ? State.segments.slice() : [];
       } catch (err) {
         if (err && err.name !== "AbortError") {
+          // The API layer already counted transport failures; this path only
+          // logs, so the metric is not double-counted here.
           try { h("[SB] init error for " + videoId + ":", err); } catch (_) {}
-          Metrics.recordApiError();
         }
         if (canCommit(videoId, generation)) {
 
@@ -8048,7 +8085,6 @@ algoBlockChannels: "",
   let _fwTpl = null;
   function _fwTplSet(u) {
     try {
-      try { (window.__fwTplDbg = window.__fwTplDbg || []).push("SET " + String(u).slice(0, 90)); } catch (e) {}
       const q = new URL(String(u || ""), location.origin).searchParams;
       _fwTpl = {
         ei: q.get("ei") || "",
@@ -8101,7 +8137,9 @@ algoBlockChannels: "",
     try {
       const h = (ie.el() || {}).videoHeight || 0;
       const m = { 2160: 313, 1440: 271, 1080: 248, 720: 247, 480: 244, 360: 243, 240: 242 };
-      for (const k of Object.keys(m)) if (h >= +k) return m[k];
+      // Integer-like keys iterate ascending, so sort descending to map the
+      // height to the first bucket at or below it.
+      for (const k of Object.keys(m).sort((a, b) => b - a)) if (h >= +k) return m[k];
     } catch (e) {}
     return 0;
   }
@@ -8178,7 +8216,6 @@ algoBlockChannels: "",
         "mt=" + c,
         "st=" + Math.max(0, c - s),
         "et=" + c,
-        "ns=yt",
         "lct=" + c,
         "lsct=" + c,
         "referrer=" +
@@ -8323,10 +8360,14 @@ algoBlockChannels: "",
     return false;
   };
 
-  function _fwDisarm() {
+  function _fwDisarm(expectedVideoId) {
     try {
       const pw = _fwPageWin();
-      if (pw && pw.__fwCtl) pw.__fwCtl.armed = false;
+      if (!pw || !pw.__fwCtl) return;
+      // Only disarm the campaign this call belongs to: a newer one may have
+      // re-armed the controller in the meantime.
+      if (expectedVideoId && pw.__fwCtl.videoId && pw.__fwCtl.videoId !== expectedVideoId) return;
+      pw.__fwCtl.armed = false;
     } catch (e) {}
   }
   function _fwArm(len, videoId, cpn) {
@@ -8389,7 +8430,14 @@ algoBlockChannels: "",
             try {
               const s = typeof u === "string" ? u : (u && u.url) || "";
               capture(s);
-              if (armed()) { if (typeof u === "string" && isT(u)) u = rw(u); else if (u && u.url && isT(u.url)) u = rw(u.url); }
+              if (armed()) {
+                if (typeof u === "string" && isT(u)) u = rw(u);
+                else if (u && u.url && isT(u.url)) {
+                  const next = rw(u.url);
+                  // Keep method, body and headers: only the URL is rewritten.
+                  try { u = new Request(next, u); } catch (e) { u = next; }
+                }
+              }
             } catch (e) {}
             return of(u, o);
           });
@@ -8433,6 +8481,7 @@ algoBlockChannels: "",
     return null;
   }
   let jt = !1,
+    _fwRunSeq = 0,
     zt = 0;
   const Wt = new Map();
   function Ut() {
@@ -8473,9 +8522,11 @@ algoBlockChannels: "",
       return void pe("Live streams can't be marked as watched.", 2000, "info");
     }
     jt = !0;
+    const runToken = ++_fwRunSeq;
 
     const _fwSafety = setTimeout(() => {
-      try { if (jt) jt = !1; } catch (_) {}
+      // Only release the guard for this run; a newer campaign owns it now.
+      try { if (jt && runToken === _fwRunSeq) jt = !1; } catch (_) {}
     }, 60000);
     try { _fwSafety.unref && _fwSafety.unref(); } catch (_) {}
 
@@ -8528,7 +8579,7 @@ algoBlockChannels: "",
   }
 
   function _fwParsePage() {
-    const out = { apiKey: "", ver: "", hl: "en", gl: "US", visitor: "", ei: "", sts: 0, pr: null, cpn: "" };
+    const out = { apiKey: "", ver: "", hl: "", gl: "", visitor: "", ei: "", sts: 0, pr: null, cpn: "" };
     try {
       const scripts = document.querySelectorAll("script:not([src])");
       for (let sIdx = 0; sIdx < scripts.length && sIdx < 60; sIdx++) {
@@ -8553,8 +8604,8 @@ algoBlockChannels: "",
     try {
       const t = _t();
       if (!out.ver) out.ver = t.ver || "2.20250101.00.00";
-      if (!out.hl) out.hl = t.hl;
-      if (!out.gl) out.gl = t.gl;
+      if (!out.hl) out.hl = t.hl || "en";
+      if (!out.gl) out.gl = t.gl || "US";
       if (!out.visitor) out.visitor = t.visitorData;
       if (!out.ei) out.ei = t.ei;
     } catch (e) {}
@@ -8686,6 +8737,7 @@ algoBlockChannels: "",
       volume: (function () { try { return Math.round((ie.el().volume || 1) * 100); } catch (e) { return 100; } })(),
       muted: (function () { try { return ie.el().muted ? 1 : 0; } catch (e) { return 0; } })(),
     };
+    const beaconPromises = [];
     const fire = (u2, params) => {
       try {
         let sUrl = String(u2 || "");
@@ -8698,13 +8750,21 @@ algoBlockChannels: "",
         const o2 = Object.assign({}, clientBlock, params || {});
         for (const k of ["cmt", "et", "st", "mt", "rt", "lact", "state", "c", "cver", "cbr", "cbrver", "cos", "cosver", "hl", "cr", "mos", "fmt", "volume", "muted"])
           if (null != o2[k]) sUrl = Za(sUrl, k, o2[k]);
-        GM_xmlhttpRequest({ method: "GET", url: sUrl, timeout: 8000 });
+        beaconPromises.push(new Promise((resolve) => {
+          try {
+            GM_xmlhttpRequest({
+              method: "GET", url: sUrl, timeout: 8000,
+              onload: resolve, onerror: resolve, ontimeout: resolve,
+            });
+          } catch (_) { resolve(); }
+        }));
         stats.beacons++;
       } catch (e) {}
     };
     const rtNow = () => { try { return (performance.now() / 1000).toFixed(3); } catch (_) { return String(Math.max(1, Math.floor(DU))); } };
     for (let attempt = 1; attempt <= 4 && !stats.verified; attempt++) {
       stats.attempts = attempt;
+      beaconPromises.length = 0;
       const rtBase = cur0 + 1 + Math.random();
       fire(track.playbackUrl, { cmt: 0, rt: rtNow(), lact: 1200 + Math.floor(900 * Math.random()) });
       fire(track.atrUrl, { cmt: 0, rt: rtNow(), lact: 700 });
@@ -8719,6 +8779,9 @@ algoBlockChannels: "",
       fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
       fire(track.watchtimeUrl, { cmt: DU, et: DU, st: Math.max(0, DU - 1), mt: DU, rt: (rtBase + 2).toFixed(3), lact: 30, state: "ended" });
       fire(track.qoeUrl, { cmt: DU, rt: rtNow() });
+      // Let the beacons settle before asking the account history whether they
+      // landed; otherwise the first verification always races them.
+      try { await Promise.allSettled(beaconPromises); } catch (_) {}
       const has = await _fwHistoryHas(videoId, page);
       if (has === null) { stats.verified = "skipped"; break; }
       if (has === true) { stats.verified = true; break; }
@@ -8735,16 +8798,19 @@ algoBlockChannels: "",
           : "Force Watched: campaign complete, history check pending", 3400, stats.verified === true ? "success" : "info");
     } catch (e) {}
     try { u("fw advanced " + JSON.stringify(stats) + " for " + videoId + " (ei " + (t0.ei || "none") + ")"); } catch (e) {}
-    try { _fwDisarm(); } catch (e) {}
+    try { _fwDisarm(videoId); } catch (e) {}
     return stats;
   }
 
     if (!1 !== S.forceWatchedAccountHistory) {
       Promise.resolve().then(() => {
-        _fwAdvanced(a, n).then(() => { try { jt = !1; } catch (_) {} }, (er) => { try { h("fw advanced", er); } catch (_) {} try { jt = !1; } catch (_) {} });
+        _fwAdvanced(a, n).then(
+          () => { try { if (runToken === _fwRunSeq) jt = !1; } catch (_) {} },
+          (er) => { try { h("fw advanced", er); } catch (_) {} try { if (runToken === _fwRunSeq) jt = !1; } catch (_) {} },
+        );
       });
     } else if (!1 === S.forceWatchedLocalHistory) {
-      try { jt = !1; } catch (_) {}
+      try { if (runToken === _fwRunSeq) jt = !1; } catch (_) {}
       try { pe("Force Watched: turn on account history and/or local history for this to do anything.", 3200, "info"); } catch (_) {}
     }
   }
@@ -10614,12 +10680,14 @@ algoBlockChannels: "",
                           const n = new FileReader();
                           ((n.onload = (t) => {
                             try {
-                              const a = JSON.parse(t.target.result),
-                                n = a.history || (Array.isArray(a) ? a : []);
+                              const rawText = String(t.target.result || "");
+                              if (rawText.length > 8388608) throw new Error("import too large");
+                              const a = JSON.parse(rawText),
+                                n = (a.history || (Array.isArray(a) ? a : [])).slice(-5000);
                               Promise.all(
                                 n
                                   .filter((e) => e && e.videoId)
-                                  .map((e) => Be(e)),
+                                  .map((e) => Be(_ytSanitizeHistoryRow(e))),
                               ).then(() => {
                                 (pe(
                                   "Imported " + n.length + " entries",
@@ -10957,6 +11025,10 @@ algoBlockChannels: "",
       let selector = raw.slice(hashIdx + 2).trim();
       if (!selector) return null;
 
+      // Procedural selector parsing below uses bounded regexes; a crafted line
+      // far longer than any real filter would only waste cycles, so drop it.
+      if (selector.length > MAX_SELECTOR_LENGTH) return null;
+
       const domains = [];
       const excludedDomains = [];
       if (domain) {
@@ -10979,7 +11051,10 @@ algoBlockChannels: "",
 
       let hasTextSelector = null;
       {
-        const scoped = /:has\(:is\(([^)]+)\):has-text\(((?:\\.|[^)])*)\)\)/.exec(selector);
+        // The two alternatives must stay mutually exclusive: if both could
+        // match a backslash the engine backtracks exponentially on a line
+        // that never closes its parentheses.
+        const scoped = /:has\(:is\(([^)]+)\):has-text\(((?:\\[\s\S]|[^\\)])*)\)\)/.exec(selector);
         if (scoped) {
           hasTextSelector = scoped[1].trim();
           selector = selector.replace(scoped[0], "").trim() || "*";
@@ -11046,10 +11121,16 @@ algoBlockChannels: "",
       let hasChildSelector = null;
       if (!supportsHas && selector.indexOf(":has(") >= 0) {
         const hasMatch = /:has\(([^)]+)\)/.exec(selector);
-        if (hasMatch && hasMatch[1].trim()) {
-          hasChildSelector = hasMatch[1].trim();
+        const body = hasMatch ? hasMatch[1].trim() : "";
+        // A body with parentheses was truncated by the match above (nested
+        // :has/:is forms); building a selector from it would only throw on
+        // every candidate, so skip the filter instead.
+        if (body && !/[()]/.test(body)) {
+          hasChildSelector = body;
           selector = selector.replace(/:has\([^)]+\)/, "").trim() || "*";
           isProcedural = true;
+        } else if (body) {
+          return null;
         }
       }
 
@@ -11075,6 +11156,7 @@ algoBlockChannels: "",
     const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const MAX_REGEX_SOURCE = 300;
+    const MAX_SELECTOR_LENGTH = 2000;
     const MAX_TEXT_SCAN = 4000;
     const MAX_CANDIDATES = 5000;
 
@@ -26532,7 +26614,6 @@ const Nr = [
   }
   function Uo() {
 
-    let _dashAttempted = false;
     const _dashBuild = () => {
       if (!document.body) {
 
@@ -26544,8 +26625,6 @@ const Nr = [
         else setTimeout(_retryOpen, 120);
         return;
       }
-      _dashAttempted = true;
-      wo = wo || null;
       (function () {
         (!(function () {
           if (document.getElementById("ytb-dash-style")) return;
@@ -26874,7 +26953,7 @@ const Nr = [
       try { m("dashboard build", _dashErr1); } catch (_) {}
       try { console.error("[YourTube] dashboard build failed, retrying:", _dashErr1); } catch (_) {}
       try {
-        if (!_dashAttempted || true) _dashBuild();
+        _dashBuild();
       } catch (_dashErr2) {
         try { wo && wo.remove(); } catch (_) {}
         wo = null;
@@ -26943,6 +27022,7 @@ const Nr = [
           ((a.onload = async (e) => {
             try {
               const text = String(e.target.result || "");
+              if (text.length > 8388608) throw new Error("import too large");
               let jsonText = text;
               if (
                 text.slice(0, 5) === "ytz1:" &&
@@ -26969,7 +27049,7 @@ const Nr = [
                           "string" == typeof e.videoId &&
                           e.videoId,
                       )
-                      .map((e) => Be(e)),
+                      .map((e) => Be(_ytSanitizeHistoryRow(e))),
                   )),
                 Y(),
                 ue(),
@@ -28222,10 +28302,6 @@ const Nr = [
         try { s.flush(); } catch (_) {}
       }
     };
-    const whenIdle = (fn, timeout) => {
-      if (typeof requestIdleCallback === "function") requestIdleCallback(fn, { timeout: timeout || 2000 });
-      else setTimeout(fn, 1);
-    };
     const inflight = new Map();
     const dedup = async (key, fn) => {
       if (inflight.has(key)) return inflight.get(key);
@@ -28261,7 +28337,12 @@ const Nr = [
           } catch (_) { resolve({ ok: false, status: 0, json: null, text: "" }); }
         });
       }
-      return fetch(url, { method: o.method, headers: o.headers, body: o.body || undefined })
+      // AbortSignal.timeout keeps a hung connection from stalling callers that
+      // rely on fetchJson's timeout contract; engines without it simply skip.
+      const signal = (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function")
+        ? (() => { try { return AbortSignal.timeout(o.timeout); } catch (_) { return undefined; } })()
+        : undefined;
+      return fetch(url, { method: o.method, headers: o.headers, body: o.body || undefined, signal })
         .then(async (r) => {
           const text = await r.text().catch(() => "");
           let j = null;
@@ -28286,7 +28367,7 @@ const Nr = [
       attempt(attempts, 0);
       ctx.onNav(() => attempt(attempts, delayMs));
     };
-    return { injectCSS, createStore, flushStores, whenIdle, dedup, innerTube, fetchJson, scheduleOnReady, log, CSS };
+    return { injectCSS, createStore, flushStores, dedup, innerTube, fetchJson, scheduleOnReady, log, CSS };
   })();
 
   const YourTubeDiscovery = (() => {
@@ -28490,8 +28571,14 @@ const Nr = [
         },
       };
     };
+    let sharedHostCtx = null;
     const discoveryHost = (ctx) => {
-      if (!sharedHost) sharedHost = createDiscoveryHostCore(ctx);
+      // Rebuild when the card is re-enabled with a fresh lifecycle, so the
+      // host never schedules work through a disposed context.
+      if (!sharedHost || sharedHostCtx !== ctx) {
+        sharedHost = createDiscoveryHostCore(ctx);
+        sharedHostCtx = ctx;
+      }
       return sharedHost;
     };
     return { createVideoRow, scoreVideo, setStatus, discoveryHost };
@@ -28506,6 +28593,7 @@ const Nr = [
       }
       return audioCtx;
     };
+    const entryFor = (video) => (video ? perVideo.get(video) || null : null);
     const analyserFor = (video) => {
       if (!video) return null;
       const existing = perVideo.get(video);
@@ -28513,6 +28601,21 @@ const Nr = [
       const ctx = getAudioCtx();
       if (!ctx) return null;
       try {
+        // If the volume boost already routed this element, join its chain
+        // instead of asking createMediaElementSource for the same element twice.
+        const boostEntry = _ytAudioGraphs.get(video);
+        if (boostEntry && boostEntry.ctx && boostEntry.comp && boostEntry.source) {
+          const analyser = boostEntry.ctx.createAnalyser();
+          analyser.fftSize = 2048;
+          analyser.smoothingTimeConstant = 0.75;
+          try { boostEntry.comp.disconnect(); } catch (_) {}
+          boostEntry.comp.connect(analyser);
+          analyser.connect(boostEntry.ctx.destination);
+          try { if (boostEntry.ctx.state === "suspended") boostEntry.ctx.resume(); } catch (_) {}
+          const joined = { ctx: boostEntry.ctx, source: boostEntry.source, analyser, stream: null, rerouted: true, boostComp: boostEntry.comp, buf: new Uint8Array(analyser.frequencyBinCount), resumeHandler: null };
+          perVideo.set(video, joined);
+          return joined;
+        }
         let source = null;
         let stream = null;
         let rerouted = false;
@@ -28583,10 +28686,20 @@ const Nr = [
         entry.resumeHandler = null;
       }
       if (entry.rerouted) {
+        if (entry.boostComp) {
+          // The analyser was spliced into the boost chain; hand the output back
+          // to the boost graph on the way out.
+          try { entry.analyser.disconnect(); } catch (_) {}
+          try { entry.boostComp.connect(entry.ctx.destination); } catch (_) {}
+        } else {
 
-        try { entry.source.disconnect(); } catch (_) {}
-        try { entry.source.connect(entry.ctx.destination); } catch (_) {}
-        try { entry.analyser.disconnect(); } catch (_) {}
+          try { entry.source.disconnect(); } catch (_) {}
+          try { entry.source.connect(entry.ctx.destination); } catch (_) {}
+          try { entry.analyser.disconnect(); } catch (_) {}
+        }
+        // Drop the entry too: a cached analyser that is already disconnected
+        // would make readEnergy report silence after a re-enable.
+        perVideo.delete(video);
         return;
       }
       try { entry.source.disconnect(); } catch (_) {}
@@ -28600,36 +28713,12 @@ const Nr = [
       readEnergy,
       getAudioCtx,
       release,
+      entryFor,
       stats: () => ({ videos: perVideo.size, ctxActive: !!(audioCtx && audioCtx.state === "running") }),
     };
   })();
 
   const YourTubeSearch = (() => {
-    const REMIX_TEMPLATES = [
-      { label: "Under 4 min", sp: "EgIYAQ%3D%3D", desc: "Short" },
-      { label: "4-20 min", sp: "EgIYAg%3D%3D", desc: "Medium" },
-      { label: "Over 20 min", sp: "EgIYAw%3D%3D", desc: "Long" },
-      { label: "This week", sp: "EgIIAw%3D%3D", desc: "Recent" },
-      { label: "This month", sp: "EgIIBA%3D%3D", desc: "Month" },
-      { label: "This year", sp: "EgIIBQ%3D%3D", desc: "Year" },
-      { label: "HD", sp: "EgIgAQ%3D%3D", desc: "HD" },
-      { label: "Subtitles", sp: "EgIoAQ%3D%3D", desc: "CC" },
-      { label: "Creative Commons", sp: "EgIwAQ%3D%3D", desc: "CC" },
-      { label: "4K", sp: "EgH4AQE%3D", desc: "4K" },
-      { label: "HDR", sp: "EgPIAQE%3D", desc: "HDR" },
-      { label: "Live", sp: "EgJAAQ%3D%3D", desc: "Live" },
-    ];
-    const vibeToParams = (query) => {
-      const q = (query || "").toLowerCase();
-      const params = new URLSearchParams();
-      if (/calm|relax|chill/.test(q)) params.set("sp", "EgIYAw%3D%3D");
-      if (/short|quick|brief/.test(q)) params.set("sp", "EgIYAQ%3D%3D");
-      if (/recent|new|latest/.test(q)) params.set("sp", "EgIIAw%3D%3D");
-      if (/live|streaming/.test(q)) params.set("sp", "EgJAAQ%3D%3D");
-      if (/hd|1080|4k/.test(q)) params.set("sp", "EgIgAQ%3D%3D");
-      if (/subtitle|caption/.test(q)) params.set("sp", "EgIoAQ%3D%3D");
-      return params;
-    };
     const analyzeCredibility = (card) => {
       const meta = card.querySelector("#metadata-line");
       if (!meta) return null;
@@ -28644,7 +28733,7 @@ const Nr = [
       }
       let age = null;
       if (timeMatch) {
-        const num = parseInt(timeMatch[1]);
+        const num = parseInt(timeMatch[1], 10) || 0;
         const unit = timeMatch[2];
         age = unit === "year" ? num * 365 : unit === "month" ? num * 30 : unit === "week" ? num * 7 : num;
       }
@@ -28715,7 +28804,7 @@ const Nr = [
       if (!response || !response.ok || !response.json) return [];
       return parseSearchVideos(response.json);
     };
-    return { REMIX_TEMPLATES, vibeToParams, analyzeCredibility, parseSearchVideos, parseCount, parseAgoMs, parseDurationSec, search };
+    return { analyzeCredibility, parseSearchVideos, parseCount, parseAgoMs, parseDurationSec, search };
   })();
 
   const YourTubeSession = (() => {
@@ -28723,6 +28812,19 @@ const Nr = [
     const collectionsStore = YourTubeEngine.createStore("__yourtube_collections__", []);
     const budgetStore = YourTubeEngine.createStore("__yourtube_budget__", { usedSec: 0, budgetMin: 60, date: "" });
 
+    // Keep the genome bounded: scoring only reads the top entries, and an
+    // unbounded map would be re-serialized on every store write.
+    const pruneCountMap = (map, cap) => {
+      const keys = Object.keys(map);
+      if (keys.length <= cap) return;
+      keys.sort((a, b) => map[b] - map[a]).slice(cap).forEach((k) => { delete map[k]; });
+    };
+    const pruneGenome = (d) => {
+      pruneCountMap(d.topics, 500);
+      pruneCountMap(d.channels, 300);
+      const handles = Object.keys(d.handles || {});
+      if (handles.length > 300) handles.slice(300).forEach((k) => { delete d.handles[k]; if (d.channelNames) delete d.channelNames[k]; });
+    };
     const genome = {
       record(meta) {
         if (!meta) return;
@@ -28734,26 +28836,10 @@ const Nr = [
           if (identity) d.channels[identity] = (d.channels[identity] || 0) + 1;
           if (meta.handle && !d.handles[meta.handle]) d.handles[meta.handle] = meta.channelId || "";
           if (meta.handle && meta.channelName && !d.channelNames[meta.handle]) d.channelNames[meta.handle] = meta.channelName;
-        });
-      },
-      recordSubscribers(handle, channelName, subCount) {
-        if (!handle || !subCount) return;
-        genomeStore.update(d => {
-          const current = d.smallChannels[handle];
-          if (!current || subCount < current.subs) {
-            d.smallChannels[handle] = { name: channelName || handle, subs: subCount, at: Date.now() };
-          }
+          pruneGenome(d);
         });
       },
       getTopTopics(n) { return Object.entries(genomeStore.get().topics || {}).sort((a, b) => b[1] - a[1]).slice(0, n || 5).map(e => e[0]); },
-      getTopChannels(n) { return Object.entries(genomeStore.get().channels || {}).sort((a, b) => b[1] - a[1]).slice(0, n || 10).map(e => e[0]); },
-      getSmallChannels(n) { return Object.entries(genomeStore.get().smallChannels || {}).sort((a, b) => a[1].subs - b[1].subs).slice(0, n || 8); },
-      isKnownSmall(handle) {
-        if (!handle) return false;
-        const small = genomeStore.get().smallChannels || {};
-        const handleKey = handle.toLowerCase();
-        return Object.keys(small).some((key) => key.toLowerCase() === handleKey);
-      },
       getLengthPref() { const l = genomeStore.get().lengths || {}; const t = (l.short || 0) + (l.medium || 0) + (l.long || 0); if (!t) return "medium"; if ((l.short || 0) / t > 0.5) return "short"; if ((l.long || 0) / t > 0.4) return "long"; return "medium"; },
       score(video) {
         const d = genomeStore.get();
@@ -28828,25 +28914,6 @@ const Nr = [
       window.addEventListener("pagehide", () => budget.flush(), { capture: true });
     } catch (_) {}
     return { genome, collections, budget };
-  })();
-
-  const YourTubeQueue = (() => {
-    let queue = [];
-    const add = (video) => {
-      if (!video || !video.videoId || queue.find(v => v.videoId === video.videoId)) return false;
-      queue.push(Object.assign({ addedAt: Date.now(), priority: 50 }, video));
-      return true;
-    };
-    const remove = (id) => { queue = queue.filter(v => v.videoId !== id); };
-    const reorder = (s) => {
-      if (s === "shortest") queue.sort((a, b) => (a.duration || 0) - (b.duration || 0));
-      else if (s === "longest") queue.sort((a, b) => (b.duration || 0) - (a.duration || 0));
-      else if (s === "newest") queue.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
-    };
-    const getTotalTime = () => queue.reduce((s, v) => s + (v.duration || 0), 0);
-    const getList = () => queue.slice();
-    const clear = () => { queue = []; };
-    return { add, remove, reorder, getTotalTime, getList, clear, size: () => queue.length };
   })();
 
   const AlgoEngine = (() => {
@@ -29313,9 +29380,13 @@ const Nr = [
       }
     };
     const recWithLazyTokens = (rec, menuEl) => {
+      // Extract once per element: both getters are read in the same pass and
+      // each extraction walks the whole menu payload.
+      let tokens = null;
+      const getTokens = () => tokens || (tokens = extractMenuTokens(menuEl));
       Object.defineProperties(rec, {
-        notInterestedToken: { configurable: true, get() { return extractMenuTokens(menuEl).notInterestedToken; } },
-        dontRecommendToken: { configurable: true, get() { return extractMenuTokens(menuEl).dontRecommendToken; } },
+        notInterestedToken: { configurable: true, get() { return getTokens().notInterestedToken; } },
+        dontRecommendToken: { configurable: true, get() { return getTokens().dontRecommendToken; } },
       });
       return rec;
     };
@@ -29527,13 +29598,14 @@ const Nr = [
             topics = {};
           }
           const profile = SignalTracker.getProfile();
+          const blockedTopics = NegativeSignalManager.getBlockedTopics();
 
           let wantedScore = 0;
           let unwantedScore = 0;
           for (const [topic, score] of Object.entries(topics)) {
             const profileScore = profile.topics[topic] || 0;
             if (profileScore > 30) wantedScore += score;
-            if (NegativeSignalManager.getBlockedTopics().includes(topic)) unwantedScore += score;
+            if (blockedTopics.includes(topic)) unwantedScore += score;
           }
 
           SignalTracker.trackWatch(videoId, currentTime, duration);
@@ -29615,10 +29687,11 @@ const Nr = [
           try {
             const home = ProfileAnalyzer.analyzeHomepage();
             const topTopics = new Set(topics);
+            const profile = SignalTracker.getProfile();
             for (const rec of home.recommendations) {
               if (budget <= 0) break;
               const recTopics = Object.entries(rec.topics).filter(([t, s]) => topTopics.has(t) && s >= 20);
-              if (recTopics.length && rec.videoId && (SignalTracker.getProfile().topics[recTopics[0][0]] || 0) >= 35) {
+              if (recTopics.length && rec.videoId && (profile.topics[recTopics[0][0]] || 0) >= 35) {
                 if (await SignalInjector.sendLike(rec.videoId, "like")) {
                   likes++;
                   budget--;
@@ -30178,15 +30251,17 @@ const Nr = [
           rebuild();
         }
         if (ev.target.id === "ytb-col-new") {
-          const name = prompt("Collection name:");
-          if (name) {
+          _ytInlinePrompt(ev.target, "Collection name", (name) => {
             YourTubeSession.collections.create(name);
             pe("Created: " + name, 1500, "success");
             rebuild();
-          }
+          });
         }
       });
-      Yt["curated-collections"].push(() => { if (panel.parentNode) panel.remove(); });
+      Yt["curated-collections"].push(() => {
+        if (panel.parentNode) panel.remove();
+        document.querySelectorAll(".ytb-ui-inline-prompt").forEach((el) => el.remove());
+      });
     },
     settings(en) {
       en.appendChild(Io("Enable Curated Collections", "collectionsOn"));
@@ -30680,11 +30755,19 @@ const Nr = [
       }
       if (on("BgThrottle")) {
         try {
-          const onVisChange = () => { Xt.perfHidden = document.hidden; };
-          ctx.addListener(document, "visibilitychange", onVisChange, { passive: true });
-          Yt["perf-mode"].push(() => { Xt.perfHidden = false; });
-          const passiveScroll = () => {};
-          ctx.addListener(window, "scroll", passiveScroll, { passive: true, capture: true });
+          // Real work for this tier: while the tab is hidden, pause CSS
+          // animations and transitions so the page stops painting them.
+          const root = document.documentElement;
+          const syncBgThrottle = () => {
+            try { root.classList.toggle("ytb-ui-bg-throttle", !!document.hidden); } catch (_) {}
+          };
+          ctx.addStyle(
+            ".ytb-ui-bg-throttle *,.ytb-ui-bg-throttle *::before,.ytb-ui-bg-throttle *::after{" +
+            "animation-play-state:paused!important;transition:none!important}",
+          );
+          syncBgThrottle();
+          ctx.addListener(document, "visibilitychange", syncBgThrottle, { passive: true });
+          Yt["perf-mode"].push(() => { try { root.classList.remove("ytb-ui-bg-throttle"); } catch (_) {} });
         } catch (e) {}
       }
       if (on("PaintReduction")) {
@@ -30727,8 +30810,7 @@ const Nr = [
           if (isActiveNow !== Xt.perfMode) { try { xa.apply("perf-mode"); } catch (e) {} }
         }, 10000);
       } catch (e) {}
-      Xt.perfLogSuppressed = true;
-      Yt["perf-mode"].push(() => { Xt.perfMode = false; Xt.perfLogSuppressed = false; Xt.perfHidden = false; });
+      Yt["perf-mode"].push(() => { Xt.perfMode = false; });
     },
     settings(en) {
       en.appendChild(Io("Enable Performance Mode", "perfModeOn"));
@@ -30937,9 +31019,14 @@ const Nr = [
       const MAX_EXTENSIONS = 3;
       const focusStore = YourTubeEngine.createStore("__yourtube_focus__", { date: "", nudged: false, extCount: 0, snoozedDay: "" });
       const today = () => new Date().toDateString();
-      const rollDay = () => focusStore.update(d => {
-        if (d.date !== today()) { d.date = today(); d.nudged = false; d.extCount = 0; d.snoozedDay = ""; }
-      });
+      const rollDay = () => {
+        // update() always marks the store dirty, so only write when the day
+        // actually changed; otherwise the 1s budget tick would flush forever.
+        if (focusStore.get().date === today()) return;
+        focusStore.update(d => {
+          if (d.date !== today()) { d.date = today(); d.nudged = false; d.extCount = 0; d.snoozedDay = ""; }
+        });
+      };
       const budgetMin = () => Math.max(5, Math.min(1440, Number(S.watchBudgetMinutes) || 90));
       const usedSec = () => { try { return YourTubeSession.budget.getUsed(); } catch (_) { return 0; } };
       const limitSec = () => {
@@ -31181,10 +31268,14 @@ const Nr = [
       };
 
       return (ctx, ev, fn, opts) => {
-        if (bind(ctx, ev, fn, opts)) return;
+        bind(ctx, ev, fn, opts);
+        // The player element is replaced on miniplayer/theater changes, so keep
+        // a rebind hook and a short-lived recovery ticker; the ticker gives up
+        // on its own if the element never appears.
         ctx.onNav(() => bind(ctx, ev, fn, opts));
+        let attempts = 90;
         const iv = YourTubeResources.SharedTicker.add(() => {
-          if (bind(ctx, ev, fn, opts)) YourTubeResources.SharedTicker.remove(iv);
+          if (bind(ctx, ev, fn, opts) || --attempts <= 0) YourTubeResources.SharedTicker.remove(iv);
         }, 2000, { pauseHidden: true, label: "ytb-ui-elbinder" });
       };
     };
@@ -31316,10 +31407,23 @@ const Nr = [
       YourTubeEngine.injectCSS();
       const marks = YourTubeEngine.createStore("__yourtube_bookmarks__", {});
       const cur = () => ie.videoId() || "";
+      const pruneBookmarks = (d) => {
+        const keys = Object.keys(d);
+        if (keys.length <= 200) return;
+        keys.sort((a, b) => {
+          const la = d[a][d[a].length - 1], lb = d[b][d[b].length - 1];
+          return ((lb && lb.at) || 0) - ((la && la.at) || 0);
+        }).slice(200).forEach((k) => { delete d[k]; });
+      };
       const add = async () => {
         const vid = cur(), el = ie.el(); if (!vid || !el) return;
         const row = { t: el.currentTime, note: "", at: Date.now() };
-        marks.update(d => { (d[vid] = d[vid] || []).push(row); });
+        marks.update(d => {
+          const list = (d[vid] = d[vid] || []);
+          list.push(row);
+          if (list.length > 100) list.splice(0, list.length - 100);
+          pruneBookmarks(d);
+        });
         pe("Bookmark at " + YourTubePack.fmtTs(row.t), 1400, "success");
       };
       ctx.addListener(document, "keydown", (ev) => {
@@ -31370,13 +31474,26 @@ const Nr = [
       const notesStore = YourTubeEngine.createStore("__yourtube_notes__", {});
       let box = null;
       const cur = () => ie.videoId() || "";
+      const pruneNotes = (d) => {
+        const keys = Object.keys(d);
+        if (keys.length <= 200) return;
+        keys.sort((a, b) => {
+          const la = d[a][d[a].length - 1], lb = d[b][d[b].length - 1];
+          return ((lb && lb.at) || 0) - ((la && la.at) || 0);
+        }).slice(200).forEach((k) => { delete d[k]; });
+      };
       const capture = () => {
         const text = box && box.value.trim();
         if (!text) return;
         if (!cur()) return;
         const el = ie.el();
         const row = { t: el ? el.currentTime : 0, text, at: Date.now() };
-        notesStore.update(d => { (d[cur()] = d[cur()] || []).push(row); });
+        notesStore.update(d => {
+          const list = (d[cur()] = d[cur()] || []);
+          list.push(row);
+          if (list.length > 100) list.splice(0, list.length - 100);
+          pruneNotes(d);
+        });
         if (box) box.value = "";
         pe("Note captured at " + YourTubePack.fmtTs(row.t), 1200, "success");
       };
@@ -31471,10 +31588,9 @@ const Nr = [
     masterKey: "sleepTimerOn", keys: ["sleepTimerOn", "sleepTimerMin"],
     apply(ctx) {
       if (!S.sleepTimerOn) return;
-      let deadline = 0, armed = 0, origVol = null, fadeTask = 0;
+      let deadline = 0, armed = 0, origVol = null;
       const mins = () => Math.max(5, Math.min(240, Number(S.sleepTimerMin) || 30));
       const disarm = (restoreVol) => {
-        if (fadeTask) { YourTubeResources.DeferredTask.cancel(fadeTask); fadeTask = 0; }
         deadline = 0;
         if (restoreVol && origVol !== null) {
           const el = ie.el(); if (el) { try { el.volume = origVol; } catch (_) {} }
@@ -31762,15 +31878,17 @@ const Nr = [
       if (!S.channelSnoozeOn) return;
       YourTubeEngine.injectCSS();
       const list = () => String(S.channelSnoozeList || "").split(/[,;\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
-      const match = (nameText) => {
+      const match = (nameText, entries) => {
         const nm = String(nameText || "").normalize("NFC").toLowerCase();
-        return list().some((c) => nm.includes(c));
+        return entries.some((c) => nm.includes(c));
       };
       const scan = () => {
+        // Parse the snooze list once per pass, not once per card.
+        const entries = list();
         document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer, ytd-rich-item-renderer").forEach((card) => {
           const owner = card.querySelector("ytd-channel-name a, #owner-name a, ytd-video-owner-renderer a, a[href^='/@'], a[href*='/channel/'], a[href*='/@']");
           if (!owner) return;
-          const hit = match(owner.textContent);
+          const hit = match(owner.textContent, entries);
           if (hit && !card.dataset.ytbSnoozed) { card.dataset.ytbSnoozed = "1"; card.style.display = "none"; }
           else if (!hit && card.dataset.ytbSnoozed) { delete card.dataset.ytbSnoozed; if (!card.dataset.ytbStale) card.style.display = ""; }
         });
@@ -31836,18 +31954,24 @@ const Nr = [
       ctx.onNav(() => { _markCache.clear(); });
       const scan = async () => {
         if (!location.pathname.startsWith("/playlist") && !location.search.includes("list=")) return;
-        const rows = [...document.querySelectorAll("ytd-playlist-panel-video-renderer, ytd-playlist-video-renderer")];
+        const rows = [...document.querySelectorAll("ytd-playlist-panel-video-renderer, ytd-playlist-video-renderer")].slice(0, 300);
         const ids = [];
         rows.forEach((r) => {
           const a = r.querySelector("a#wc-endpoint, a[href*='/watch']");
           const m = a && (a.getAttribute("href") || "").match(/[?&]v=([A-Za-z0-9_-]{11})/);
           ids.push(m ? m[1] : null);
         });
-        const flags = await Promise.all(ids.map((id) => {
-          if (!id) return false;
-          if (_markCache.has(id)) return _markCache.get(id);
+        const lookup = (id) => {
+          if (!id) return Promise.resolve(false);
+          if (_markCache.has(id)) return Promise.resolve(_markCache.get(id));
           return v("history", id).then((row) => { const has = !!row; _markCache.set(id, has); return has; }).catch(() => false);
-        }));
+        };
+        // Chunk the lookups so a long playlist cannot open hundreds of
+        // IndexedDB requests in one burst.
+        const flags = [];
+        for (let i = 0; i < ids.length; i += 12) {
+          flags.push(...await Promise.all(ids.slice(i, i + 12).map(lookup)));
+        }
         rows.forEach((r, i) => {
           const title = r.querySelector("#video-title") || r;
           if (flags[i]) {
@@ -31918,19 +32042,17 @@ const Nr = [
       if (!S.historyLocalHideOn) return;
       YourTubeEngine.injectCSS();
       const hidden = YourTubeEngine.createStore("__yourtube_hist_hide__", []);
-      const isHidden = (id) => hidden.get().indexOf(id) !== -1;
-      const scan = async () => {
+      const scan = () => {
+        // One store read per pass instead of one per row, and no per-row await.
+        const hiddenIds = new Set(hidden.get() || []);
         const rows = [...document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer")];
-        const ids = rows.map((r) => {
-          const a = r.querySelector("a[href*='/watch']");
+        for (const row of rows) {
+          const a = row.querySelector("a[href*='/watch']");
           const m = a && (a.getAttribute("href") || "").match(/[?&]v=([A-Za-z0-9_-]{11})/);
-          return m ? m[1] : null;
-        });
-        for (let i = 0; i < rows.length; i++) {
-          const id = ids[i]; if (!id) continue;
-          const hide = await isHidden(id);
-          if (hide && !rows[i].dataset.ytbHistHidden) { rows[i].dataset.ytbHistHidden = "1"; rows[i].style.display = "none"; }
-          else if (!hide && rows[i].dataset.ytbHistHidden) { delete rows[i].dataset.ytbHistHidden; rows[i].style.display = ""; }
+          if (!m) continue;
+          const hide = hiddenIds.has(m[1]);
+          if (hide && !row.dataset.ytbHistHidden) { row.dataset.ytbHistHidden = "1"; row.style.display = "none"; }
+          else if (!hide && row.dataset.ytbHistHidden) { delete row.dataset.ytbHistHidden; row.style.display = ""; }
         }
       };
 
@@ -32003,14 +32125,18 @@ const Nr = [
       const wantDark = () => !valid() ? null : YourTubeResources.TimeWindow.containsHHMM(S.nightStart, S.nightEnd);
       let lastApplied = null;
       let userOverride = false;
-      let prevDark = null;
 
       ctx.addObserver(document.querySelector("ytd-app") || document.documentElement, () => {
         if (!document.body) return;
         const app2 = document.querySelector("ytd-app");
         if (!app2) return;
         const isDark = document.documentElement.hasAttribute("dark") || app2.hasAttribute("dark");
-        if (lastApplied !== null && isDark !== lastApplied) userOverride = true;
+        if (lastApplied !== null && isDark !== lastApplied) {
+          // A manual toggle wins until the user's own choice matches the
+          // schedule again, so the scheduler can resume instead of latching off.
+          const w = wantDark();
+          userOverride = !(w !== null && isDark === w);
+        }
       }, { attributes: true, attributeFilter: ["dark"] });
       const enforce = () => {
         const w = wantDark(); if (w === null) return;
@@ -32018,7 +32144,6 @@ const Nr = [
         const app = document.querySelector("ytd-app");
         if (!app) return;
         const isDark = document.documentElement.hasAttribute("dark") || app.hasAttribute("dark");
-        if (prevDark === null) prevDark = isDark;
         if (w && !isDark) { document.documentElement.setAttribute("dark", ""); app.setAttribute("dark", ""); lastApplied = true; }
         else if (!w && isDark) { document.documentElement.removeAttribute("dark"); app.removeAttribute("dark"); lastApplied = false; }
       };
@@ -32026,7 +32151,15 @@ const Nr = [
       ctx.onNav(() => ctx.addTimeout(enforce, 800));
       ctx.addTimeout(enforce, 1500);
       Yt["night-scheduler"].push(() => {
-
+        // Undo the last forced state so disabling the card stops overriding
+        // YouTube's own theme handling.
+        if (lastApplied === null) return;
+        const app = document.querySelector("ytd-app");
+        try {
+          if (lastApplied) { document.documentElement.removeAttribute("dark"); app && app.removeAttribute("dark"); }
+          else { document.documentElement.setAttribute("dark", ""); app && app.setAttribute("dark", ""); }
+        } catch (_) {}
+        lastApplied = null;
       });
     },
     settings(en) {
@@ -32603,6 +32736,88 @@ const Nr = [
   // Feed hygiene
   // ---------------------------------------------------------------------------
 
+  // Card metadata parsing shared by the feed cards below. YouTube renders counts
+  // in abbreviated form ("1.2K views", "3 weeks ago"), so these parsers accept
+  // both the legacy metadata line and the 2026 metadata view model.
+  const _ytCardMeta = (() => {
+    const CARDS = "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer";
+    const META = "#metadata-line, yt-content-metadata-view-model, .ytContentMetadataViewModelMetadataRow";
+    const views = (text) => {
+      const match = /([\d.,]+)\s*([KMB])?\s*views/i.exec(String(text || ""));
+      if (!match) return -1;
+      const value = Number(String(match[1]).replace(/,/g, ""));
+      if (!Number.isFinite(value)) return -1;
+      const scale = match[2] ? { K: 1e3, M: 1e6, B: 1e9 }[match[2].toUpperCase()] : 1;
+      return value * scale;
+    };
+    const ageDays = (text) => {
+      const match = /(\d+)\s*(year|month|week|day|hour)/i.exec(String(text || ""));
+      if (!match) return -1;
+      const value = parseInt(match[1], 10) || 0;
+      const factor = { year: 365, month: 30, week: 7, day: 1, hour: 0.04 }[match[2].toLowerCase()];
+      return value * factor;
+    };
+    const formatCount = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n)));
+    const durationSec = (row) => {
+      const badge = row.querySelector("ytd-thumbnail-overlay-time-status-renderer span, #time-status span");
+      const text = ((badge && badge.textContent) || "").trim();
+      const parts = text.split(":").map((n) => parseInt(n, 10));
+      if (!parts.length || parts.some((n) => !Number.isFinite(n))) return 0;
+      return parts.reduce((total, value) => total * 60 + value, 0);
+    };
+    const videoIdOf = (node) => {
+      try {
+        const link = node.querySelector("a[href*='/watch?v='], a[href*='&v=']");
+        if (!link) return "";
+        const match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(link.getAttribute("href") || "");
+        return match ? match[1] : "";
+      } catch (_) { return ""; }
+    };
+    return { CARDS, META, views, ageDays, formatCount, durationSec, videoIdOf };
+  })();
+
+  // Non-blocking replacement for window.prompt: a one-field popover anchored to
+  // the control that opened it.
+  const _ytInlinePrompt = (anchor, placeholder, onSubmit) => {
+    try {
+      const existing = document.querySelector(".ytb-ui-inline-prompt");
+      if (existing) { existing.remove(); if (existing._ytbAnchor === anchor) return; }
+      const panel = To("div", "ytb-ui-inline-prompt");
+      panel._ytbAnchor = anchor;
+      panel.style.cssText = "position:fixed;z-index:2147483646;background:rgba(18,20,26,.98);border:1px solid rgba(255,255,255,.16);" +
+        "border-radius:10px;padding:8px;display:flex;gap:6px;align-items:center;font:12px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.4)";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = placeholder || "Name";
+      input.className = "ytb-inp";
+      input.style.minWidth = "150px";
+      const onOutside = (ev) => {
+        if (panel.contains(ev.target)) return;
+        close();
+      };
+      const close = () => {
+        panel.remove();
+        document.removeEventListener("pointerdown", onOutside, true);
+      };
+      const ok = Oo("OK", () => {
+        const value = input.value.trim();
+        close();
+        if (value) onSubmit(value);
+      });
+      panel.appendChild(input);
+      panel.appendChild(ok);
+      const rect = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : { bottom: 80, left: 80 };
+      panel.style.top = Math.max(8, Math.min(window.innerHeight - 60, rect.bottom + 6)) + "px";
+      panel.style.left = Math.max(8, Math.min(window.innerWidth - 240, rect.left || 8)) + "px";
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); ok.click(); }
+        else if (ev.key === "Escape") close();
+      });
+      document.body.appendChild(panel);
+      setTimeout(() => { document.addEventListener("pointerdown", onOutside, true); input.focus(); }, 0);
+    } catch (_) {}
+  };
+
   // Remembers the videos whose cards have been rendered in feeds, sidebars and
   // search results, then hides the ones seen before. The grace period keeps the
   // current scroll position stable: a card is only hidden on a later visit, not
@@ -32614,16 +32829,7 @@ const Nr = [
     apply(ctx) {
       if (!S.antiRepeatOn) return;
       const seen = YourTubeEngine.createStore("__yourtube_seen__", {});
-      const CARD_SELECTOR = "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, " +
-        "ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model";
-      const videoIdOf = (card) => {
-        try {
-          const link = card.querySelector("a[href*='/watch?v='], a[href*='&v=']");
-          if (!link) return "";
-          const match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(link.getAttribute("href") || "");
-          return match ? match[1] : "";
-        } catch (_) { return ""; }
-      };
+      const CARD_SELECTOR = _ytCardMeta.CARDS + ", ytd-playlist-video-renderer, yt-lockup-view-model";
       const maxAgeMs = () => Math.max(1, Math.min(365, Number(S.antiRepeatDays) || 14)) * 86400000;
       const graceMs = () => Math.max(1, Math.min(1440, Number(S.antiRepeatGraceMin) || 30)) * 60000;
       const trimStore = (map) => {
@@ -32633,6 +32839,8 @@ const Nr = [
         for (const key of keys.slice(0, keys.length - 5000)) delete map[key];
       };
       let lastScan = 0;
+      let pendingWrites = 0;
+      let lastFlush = Date.now();
       const scan = () => {
         const now = Date.now();
         if (now - lastScan < 1500) return;
@@ -32643,7 +32851,7 @@ const Nr = [
         const grace = graceMs();
         let recorded = 0;
         document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
-          const id = videoIdOf(card);
+          const id = _ytCardMeta.videoIdOf(card);
           if (!id) return;
           const at = data[id] || 0;
           const hide = !!(at && now - at <= limit && now - at > grace && id !== playing);
@@ -32656,14 +32864,30 @@ const Nr = [
           if (!at || now - at > 600000) { data[id] = now; recorded++; }
         });
         if (recorded) {
-          trimStore(data);
-          seen.set(data);
+          pendingWrites += recorded;
+          // The store debounces its own writes, but a busy feed can still push
+          // a full snapshot every few seconds; batch until 20 new entries or
+          // two minutes have passed.
+          if (pendingWrites >= 20 || now - lastFlush > 120000) {
+            pendingWrites = 0;
+            lastFlush = now;
+            trimStore(data);
+            seen.set(data);
+          }
         }
       };
+      const flushSeen = () => {
+        if (!pendingWrites) return;
+        pendingWrites = 0;
+        const data = seen.get();
+        trimStore(data);
+        seen.set(data);
+      };
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-seen", scan, 400), { childList: true, subtree: true });
-      ctx.addInterval(scan, 4000);
+      ctx.addInterval(scan, 6000);
       ctx.onNav(() => ctx.addTimeout(scan, 800));
       Yt["seen-memory"].push(() => {
+        flushSeen();
         document.querySelectorAll("[data-ytb-seen]").forEach((el) => {
           el.style.display = "";
           delete el.dataset.ytbSeen;
@@ -32687,23 +32911,15 @@ const Nr = [
     masterKey: "hideLowViewsOn", keys: ["hideLowViewsOn", "lowViewThreshold"],
     apply(ctx) {
       if (!S.hideLowViewsOn) return;
-      const CARD_SELECTOR = "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer";
-      const META_SELECTOR = "#metadata-line, yt-content-metadata-view-model, .ytContentMetadataViewModelMetadataRow";
-      const threshold = () => Math.max(0, Math.min(10000000, Number(S.lowViewThreshold) || 1000));
-      const parseViews = (text) => {
-        const match = /([\d.,]+)\s*([KMB])?\s*views/i.exec(String(text || ""));
-        if (!match) return -1;
-        const value = Number(String(match[1]).replace(/,/g, ""));
-        if (!Number.isFinite(value)) return -1;
-        const scale = match[2] ? { K: 1e3, M: 1e6, B: 1e9 }[match[2].toUpperCase()] : 1;
-        return value * scale;
-      };
+      const CARD_SELECTOR = _ytCardMeta.CARDS;
+      const META_SELECTOR = _ytCardMeta.META;
+      const threshold = () => Math.max(0, Math.min(100000, Number(S.lowViewThreshold) || 1000));
       const scan = () => {
         const limit = threshold();
         document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
           const meta = card.querySelector(META_SELECTOR);
           if (!meta) return;
-          const views = parseViews(meta.textContent);
+          const views = _ytCardMeta.views(meta.textContent);
           if (views < 0) return;
           const hide = views < limit;
           if (hide) {
@@ -32715,7 +32931,7 @@ const Nr = [
         });
       };
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-lowview", scan, 400), { childList: true, subtree: true });
-      ctx.addInterval(scan, 4000);
+      ctx.addInterval(scan, 6000);
       ctx.onNav(() => ctx.addTimeout(scan, 800));
       Yt["hide-low-views"].push(() => {
         document.querySelectorAll("[data-ytb-low-view]").forEach((el) => {
@@ -32742,29 +32958,18 @@ const Nr = [
     apply(ctx) {
       if (!S.cardMetaOn) return;
       YourTubeEngine.injectCSS();
-      const CARD_SELECTOR = "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer";
-      const META_SELECTOR = "#metadata-line, yt-content-metadata-view-model, .ytContentMetadataViewModelMetadataRow";
-      const parseViews = (text) => {
-        const match = /([\d.,]+)\s*([KMB])?\s*views/i.exec(String(text || ""));
-        if (!match) return -1;
-        const value = Number(String(match[1]).replace(/,/g, ""));
-        if (!Number.isFinite(value)) return -1;
-        const scale = match[2] ? { K: 1e3, M: 1e6, B: 1e9 }[match[2].toUpperCase()] : 1;
-        return value * scale;
-      };
-      const parseAgeDays = (text) => {
-        const match = /(\d+)\s*(year|month|week|day|hour)/i.exec(String(text || ""));
-        if (!match) return -1;
-        const value = parseInt(match[1], 10) || 0;
-        const factor = { year: 365, month: 30, week: 7, day: 1, hour: 0.04 }[match[2].toLowerCase()];
-        return value * factor;
-      };
-      const formatCount = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n)));
+      const CARD_SELECTOR = _ytCardMeta.CARDS;
+      const META_SELECTOR = _ytCardMeta.META;
+      const parseViews = _ytCardMeta.views;
+      const parseAgeDays = _ytCardMeta.ageDays;
+      const formatCount = _ytCardMeta.formatCount;
       const scan = () => {
         document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
           if (card.dataset.ytbMeta) return;
           const meta = card.querySelector(META_SELECTOR);
-          if (!meta) { card.dataset.ytbMeta = "1"; return; }
+          // Metadata hydrates after the card renders; leave the card unstamped
+          // so a later pass can still badge it.
+          if (!meta) return;
           const text = meta.textContent || "";
           const views = parseViews(text);
           const ageDays = parseAgeDays(text);
@@ -32778,7 +32983,7 @@ const Nr = [
             parts.push(when.toISOString().slice(0, 10));
           }
           if (!parts.length) { card.dataset.ytbMeta = "1"; return; }
-          const badge = To("span", "ytb-ui-cred-badge", parts.join(" · "));
+          const badge = To("span", "ytb-ui-cardmeta", parts.join(" · "));
           badge.style.cssText = "background:rgba(255,255,255,.08);color:#bbb";
           badge.title = "Views per day since upload, and the upload date";
           meta.appendChild(badge);
@@ -32788,6 +32993,10 @@ const Nr = [
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-meta", scan, 400), { childList: true, subtree: true });
       ctx.addInterval(scan, 5000);
       ctx.onNav(() => ctx.addTimeout(scan, 900));
+      Yt["card-metadata"].push(() => {
+        document.querySelectorAll(".ytb-ui-cardmeta").forEach((el) => el.remove());
+        document.querySelectorAll("[data-ytb-meta]").forEach((el) => { delete el.dataset.ytbMeta; });
+      });
     },
     settings(en) {
       en.appendChild(Io("Show extra card metadata", "cardMetaOn"));
@@ -32922,17 +33131,22 @@ const Nr = [
       );
       const EXACT = /^(ask|ask ai|ask about this video|ask about this channel)$/i;
       const scrub = () => {
-        document.querySelectorAll("button, yt-button-shape, ytd-button-renderer, yt-chip-cloud-chip-renderer").forEach((node) => {
-          if (node.dataset.ytbAsk) return;
+        // The pill is rare and unlabelled; walk a bounded slice of the buttons
+        // rather than every one on a long feed, several times a minute.
+        const nodes = document.querySelectorAll("button, yt-button-shape, ytd-button-renderer, yt-chip-cloud-chip-renderer");
+        const limit = Math.min(nodes.length, 400);
+        for (let i = 0; i < limit; i++) {
+          const node = nodes[i];
+          if (node.dataset.ytbAsk) continue;
           const label = ((node.getAttribute("aria-label") || node.getAttribute("title") || "")).trim();
           const text = (node.textContent || "").trim();
-          if (!EXACT.test(label) && !EXACT.test(text)) return;
+          if (!EXACT.test(label) && !EXACT.test(text)) continue;
           node.dataset.ytbAsk = "1";
           node.style.display = "none";
-        });
+        }
       };
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ask", scrub, 300), { childList: true, subtree: true });
-      ctx.addInterval(scrub, 3000);
+      ctx.addInterval(scrub, 5000);
       Yt["hide-ai-ask"].push(() => {
         document.querySelectorAll("[data-ytb-ask]").forEach((el) => {
           el.style.display = "";
@@ -32958,10 +33172,11 @@ const Nr = [
           if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         } catch (_) {}
       };
+      const bound = new WeakSet();
       const bind = () => {
         const el = ie.el();
-        if (!el || el.dataset.ytbFsExit) return;
-        el.dataset.ytbFsExit = "1";
+        if (!el || bound.has(el)) return;
+        bound.add(el);
         ctx.addListener(el, "ended", onEnded);
       };
       bind();
@@ -32991,21 +33206,39 @@ const Nr = [
       const ac = _ytAudio.ctx;
       let entry = _ytAudioGraphs.get(el);
       if (!entry) {
-        const source = ac.createMediaElementSource(el);
-        const gain = ac.createGain();
-        const comp = ac.createDynamicsCompressor();
-        comp.threshold.value = 0;
-        comp.knee.value = 0;
-        comp.ratio.value = 1;
-        comp.attack.value = 0.003;
-        comp.release.value = 0.25;
-        source.connect(gain);
-        gain.connect(comp);
-        comp.connect(ac.destination);
-        entry = { source, gain, comp };
-        _ytAudioGraphs.set(el, entry);
+        const makeComp = (ctx) => {
+          const comp = ctx.createDynamicsCompressor();
+          comp.threshold.value = 0;
+          comp.knee.value = 0;
+          comp.ratio.value = 1;
+          comp.attack.value = 0.003;
+          comp.release.value = 0.25;
+          return comp;
+        };
+        // If the silence detector already routed this element, build on its
+        // chain instead of calling createMediaElementSource a second time.
+        const shared = YourTubePlayback.entryFor(el);
+        if (shared && shared.rerouted && shared.ctx && shared.source && shared.analyser) {
+          const gain = shared.ctx.createGain();
+          const comp = makeComp(shared.ctx);
+          try { shared.source.disconnect(); } catch (_) {}
+          shared.source.connect(gain);
+          gain.connect(comp);
+          comp.connect(shared.analyser);
+          entry = { source: shared.source, gain, comp, ctx: shared.ctx };
+          _ytAudioGraphs.set(el, entry);
+        } else {
+          const source = ac.createMediaElementSource(el);
+          const gain = ac.createGain();
+          const comp = makeComp(ac);
+          source.connect(gain);
+          gain.connect(comp);
+          comp.connect(ac.destination);
+          entry = { source, gain, comp, ctx: ac };
+          _ytAudioGraphs.set(el, entry);
+        }
       }
-      if (ac.state === "suspended") ac.resume().catch(() => {});
+      if (entry.ctx && entry.ctx.state === "suspended") entry.ctx.resume().catch(() => {});
       return entry;
     } catch (_) { return null; }
   };
@@ -33092,7 +33325,13 @@ const Nr = [
         const channel = channelKey();
         if (!channel) return;
         store.update((data) => {
-          data[channel] = { pct: Number(S.volumeBoostPct) || 150, at: Date.now() };
+          const existing = data[channel];
+          // Seed a channel once with the amount in effect; after that the saved
+          // value is the per-channel choice and must not be overwritten by the
+          // global amount.
+          if (!existing || !Number.isFinite(existing.pct)) {
+            data[channel] = { pct: Number(S.volumeBoostPct) || 150, at: Date.now() };
+          }
           const keys = Object.keys(data);
           if (keys.length > 300) {
             keys.sort((a, b) => (data[a].at || 0) - (data[b].at || 0));
@@ -33183,7 +33422,18 @@ const Nr = [
           if (!levels || !levels.length) return;
           const want = S.qualityPref;
           const available = levels.filter((l) => l && l !== "auto");
-          const target = available.indexOf(want) !== -1 ? want : available[0];
+          if (!available.length) return;
+          let target = available.indexOf(want) !== -1 ? want : "";
+          if (!target) {
+            // Prefer the closest level at or below the preference rather than
+            // whatever happens to be first in the list.
+            const wantHeight = parseInt(String(want || "").replace(/[^\d]/g, ""), 10) || 0;
+            const byHeight = available
+              .map((l) => ({ l, h: parseInt(String(l).replace(/[^\d]/g, ""), 10) || 0 }))
+              .sort((a, b) => a.h - b.h);
+            const below = byHeight.filter((entry) => entry.h <= wantHeight).pop();
+            target = (below && below.l) || byHeight[0].l;
+          }
           if (target) ie.setQuality(target);
         } catch (_) {}
       };
@@ -33342,9 +33592,9 @@ const Nr = [
         if (cached) { render(cached); return; }
         if (inFlight >= 2) return;
         inFlight++;
-        fetch("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId))
-          .then((response) => (response.ok ? response.json() : null))
-          .then((data) => {
+        YourTubeEngine.fetchJson("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId))
+          .then((result) => {
+            const data = result && result.ok ? result.json : null;
             if (!data || typeof data.dislikes !== "number") return;
             cache.set(videoId, data);
             if (videoId === (ie.videoId && ie.videoId())) render(data);
@@ -33391,6 +33641,8 @@ const Nr = [
         "&time=" + encodeURIComponent(time) + "&returnError=true";
       let titleAppliedFor = "";
       let originalTitle = "";
+      let previousDocTitle = "";
+      const thumbOriginals = new Map();
       const applyTitle = (videoId, data) => {
         if (!S.deArrowTitles || !data || !Array.isArray(data.titles) || !data.titles.length) return;
         if (titleAppliedFor === videoId) return;
@@ -33400,6 +33652,7 @@ const Nr = [
         if (!heading) return;
         const target = heading.querySelector("yt-formatted-string") || heading;
         if (!originalTitle) originalTitle = target.textContent;
+        if (!previousDocTitle) previousDocTitle = document.title;
         titleAppliedFor = videoId;
         target.textContent = best.title;
         try { document.title = best.title + " - YouTube"; } catch (_) {}
@@ -33411,6 +33664,7 @@ const Nr = [
             ev.preventDefault();
             ev.stopPropagation();
             target.textContent = originalTitle;
+            if (previousDocTitle) { try { document.title = previousDocTitle; } catch (_) {} }
             titleAppliedFor = "";
             chip.remove();
           });
@@ -33423,6 +33677,9 @@ const Nr = [
         if (!best) return;
         const image = card.querySelector("img");
         if (!image || image.dataset.ytbDeArrow) return;
+        if (!thumbOriginals.has(image)) {
+          thumbOriginals.set(image, { src: image.getAttribute("src") || "", srcset: image.getAttribute("srcset") || "" });
+        }
         image.dataset.ytbDeArrow = "1";
         image.src = thumbUrl(videoId, best.timestamp);
         image.removeAttribute("srcset");
@@ -33430,10 +33687,10 @@ const Nr = [
       const load = (videoId) => {
         const cached = cache.get(videoId);
         if (cached) return Promise.resolve(cached);
-        return fetch("https://sponsor.ajay.app/api/branding?videoID=" + encodeURIComponent(videoId))
-          .then((response) => (response.ok ? response.json() : null))
-          .then((data) => {
-            if (data && typeof data === "object") cache.set(videoId, data);
+        return YourTubeEngine.fetchJson("https://sponsor.ajay.app/api/branding?videoID=" + encodeURIComponent(videoId))
+          .then((result) => {
+            const data = result && result.ok && result.json && typeof result.json === "object" ? result.json : null;
+            if (data) cache.set(videoId, data);
             return data;
           })
           .catch(() => null);
@@ -33452,6 +33709,9 @@ const Nr = [
         const now = Date.now();
         for (const card of cards) {
           if (cardBudget <= 0) break;
+          // Check the cheap flags before the layout read: getBoundingClientRect
+          // forces a reflow, and most cards are already handled.
+          if (card.dataset.ytbDeArrowChecked && now - Number(card.dataset.ytbDeArrowChecked) < 600000) continue;
           const rect = card.getBoundingClientRect();
           if (rect.bottom < 0 || rect.top > window.innerHeight + 400) continue;
           const link = card.querySelector("a[href*='/watch?v=']");
@@ -33459,7 +33719,6 @@ const Nr = [
           const match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(link.getAttribute("href") || "");
           if (!match) continue;
           const videoId = match[1];
-          if (card.dataset.ytbDeArrowChecked && now - Number(card.dataset.ytbDeArrowChecked) < 600000) continue;
           card.dataset.ytbDeArrowChecked = String(now);
           cardBudget--;
           load(videoId).then((data) => applyThumb(card, videoId, data));
@@ -33471,9 +33730,33 @@ const Nr = [
       ctx.onNav(() => {
         titleAppliedFor = "";
         originalTitle = "";
+        previousDocTitle = "";
         resetBudget();
         ctx.addTimeout(watchTick, 1500);
         ctx.addTimeout(cardScan, 2500);
+      });
+      Yt["dearrow"].push(() => {
+        // Restore the title, the document title and every replaced thumbnail.
+        if (titleAppliedFor) {
+          const heading = document.querySelector("ytd-watch-metadata h1, h1.ytd-watch-metadata, #title h1");
+          const target = heading && (heading.querySelector("yt-formatted-string") || heading);
+          if (target && originalTitle) target.textContent = originalTitle;
+        }
+        if (previousDocTitle) { try { document.title = previousDocTitle; } catch (_) {} }
+        titleAppliedFor = "";
+        originalTitle = "";
+        previousDocTitle = "";
+        document.querySelectorAll(".ytb-ui-dearrow-chip").forEach((el) => el.remove());
+        for (const [image, original] of thumbOriginals) {
+          try {
+            if (original.src) image.setAttribute("src", original.src);
+            if (original.srcset) image.setAttribute("srcset", original.srcset);
+            else image.removeAttribute("srcset");
+            delete image.dataset.ytbDeArrow;
+          } catch (_) {}
+        }
+        thumbOriginals.clear();
+        document.querySelectorAll("[data-ytb-de-arrow-checked]").forEach((el) => { delete el.dataset.ytbDeArrowChecked; });
       });
     },
     settings(en) {
@@ -33557,7 +33840,8 @@ const Nr = [
         } catch (_) {}
       };
       const mount = () => {
-        const panel = document.querySelector("ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-searchable-transcript'] #header, ytd-transcript-renderer #header");
+        if (!location.pathname.startsWith("/watch")) return false;
+        const panel = document.querySelector("ytd-transcript-renderer #header, ytd-transcript-renderer");
         if (!panel || panel.querySelector(".ytb-ui-transcript-tools")) return !!panel;
         const row = To("div", "ytb-ui-transcript-tools");
         row.style.cssText = "display:flex;gap:6px;padding:6px 0";
@@ -33571,7 +33855,7 @@ const Nr = [
           if (!text) { pe("Transcript is still loading.", 1600, "info"); return; }
           download("transcript-" + ((ie.videoId && ie.videoId()) || "video") + ".txt", text);
         }));
-        panel.appendChild(row);
+        panel.prepend ? panel.prepend(row) : panel.appendChild(row);
         return true;
       };
       if (S.transcriptNoScroll) {
@@ -33665,20 +33949,14 @@ const Nr = [
           return set;
         } catch (_) { return new Set(); }
       };
-      const durationOf = (row) => {
-        const badge = row.querySelector("ytd-thumbnail-overlay-time-status-renderer span, .badge-shape-wiz__text, #time-status span");
-        const text = ((badge && badge.textContent) || "").trim();
-        const parts = text.split(":").map((n) => parseInt(n, 10));
-        if (parts.some((n) => !Number.isFinite(n))) return 0;
-        return parts.reduce((total, value) => total * 60 + value, 0);
-      };
+      const durationOf = _ytCardMeta.durationSec;
       const toolbar = () => {
         if (!onWatchLater()) return;
         const host = document.querySelector("ytd-playlist-header-renderer #buttons, ytd-playlist-header-renderer");
         if (!host || host.querySelector(".ytb-ui-wl-tools")) return;
         const row = To("div", "ytb-ui-wl-tools");
         row.style.cssText = "display:flex;gap:6px;padding:6px 0;flex-wrap:wrap";
-        row.appendChild(Oo("Hide watched", async () => {
+        if (S.watchLaterHideWatched) row.appendChild(Oo("Hide watched", async () => {
           const set = await watched();
           let hidden = 0;
           document.querySelectorAll("ytd-playlist-video-renderer").forEach((item) => {
@@ -33706,13 +33984,15 @@ const Nr = [
             );
           } catch (_) {}
         }));
-        row.appendChild(Oo("Sort by duration", () => {
+        if (S.watchLaterSortDuration) row.appendChild(Oo("Sort by duration", () => {
           const list = document.querySelector("#contents.ytd-playlist-video-list-renderer");
           if (!list) { pe("Playlist list not found.", 1600, "info"); return; }
           const items = Array.from(list.querySelectorAll(":scope > ytd-playlist-video-renderer"));
           if (!items.length) { pe("Nothing to sort.", 1600, "info"); return; }
           const sorted = items.slice().sort((a, b) => durationOf(a) - durationOf(b));
-          for (const item of sorted) list.appendChild(item);
+          const fragment = document.createDocumentFragment();
+          for (const item of sorted) fragment.appendChild(item);
+          list.appendChild(fragment);
           pe("Sorted " + items.length + " entries by length.", 1800, "success");
         }));
         host.appendChild(row);
@@ -33870,7 +34150,10 @@ const Nr = [
         location.href = "https://www.youtube.com/watch?v=" + id;
       };
       const mount = () => {
-        const host = document.querySelector("ytd-browse #buttons, ytd-playlist-header-renderer #buttons, ytd-channel-header-renderer #buttons");
+        const host = document.querySelector(
+          "ytd-browse #buttons, ytd-playlist-header-renderer #buttons, " +
+          "ytd-tabbed-page-header #buttons, yt-page-header-view-model #buttons, yt-page-header-renderer #buttons, #page-header #buttons",
+        );
         if (!host || host.querySelector(".ytb-ui-random")) return;
         const button = Oo("Random", pick);
         button.classList.add("ytb-ui-random");
@@ -33905,9 +34188,11 @@ const Nr = [
         if (items.length < 2) { pe("Nothing to shuffle.", 1600, "info"); return; }
         for (let i = items.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
-          list.appendChild(items[j]);
           [items[i], items[j]] = [items[j], items[i]];
         }
+        const fragment = document.createDocumentFragment();
+        for (const item of items) fragment.appendChild(item);
+        list.appendChild(fragment);
         pe("Shuffled " + items.length + " entries for this session.", 1800, "success");
       };
       const mount = () => {
@@ -34050,11 +34335,15 @@ const Nr = [
       const filterFeed = () => {
         if (!location.pathname.startsWith("/feed/subscriptions")) return;
         const allowed = activeChannels();
+        if (!allowed) {
+          // No group selected: only undo earlier hiding.
+          document.querySelectorAll("[data-ytb-group-hidden]").forEach((card) => {
+            card.style.display = "";
+            delete card.dataset.ytbGroupHidden;
+          });
+          return;
+        }
         document.querySelectorAll("ytd-rich-item-renderer, ytd-video-renderer").forEach((card) => {
-          if (!allowed) {
-            if (card.dataset.ytbGroupHidden) { delete card.dataset.ytbGroupHidden; card.style.display = ""; }
-            return;
-          }
           const channel = channelOf(card);
           const hide = channel && !allowed.has(channel);
           if (hide) {
@@ -34082,7 +34371,8 @@ const Nr = [
         }
         host.appendChild(row);
       };
-      ctx.addInterval(() => { bar(); filterFeed(); }, 2500);
+      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-groups", filterFeed, 500), { childList: true, subtree: true });
+      ctx.addInterval(() => { bar(); filterFeed(); }, 8000);
       ctx.onNav(() => { ctx.addTimeout(bar, 1200); ctx.addTimeout(filterFeed, 1500); });
       Yt["sub-groups"].push(() => {
         document.querySelectorAll(".ytb-ui-groups").forEach((el) => el.remove());
@@ -34094,8 +34384,25 @@ const Nr = [
     },
     settings(en) {
       en.appendChild(Io("Subscription groups", "subGroupsOn"));
-      en.appendChild(Ro("Active group", "subGroupsActive", Object.assign({ "": "All channels" },
-        Object.fromEntries((YourTubeEngine && S.subGroupsOn ? Object.keys(YourTubeEngine.createStore("__yourtube_groups__", {}).get() || {}) : []).map((n) => [n, n])))));
+      const groupSelect = Ro("Active group", "subGroupsActive", Object.assign({ "": "All channels" },
+        Object.fromEntries((YourTubeEngine && S.subGroupsOn ? Object.keys(YourTubeEngine.createStore("__yourtube_groups__", {}).get() || {}) : []).map((n) => [n, n]))));
+      en.appendChild(groupSelect);
+      // The store loads asynchronously, so the options above can be empty on the
+      // first render; fill them in once the load settles.
+      const groupsStoreForOptions = YourTubeEngine.createStore("__yourtube_groups__", {});
+      groupsStoreForOptions.load().then(() => {
+        const select = groupSelect && (groupSelect.tagName === "SELECT" ? groupSelect : groupSelect.querySelector("select"));
+        if (!select) return;
+        const keep = select.value;
+        for (const option of Array.from(select.options).slice(1)) option.remove();
+        for (const name of Object.keys(groupsStoreForOptions.get() || {})) {
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = name;
+          select.appendChild(option);
+        }
+        select.value = keep;
+      }).catch(() => {});
       const nameInput = document.createElement("input");
       nameInput.type = "text";
       nameInput.placeholder = "New group name";
@@ -34106,7 +34413,11 @@ const Nr = [
         const name = nameInput.value.trim();
         if (!name) return;
         const store = YourTubeEngine.createStore("__yourtube_groups__", {});
-        store.update((data) => { if (!Array.isArray(data[name])) data[name] = []; });
+        store.update((data) => {
+          if (Array.isArray(data[name])) return;
+          if (Object.keys(data).length >= 50) { pe("Group limit reached (50).", 2000, "info"); return; }
+          data[name] = [];
+        });
         nameInput.value = "";
         pe("Group '" + name + "' created. Use 'Add to group' on a channel page.", 2600, "success");
       }));
@@ -34153,18 +34464,37 @@ const Nr = [
       }
       if (S.uiRestoreSubs) {
         let appliedFor = "";
-        const loadSubs = (videoId) => {
+        // Walk the parsed response instead of stringifying it: the payload can
+        // be megabytes, and the field is a single nested object.
+        const findSubscriberText = (node, depth) => {
+          if (!node || typeof node !== "object" || (depth || 0) > 30) return "";
+          const sc = node.subscriberCountText;
+          if (sc && typeof sc === "object") {
+            if (typeof sc.simpleText === "string" && sc.simpleText) return sc.simpleText;
+            if (Array.isArray(sc.runs) && sc.runs[0] && typeof sc.runs[0].text === "string") return sc.runs[0].text;
+          }
+          for (const key of Object.keys(node)) {
+            const found = findSubscriberText(node[key], (depth || 0) + 1);
+            if (found) return found;
+          }
+          return "";
+        };
+        const loadSubs = (videoId, attempt) => {
           YourTubeEngine.innerTube("next", { videoId })
             .then((response) => {
               const json = response && response.json;
               if (!json) return;
-              const text = JSON.stringify(json);
-              const match = /"subscriberCountText":\{[^}]*"simpleText":"([^"]+)"/.exec(text) ||
-                /"subscriberCountText":\{"runs":\[\{"text":"([^"]+)"/.exec(text);
-              if (!match || !match[1]) return;
+              const text = findSubscriberText(json, 0);
+              if (!text) return;
               const host = document.querySelector("ytd-watch-metadata #owner, ytd-video-owner-renderer");
-              if (!host || host.querySelector(".ytb-ui-subs")) return;
-              const chip = To("span", "ytb-ui-subs", match[1]);
+              if (!host || host.querySelector(".ytb-ui-subs")) {
+                // The owner block can render after the response; retry a few
+                // times instead of dropping the chip for this video.
+                if (!host && attempt < 4) ctx.addTimeout(() => loadSubs(videoId, attempt + 1), 1500);
+                else appliedFor = "";
+                return;
+              }
+              const chip = To("span", "ytb-ui-subs", text);
               chip.style.cssText = "margin-left:8px;font-size:12px;color:#aaa";
               chip.title = "Subscriber count, read from YouTube's own metadata";
               host.appendChild(chip);
@@ -34176,7 +34506,7 @@ const Nr = [
           const videoId = ie.videoId && ie.videoId();
           if (!videoId || videoId === appliedFor) return;
           appliedFor = videoId;
-          loadSubs(videoId);
+          loadSubs(videoId, 0);
         };
         ctx.addInterval(tick, 3000);
         ctx.onNav(() => { appliedFor = ""; ctx.addTimeout(tick, 1500); });
@@ -34239,7 +34569,12 @@ const Nr = [
         host.insertBefore(bar, host.firstChild);
       };
       ctx.addInterval(mount, 2000);
-      ctx.onNav(() => ctx.addTimeout(mount, 1200));
+      ctx.onNav(() => {
+        // Tabs only apply to the watch page; leaving it must restore the layout.
+        document.documentElement.removeAttribute("data-ytb-tab");
+        document.documentElement.classList.remove("ytb-ui-tabs");
+        ctx.addTimeout(mount, 1200);
+      });
       Yt["watch-tabs"].push(() => {
         document.querySelectorAll(".ytb-ui-tabs-bar").forEach((el) => el.remove());
         document.documentElement.removeAttribute("data-ytb-tab");
@@ -34311,13 +34646,22 @@ const Nr = [
         const value = To("span", "ytb-rngv", pretty(current()[action] || _YT_KEYMAP_DEFAULTS[action]));
         row.appendChild(value);
         row.appendChild(Oo("Record", () => {
-          pe("Press the new key combination for " + name + ".", 3000, "info");
+          pe("Press the new key combination for " + name + ". Escape cancels.", 3000, "info");
+          let timer = 0;
+          const finish = () => {
+            document.removeEventListener("keydown", onKey, true);
+            if (timer) { clearTimeout(timer); timer = 0; }
+          };
           const onKey = (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
+            if (ev.key === "Escape") { finish(); pe("Recording cancelled.", 1400, "info"); return; }
             const spec = _ytKeySpec(ev);
             if (!spec) return;
-            document.removeEventListener("keydown", onKey, true);
+            const parts = spec.split("+");
+            // A bare modifier is not a shortcut.
+            if (parts.length < 2 && ["shift", "ctrl", "alt", "meta"].includes(parts[0])) return;
+            finish();
             const map = current();
             map[action] = spec;
             Ta("keymap", map);
@@ -34325,6 +34669,8 @@ const Nr = [
             pe(name + " is now " + pretty(spec), 1800, "success");
           };
           document.addEventListener("keydown", onKey, true);
+          // The listener must not outlive the recording session.
+          timer = setTimeout(() => { finish(); pe("Recording timed out.", 1600, "info"); }, 10000);
         }));
         en.appendChild(row);
       }
@@ -34353,22 +34699,23 @@ const Nr = [
       const mount = () => {
         const handle = handleOf();
         if (!handle) return;
-        const host = document.querySelector("ytd-channel-header-renderer #buttons, ytd-c4-tabbed-header-renderer #buttons, #page-header #buttons");
+        const host = document.querySelector(
+          "ytd-tabbed-page-header #buttons, yt-page-header-view-model #buttons, yt-page-header-renderer #buttons, #page-header #buttons",
+        );
         if (!host || host.querySelector(".ytb-ui-add-group")) return;
-        const button = Oo("Add to group", () => {
-          const names = Object.keys(store.get() || {});
-          const answer = typeof prompt === "function" ? prompt(
-            names.length ? "Group name (existing: " + names.join(", ") + ")" : "Group name",
-            names[0] || "",
-          ) : null;
-          if (!answer) return;
-          const name = String(answer).trim();
-          if (!name) return;
+        const addTo = (name) => {
           store.update((data) => {
-            if (!Array.isArray(data[name])) data[name] = [];
-            if (!data[name].includes(handle)) data[name].push(handle);
+            if (!Array.isArray(data[name])) {
+              if (Object.keys(data).length >= 50) { pe("Group limit reached (50).", 2000, "info"); return; }
+              data[name] = [];
+            }
+            if (!data[name].includes(handle) && data[name].length < 500) data[name].push(handle);
           });
           pe("Added to '" + name + "'.", 1800, "success");
+        };
+        const button = Oo("Add to group", () => {
+          const names = Object.keys(store.get() || {});
+          _ytInlinePrompt(button, names.length ? "Group (existing: " + names.join(", ") + ")" : "New group name", addTo);
         });
         button.classList.add("ytb-ui-add-group");
         button.title = "Store this channel in a local group";
@@ -34378,6 +34725,7 @@ const Nr = [
       ctx.onNav(() => ctx.addTimeout(mount, 1200));
       Yt["sub-group-add"].push(() => {
         document.querySelectorAll(".ytb-ui-add-group").forEach((el) => el.remove());
+        document.querySelectorAll(".ytb-ui-inline-prompt").forEach((el) => el.remove());
       });
     },
     settings() { },
@@ -34408,13 +34756,14 @@ const Nr = [
         ".ytb-ui-subs-note{margin:24px auto;max-width:520px;padding:18px 20px;border:1px solid rgba(255,255,255,.12);" +
         "border-radius:12px;background:rgba(255,255,255,.04);font:13px/1.6 system-ui;color:#ddd;text-align:center}",
       );
+      let revealed = false;
       const mount = () => {
         if (location.pathname !== "/") {
           document.documentElement.classList.remove("ytb-ui-subs-only");
           document.querySelectorAll(".ytb-ui-subs-note").forEach((el) => el.remove());
           return;
         }
-        document.documentElement.classList.add("ytb-ui-subs-only");
+        if (!revealed) document.documentElement.classList.add("ytb-ui-subs-only");
         const host = document.querySelector("ytd-browse[page-subtype='home']");
         if (!host || host.querySelector(".ytb-ui-subs-note")) return;
         const note = To("div", "ytb-ui-subs-note");
@@ -34423,6 +34772,7 @@ const Nr = [
         actions.style.cssText = "justify-content:center;margin-top:12px";
         actions.appendChild(Oo("Open subscriptions", () => { location.href = "/feed/subscriptions"; }, "primary"));
         actions.appendChild(Oo("Show the feed once", () => {
+          revealed = true;
           document.documentElement.classList.remove("ytb-ui-subs-only");
           pe("Feed shown until the next navigation.", 2200, "info");
         }));
@@ -34430,7 +34780,7 @@ const Nr = [
         host.appendChild(note);
       };
       ctx.addInterval(mount, 2000);
-      ctx.onNav(() => ctx.addTimeout(mount, 600));
+      ctx.onNav(() => { revealed = false; ctx.addTimeout(mount, 600); });
       Yt["subs-only-home"].push(() => {
         document.documentElement.classList.remove("ytb-ui-subs-only");
         document.querySelectorAll(".ytb-ui-subs-note").forEach((el) => el.remove());
@@ -34456,28 +34806,9 @@ const Nr = [
         ".ytb-ui-sort-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0 12px;font-size:12px;color:#aaa}" +
         ".ytb-ui-sort-bar .ytb-btn.active{background:rgba(255,61,127,.18);border-color:rgba(255,61,127,.4);color:#ff8aa5}",
       );
-      const parseViews = (text) => {
-        const match = /([\d.,]+)\s*([KMB])?\s*views/i.exec(String(text || ""));
-        if (!match) return -1;
-        const value = Number(String(match[1]).replace(/,/g, ""));
-        if (!Number.isFinite(value)) return -1;
-        const scale = match[2] ? { K: 1e3, M: 1e6, B: 1e9 }[match[2].toUpperCase()] : 1;
-        return value * scale;
-      };
-      const parseAge = (text) => {
-        const match = /(\d+)\s*(year|month|week|day|hour)/i.exec(String(text || ""));
-        if (!match) return -1;
-        const value = parseInt(match[1], 10) || 0;
-        const factor = { year: 365, month: 30, week: 7, day: 1, hour: 0.04 }[match[2].toLowerCase()];
-        return value * factor;
-      };
-      const durationOf = (card) => {
-        const badge = card.querySelector("ytd-thumbnail-overlay-time-status-renderer span, #time-status span, .badge-shape-wiz__text");
-        const text = ((badge && badge.textContent) || "").trim();
-        const parts = text.split(":").map((n) => parseInt(n, 10));
-        if (!parts.length || parts.some((n) => !Number.isFinite(n))) return 0;
-        return parts.reduce((total, value) => total * 60 + value, 0);
-      };
+      const parseViews = _ytCardMeta.views;
+      const parseAge = _ytCardMeta.ageDays;
+      const durationOf = _ytCardMeta.durationSec;
       const sortBy = (mode) => {
         const list = document.querySelector("ytd-search ytd-item-section-renderer #contents, #search ytd-item-section-renderer #contents");
         if (!list) { pe("No results list on this page.", 1800, "info"); return; }
@@ -34485,7 +34816,7 @@ const Nr = [
         if (cards.length < 2) { pe("Nothing to sort.", 1600, "info"); return; }
         const meta = new Map();
         for (const card of cards) {
-          const line = card.querySelector("#metadata-line, yt-content-metadata-view-model, .ytContentMetadataViewModelMetadataRow");
+          const line = card.querySelector(_ytCardMeta.META);
           const text = (line && line.textContent) || "";
           meta.set(card, {
             views: parseViews(text),
@@ -34504,7 +34835,9 @@ const Nr = [
           if (mode === "date" || mode === "duration") return value(a) - value(b);
           return value(b) - value(a);
         });
-        for (const card of sorted) list.appendChild(card);
+        const fragment = document.createDocumentFragment();
+        for (const card of sorted) fragment.appendChild(card);
+        list.appendChild(fragment);
         pe("Sorted " + cards.length + " results by " + mode + ".", 1800, "success");
       };
       const mount = () => {
@@ -35034,6 +35367,7 @@ const Nr = [
       }, 60e3);
     } catch (e) {}
     try {
+      let _lastMarkerReapply = 0;
       setInterval(() => {
         try {
           if (!Xt.visible) return;
@@ -35062,7 +35396,9 @@ const Nr = [
               }
             }
           } catch (_) {}
-          if (!_markers || _missingStyle) {
+          const _now = Date.now();
+          if (_missingStyle || (!_markers && _now - _lastMarkerReapply > 3e5)) {
+            _lastMarkerReapply = _now;
             h(
               "watchdog: re-applying features (" +
                 (!_markers ? "no markers" : "missing " + "registered style(s)") +

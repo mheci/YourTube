@@ -13,7 +13,10 @@ const TARGETS = [
   ),
 ];
 
-const RE_ASSIGN = /unsafeWindow\.[A-Za-z_$][\w$]*\s*=/g;
+// Assignment, compound assignment, Object.assign and delete all mutate page
+// state; === comparisons must not be mistaken for assignments.
+const RE_ASSIGN = /unsafeWindow\.[A-Za-z_$][\w$]*\s*(?:=(?!=)|\+=|-=|\*=|\/=|\?\?=|\|\|=|&&=)/g;
+const RE_OTHER_WRITES = /Object\.assign\(\s*unsafeWindow|delete\s+unsafeWindow\.[A-Za-z_$][\w$]*/g;
 const BRIDGE = /exportFunction|cloneInto|_xp\./;
 const RE_PRIMITIVE = /^("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\d+|true|false|null|undefined)\s*$/;
 
@@ -42,6 +45,15 @@ for (const file of TARGETS) {
     console.error(`XRAY VIOLATION ${path.relative(ROOT, file)}:${line}: ` +
       `raw \`${m[0].trim()}\` without realm bridge`);
     console.error(`    rhs: ${rhs.slice(0, 90)}`);
+  }
+
+  RE_OTHER_WRITES.lastIndex = 0;
+  let m2;
+  while ((m2 = RE_OTHER_WRITES.exec(src))) {
+    const line = src.slice(0, m2.index).split("\n").length;
+    violations++;
+    console.error(`XRAY VIOLATION ${path.relative(ROOT, file)}:${line}: ` +
+      `raw \`${m2[0].trim()}\` without realm bridge`);
   }
 }
 

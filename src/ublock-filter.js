@@ -16,6 +16,10 @@
       let selector = raw.slice(hashIdx + 2).trim();
       if (!selector) return null;
 
+      // Procedural selector parsing below uses bounded regexes; a crafted line
+      // far longer than any real filter would only waste cycles, so drop it.
+      if (selector.length > MAX_SELECTOR_LENGTH) return null;
+
       const domains = [];
       const excludedDomains = [];
       if (domain) {
@@ -38,7 +42,10 @@
 
       let hasTextSelector = null;
       {
-        const scoped = /:has\(:is\(([^)]+)\):has-text\(((?:\\.|[^)])*)\)\)/.exec(selector);
+        // The two alternatives must stay mutually exclusive: if both could
+        // match a backslash the engine backtracks exponentially on a line
+        // that never closes its parentheses.
+        const scoped = /:has\(:is\(([^)]+)\):has-text\(((?:\\[\s\S]|[^\\)])*)\)\)/.exec(selector);
         if (scoped) {
           hasTextSelector = scoped[1].trim();
           selector = selector.replace(scoped[0], "").trim() || "*";
@@ -105,10 +112,16 @@
       let hasChildSelector = null;
       if (!supportsHas && selector.indexOf(":has(") >= 0) {
         const hasMatch = /:has\(([^)]+)\)/.exec(selector);
-        if (hasMatch && hasMatch[1].trim()) {
-          hasChildSelector = hasMatch[1].trim();
+        const body = hasMatch ? hasMatch[1].trim() : "";
+        // A body with parentheses was truncated by the match above (nested
+        // :has/:is forms); building a selector from it would only throw on
+        // every candidate, so skip the filter instead.
+        if (body && !/[()]/.test(body)) {
+          hasChildSelector = body;
           selector = selector.replace(/:has\([^)]+\)/, "").trim() || "*";
           isProcedural = true;
+        } else if (body) {
+          return null;
         }
       }
 
@@ -134,6 +147,7 @@
     const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const MAX_REGEX_SOURCE = 300;
+    const MAX_SELECTOR_LENGTH = 2000;
     const MAX_TEXT_SCAN = 4000;
     const MAX_CANDIDATES = 5000;
 

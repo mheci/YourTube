@@ -255,8 +255,8 @@ assert.ok(/headers: \{[\s\S]{0,400}response\.responseHeaders/.test(bundle),
   "SB-HEADERS-01: GM response shim exposes headers.get");
 
 // the beacon rewrite must be scoped to the campaign and disarmable.
-assert.ok(/function _fwDisarm\(\)/.test(bundle) && /_fwDisarm\(\);/.test(bundle),
-  "FW-SCOPE-01: interception can be disarmed");
+assert.ok(/function _fwDisarm\(expectedVideoId\)/.test(bundle) && /_fwDisarm\(videoId\);/.test(bundle) && /_fwDisarm\(\);/.test(bundle),
+  "FW-SCOPE-01: interception can be disarmed, and only for its own campaign");
 assert.ok(/if \(campaignCpn && beaconCpn && beaconCpn !== campaignCpn\) return u;/.test(bundle) &&
   /if \(campaignVid && beaconVid && beaconVid !== campaignVid\) return u;/.test(bundle),
   "FW-SCOPE-02: only the campaign's own beacons are rewritten");
@@ -410,3 +410,81 @@ assert.ok(/id: "subs-only-home"/.test(bundle) && /ytb-ui-subs-only/.test(bundle)
   "FEED-SUBSONLY-01: subscriptions-only home present");
 assert.ok(/id: "sort-search"/.test(bundle) && /ytb-ui-sort-bar/.test(bundle) && /Sorted .* results by /.test(bundle),
   "FEED-SORTSEARCH-01: search result sorting present");
+
+// ---------------------------------------------------------------------------
+// Polish pass: fixes from the second full review.
+// ---------------------------------------------------------------------------
+
+// primitives
+assert.ok(/if \(isHidden\(\)\) \{[\s\S]{0,40}hasRunnableTask\(\)/.test(bundle),
+  "RES-TICK-01: hidden tabs keep pauseHidden:false tasks ticking");
+assert.ok(/if \(this\._loadPromise && !this\._loaded\)/.test(bundle),
+  "RES-STORE-01: flushes wait for the initial load before writing");
+assert.ok(/AbortSignal\.timeout\(o\.timeout\)/.test(bundle),
+  "NET-01: fetchJson honours its timeout on the fetch path");
+
+// new feature cards
+assert.ok(/const bound = new WeakSet\(\);[\s\S]{0,120}bound\.has\(el\)/.test(bundle) && !/ytbFsExit/.test(bundle),
+  "FW-EXIT-01: auto-exit binds per apply, not with a dataset flag");
+assert.ok(/ytb-ui-cardmeta/.test(bundle) && /Yt\["card-metadata"\]\.push/.test(bundle),
+  "META-01: card metadata badges have their own class and a teardown");
+assert.ok(/Yt\["dearrow"\]\.push/.test(bundle) && /thumbOriginals/.test(bundle),
+  "DEARROW-01: titles and thumbnails are restored on teardown");
+assert.ok(/if \(!existing \|\| !Number\.isFinite\(existing\.pct\)\)/.test(bundle),
+  "BOOST-01: a saved per-channel boost is not overwritten by the global amount");
+assert.ok(/let revealed = false/.test(bundle) && /revealed = true/.test(bundle),
+  "SUBSONLY-01: 'show the feed once' is not cancelled by the mount interval");
+assert.ok(/Tabs only apply to the watch page/.test(bundle),
+  "TABS-01: tab state resets when leaving the watch page");
+assert.ok(/Recording timed out/.test(bundle) && /ev\.key === "Escape"/.test(bundle),
+  "KEYS-02: shortcut recording cannot leak its listener");
+assert.ok(/if \(S\.watchLaterHideWatched\) row\.appendChild/.test(bundle) && /if \(S\.watchLaterSortDuration\) row\.appendChild/.test(bundle),
+  "WL-01: watch-later buttons honour their settings");
+assert.ok(/let target = available\.indexOf\(want\) !== -1 \? want : ""/.test(bundle),
+  "QUALITY-01: sticky quality picks the closest level at or below the preference");
+assert.ok(/youtube.com\/watch\?v=" \+ id/.test(bundle) && /ytd-tabbed-page-header #buttons/.test(bundle),
+  "PICK-01: channel headers use the current page-header elements");
+
+// ublock filter interpreter
+assert.ok(bundle.indexOf("(?:\\\\[\\s\\S]|[^\\\\)])*") !== -1,
+  "UBLOCK-01: the procedural selector regex has no ambiguous alternatives");
+assert.ok(/if \(selector\.length > MAX_SELECTOR_LENGTH\) return null;/.test(bundle),
+  "UBLOCK-02: over-long selectors are rejected before parsing");
+
+// SponsorBlock
+assert.ok(/betterBeAwareCats\(\)\.has\(seg\.category\)\) \{/.test(bundle) && /Warn instead of skipping/.test(bundle),
+  "SB-WARN-01: warn-instead-of-skip categories are never skipped");
+assert.ok(/if \(!armedForVideo \|\| State\.videoId !== armedForVideo\) return;/.test(bundle),
+  "SB-COUNTDOWN-01: countdown skips only fire on their own video");
+assert.ok(/keep it from being yanked forward again/.test(bundle),
+  "SB-SEEK-01: seeking back into a skipped segment is respected");
+assert.ok(!/Metrics\.recordApiError\(\);\n\s*throw lastError;/.test(bundle),
+  "SB-RETRY-01: the unreachable retry tail stays removed");
+
+// Force-Watched
+assert.ok(/Object\.keys\(m\)\.sort\(\(a, b\) => b - a\)/.test(bundle),
+  "FW-FMT-01: quality buckets are matched from the top down");
+assert.ok(/try \{ u = new Request\(next, u\); \}/.test(bundle),
+  "FW-REQ-01: rewritten Request objects keep their method and body");
+assert.ok(/runToken === _fwRunSeq/.test(bundle),
+  "FW-GUARD-01: the run guard is tokenized");
+assert.ok(/await Promise\.allSettled\(beaconPromises\)/.test(bundle),
+  "FW-BEACON-01: history verification waits for beacons");
+assert.ok(/if \(!out\.hl\) out\.hl = t\.hl \|\| "en";/.test(bundle),
+  "FW-LOCALE-01: locale falls back to the page config");
+
+// settings import and watchdog
+assert.ok((bundle.match(/_ytSanitizeHistoryRow/g) || []).length >= 3,
+  "IMPORT-01: imported history rows are clamped before writing");
+assert.ok(/if \(text\.length > 8388608\) throw new Error\("import too large"\)/.test(bundle),
+  "IMPORT-02: oversized imports are rejected before parsing");
+assert.ok(/for \(const \[a, n\] of Object\.entries\(s\)\)/.test(bundle) && !/for \(const \[a, v\] of Object\.entries\(e\)\)/.test(bundle),
+  "IMPORT-03: only keys present in the defaults table are imported");
+assert.ok(/if \(_missingStyle \|\| \(!_markers && _now - _lastMarkerReapply > 3e5\)\)/.test(bundle),
+  "WD-01: marker-less watchdog re-applies are rate limited");
+
+// dead code stays dead
+assert.ok(!/YourTubeQueue|whenIdle|segmentEndFor|__fwTplDbg/.test(bundle),
+  "CLEAN-01: dead modules and debug leftovers stay removed");
+assert.ok(!/perfHidden|perfLogSuppressed|fadeTask|prevDark/.test(bundle),
+  "CLEAN-02: dead perf and state flags stay removed");

@@ -96,9 +96,9 @@ const context = vm.createContext({
   GM_info: { script: { version: "test" } },
 });
 
-const source = fs.readFileSync(path.join(root, "src", "resources.js"), "utf8") +
+const source = fs.readFileSync(path.join(root, "src", "20-resources.js"), "utf8") +
   "\n;globalThis.YourTubeResources = YourTubeResources;\n";
-vm.runInContext(source, context, { filename: "src/resources.js" });
+vm.runInContext(source, context, { filename: "src/20-resources.js" });
 const Z = context.globalThis.YourTubeResources;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

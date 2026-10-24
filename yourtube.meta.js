@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.2.0
+// @version      1.8.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -12,7 +12,7 @@
 // @match        https://music.youtube.com/*
 // @run-at       document-start
 // @sandbox      JavaScript
-// @inject-into content
+// @inject-into  content
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
@@ -21,6 +21,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_info
+// @grant        unsafeWindow
 // @connect      sponsor.ajay.app
 // @connect      returnyoutubedislikeapi.com
 // @connect      www.youtube.com

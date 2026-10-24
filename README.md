@@ -209,15 +209,46 @@ git push && git push origin v<version>
 ## Project layout
 
 ```
-yourtube.user.js        built userscript (the shipped artifact)
+yourtube.user.js        built userscript (the shipped artifact, byte-deterministic)
 yourtube.meta.js        userscript metadata for update checks
-src/resources.js        bounded caches, shared observers/tickers, resource scopes
-src/sponsorblock.js     SponsorBlock engine (lookups, skipping, voting, editor)
-src/ublock-filter.js    uBlock-style filter interpreter used by the channel blocker
-src/engine.js           engine helpers, Discover, algorithm tools, newest feature cards
-scripts/                build, checks, audits and test harnesses
+src/                    12 fragment modules, concatenated in numeric order:
+  00-header             userscript metadata block
+  10-bootstrap          bootstrap, storage, defaults/coercion, update check
+  20-resources          bounded caches, shared observers/tickers, resource scopes
+  30-helpers            metadata/oEmbed/history helpers, toasts
+  40-sponsorblock       SponsorBlock engine (lookups, skipping, voting, editor)
+  50-core-cards         Force-Watched, config state, registry, core cards
+  55-ublock             uBlock-style filter interpreter (channel blocker)
+  60-cards-feed         feed/comment/player cards (filters, watch tools)
+  70-theme              Theme Engine (201 themes), scheduler
+  75-dashboard          settings dashboard, import/export, presets
+  80-engine             engine helpers, Discover, Algo, aio-* enrolment, newest cards
+  90-boot               boot sequence, menu commands, hotkeys, watchdog
+scripts/                build, checks, audits and test harnesses (see below)
 docs/                   architecture notes and the pre-rebrand code review
+REPORT.md               the 1.3.0 full audit, fix log and verification record
 ```
+
+## Toolchain (1.3.0)
+
+```
+npm install             # one-time: jsdom for the harnesses
+npm run build           # assemble src/ -> yourtube.user.js + yourtube.meta.js
+npm test                # build + syntax/xray/release checks + dashboard/dead-code
+                        # audits + 13 unit suites + jsdom boot/stability +
+                        # sha256 determinism verify
+npm run audit:selectors # weekly selector-freshness audit vs live desktop+mobile YouTube
+npm run test:e2e        # live-YouTube Playwright suite (needs chromium)
+```
+
+Highlights of the test wall:
+- `test-privacy-gate` proves the Maximum-privacy preset blocks every
+  script-initiated network call at runtime (with a negative control proving the
+  harness actually exercises the network path).
+- `test-leak-bisect` toggles the historically leakiest cards on/off in jsdom
+  and pins their leftovers at zero.
+- `test-config-schema` guarantees the defaults table has no duplicate keys and
+  the prototype-pollution guards survive every edit.
 
 ---
 

@@ -1,5 +1,3 @@
-
-
   //  SponsorBlock Engine v2 (YourTube)
   const SponsorBlockEngine = (() => {
     "use strict";
@@ -84,6 +82,7 @@
       betterBeAwareWarned: new Set(),
 
       countdownTaskId: 0,
+      _chapterToastShown: new Set(),
 
       editor: {
         active: false,
@@ -354,12 +353,151 @@
         return v === undefined ? true : !!v;
       };
 
+      // ── v1.6.0 parity options ─────────────────────────────────────────────
+      const disabled = () => !!S.sbDisable;
+
+      const whitelist = () => {
+        const raw = typeof S.sbWhitelist === "string" ? S.sbWhitelist : "";
+        const set = new Set();
+        String(raw).split(/[,;\n]+/).forEach((s) => {
+          const t2 = s.trim().toLowerCase();
+          if (t2) set.add(t2);
+        });
+        return set;
+      };
+
+      const minDuration = () => Math.max(0, Math.min(60, Number(S.sbMinDuration) || 0));
+
+      const audioCue = () => !!S.sbAudioCue;
+
+      // Advanced skip rules (official "Advanced skip options", wiki.sponsor.ajay.app/w/Advanced_skip_options):
+      //   if category == "chapter" and chapter.name ~= "^[Ii]ntro" → Auto skip
+      // Conditions AND together; fields: category, actionType, chapter.name (~= regex),
+      // chapter.source, channel.name (= =/!=), channel.id, video.title (~=),
+      // time.start/end/duration (+Percent), video.duration (numeric comps).
+      let _rulesCache = null, _rulesCacheSrc = null;
+      const rules = () => {
+        const src = typeof S.sbSkipRules === "string" ? S.sbSkipRules : "";
+        if (src === _rulesCacheSrc && _rulesCache) return _rulesCache;
+        _rulesCacheSrc = src;
+        const out = [];
+        const actMap = { "auto skip": "skip", "skip once": "skip", "mute": "mute", "manual skip": "manual", "disable": "disabled", "disabled": "disabled", "show in seekbar": "seekbar", "full label": "full" };
+        const rawLines = String(src).split(/\r?\n/);
+        for (let li = 0; li < rawLines.length; li++) {
+          const line = rawLines[li].trim();
+          if (!line || line.startsWith("#")) continue;
+          if (!/^if\s+/i.test(line)) continue;
+          const ifPart = line.replace(/^if\s+/i, "");
+          // ACTION: trailing on the same line OR as the whole next line
+          // (both spellings used in the official options dialogues).
+          let am = /\s+(auto\s*skip|skip\s*once|mute|manual\s*skip|disable|disabled|show\s*in\s*seekbar|full\s*label)\s*$/i.exec(ifPart);
+          let conds;
+          if (am) conds = ifPart.slice(0, am.index).trim();
+          else {
+            const next = (rawLines[li + 1] || "").trim();
+            const am2 = /^(auto\s*skip|skip\s*once|mute|manual\s*skip|disable|disabled|show\s*in\s*seekbar|full\s*label)\s*$/i.exec(next);
+            if (!am2) continue;
+            am = { 1: am2[1], index: 0 };
+            conds = ifPart;
+            li++;
+          }
+          const action = actMap[am[1].toLowerCase().replace(/\s+/g, " ")] || "skip";
+          const parts = conds.split(/\s+and\s+/i).map((s2) => s2.trim()).filter(Boolean);
+          const checks = [];
+          let bad = false;
+          for (const p of parts) {
+            const cm = /^([\w.]+)\s*(~=|==|!=|>=|<=|=|<|>)\s*(.+)$/.exec(p);
+            if (!cm) { bad = true; break; }
+            let [, field, op, rhs] = cm;
+            rhs = rhs.trim();
+            let re = null, num = null, str = null;
+            if (op === "~=") {
+              const rx = /^"([\s\S]*)"$/.exec(rhs);
+              const pat = rx ? rx[1] : rhs;
+              try { re = new RegExp(pat, "i"); } catch (_) { bad = true; break; }
+            } else if (/^[-+]?[0-9]+(\.[0-9]+)?$/.test(rhs) && [">", "<", ">=", "<=", "="].includes(op) && !/^"/.test(rhs)) {
+              num = Number(rhs);
+            } else {
+              const qx = /^"([\s\S]*)"$/.exec(rhs);
+              const st = qx ? qx[1] : rhs;
+              if (op === "==" || op === "=") { op = "=="; str = st; }
+              else if (op === "!=") str = st;
+              else { bad = true; break; }
+            }
+            checks.push({ field, op, re, num, str });
+          }
+          if (!bad && checks.length) out.push({ checks, action });
+        }
+        _rulesCache = out;
+        return out;
+      };
+
+      const rulesActionFor = (seg, ctx) => {
+        const rs = rules();
+        if (!rs.length) return null;
+        const dur = seg.segment[1] - seg.segment[0];
+        const vd = (ctx && ctx.videoDuration) > 0 ? ctx.videoDuration : 0;
+        const vals = {
+          "category": seg.category,
+          "actiontype": seg.actionType || "skip",
+          "chapter.name": seg.description || seg.chapterTitle || "",
+          "chapter.source": (ctx && ctx.chapterSource) || "server",
+          "channel.id": ((ctx && ctx.channelId) || "").toString(),
+          "channel.name": ((ctx && ctx.channelName) || "").toString(),
+          "video.duration": vd,
+          "video.title": ((ctx && ctx.videoTitle) || "").toString(),
+          "time.start": seg.segment[0],
+          "time.end": seg.segment[1],
+          "time.duration": dur,
+          "time.startpercent": vd ? (100 * seg.segment[0]) / vd : 0,
+          "time.endpercent": vd ? (100 * seg.segment[1]) / vd : 0,
+          "time.durationpercent": vd ? (100 * dur) / vd : 0,
+        };
+        for (const rule of rs) {
+          let all = true;
+          for (const c of rule.checks) {
+            const v = vals[c.field.toLowerCase()];
+            if (c.re) { if (!(v != null && c.re.test(String(v)))) { all = false; break; } }
+            else if (c.num != null) {
+              const nv = Number(v);
+              if (!Number.isFinite(nv)) { all = false; break; }
+              const cmp = { "<": nv < c.num, "<=": nv <= c.num, ">": nv > c.num, ">=": nv >= c.num, "=": nv === c.num, "==": nv === c.num, "!=": nv !== c.num }[c.op];
+              if (!cmp) { all = false; break; }
+            } else if (c.str != null) {
+              const eq = String(v) === c.str;
+              if (c.op === "!=" ? eq : !eq) { all = false; break; }
+            }
+            else if (typeof v === "string" && c.op === "=" && v !== c.str) { all = false; break; }
+          }
+          if (all) return rule.action;
+        }
+        return null;
+      };
+
       return {
         getEnabledCategories, getCategoryAction, getActionOptions,
         getConfigKey, getRenderKey, getServerUrl,
         onlySkipIfVip, incognito, skipCountdown, betterBeAwareCats, showInSeekbar,
+        disabled, whitelist, minDuration, audioCue, rules, rulesActionFor,
       };
     })();
+
+    // One shared WebAudio cue for skip notifications; created on first skip
+    // (autoplay policies allow it once playback has started).
+    const _sbAudioCue = () => {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        const ctx = _sbAudioCue._ctx = _sbAudioCue._ctx || new AC();
+        if (ctx.state === "suspended") { try { ctx.resume(); } catch (_) {} }
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.frequency.value = 660; o.type = "sine";
+        g.gain.setValueAtTime(0.12, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + 0.12);
+      } catch (_) {}
+    };
 
     const Cache = (() => {
       const memCache = new Map();
@@ -1439,7 +1577,7 @@
           overlay.className = "YourTube-sb-countdown";
           try { document.body.appendChild(overlay); } catch (_) {}
         }
-        overlay.innerHTML = "";
+        overlay.innerHTML = Xy("");
         const text = document.createElement("span");
         text.textContent = "Skipping " + savedSec.toFixed(1) + "s in " + remaining + "…";
         const cancel = document.createElement("button");
@@ -1458,6 +1596,7 @@
           // timer is still armed for the video it was scheduled on.
           if (!armedForVideo || State.videoId !== armedForVideo) return;
           try { videoEl.currentTime = targetTime; } catch (_) {}
+          if (Settings.audioCue()) { try { _sbAudioCue(); } catch (_) {} }
         }, remaining * 1000);
       };
 
@@ -1481,6 +1620,13 @@
           return;
         }
 
+        // v1.6.0 parity: global pause toggle + channel whitelist.
+        if (Settings.disabled() || Whitelisting.isWhitelisted()) {
+          resetMuteState();
+          State.activeSegmentIndex = -1;
+          return;
+        }
+
         const videoEl = ie.el();
         if (!videoEl || videoEl.paused || videoEl.ended) {
           resetMuteState();
@@ -1495,7 +1641,7 @@
         if (idx >= 0 && idx < segs.length && segs[idx]) {
           const s = segs[idx];
           if (isTimeInSegment(s, currentTime)) {
-            const action = Settings.getCategoryAction(s.category);
+            const action = effectiveAction(s);
             if (action === "mute" && State.mutedActive) return;
             if (action !== "skip" && action !== "mute") {
               resetMuteState();
@@ -1519,7 +1665,7 @@
         }
 
         const seg = segs[idx];
-        const action = Settings.getCategoryAction(seg.category);
+        let action = effectiveAction(seg);
 
         if (action === "disabled" || action === "poi" || action === "full" || action === "chapter") {
           resetMuteState();
@@ -1537,6 +1683,12 @@
         }
 
         if (action === "skip") {
+
+          const _minDur = Settings.minDuration();
+          if (_minDur > 0 && seg.segment[1] - seg.segment[0] < _minDur) {
+            resetMuteState();
+            return;
+          }
 
           if (Settings.betterBeAwareCats().has(seg.category)) {
             // "Warn instead of skipping" means these categories are never
@@ -1586,6 +1738,7 @@
             } else {
               recordSkip(targetTime);
               try { videoEl.currentTime = targetTime; } catch (_) {}
+              if (Settings.audioCue()) { try { _sbAudioCue(); } catch (_) {} }
             }
           }
         }
@@ -1737,6 +1890,8 @@
         lastRenderedDuration = duration;
         lastRenderedSegmentCount = segments.length;
         lastRenderedConfigKey = configKey;
+        try { renderChapters(); } catch (_) {}
+        try { renderTimeWithSkips(); } catch (_) {}
 
         const desired = new Map();
         for (let idx = 0; idx < segments.length; idx++) {
@@ -1776,9 +1931,128 @@
         }
       };
 
+      // ── v1.7.0: showTimeWithSkips ─────────────────────────────────────────
+      // Player time display gets a trailing " −m:ss" chip with the total length
+      // of segments that WILL be muted/skipped under current config.
+      let _timeChipEl = null;
+      const _fmtDur = (sec) => {
+        sec = Math.max(0, Math.round(sec));
+        const h = (sec / 3600) | 0, m = ((sec % 3600) / 60) | 0, ss = sec % 60;
+        return (h ? h + ":" + String(m).padStart(2, "0") : m + ":") + String(ss).padStart(2, "0");
+      };
+      const renderTimeWithSkips = () => {
+        if (!S.sponsorblockOn || !S.sbTimeWithSkips) {
+          if (_timeChipEl) { try { _timeChipEl.remove(); } catch (_) {} _timeChipEl = null; }
+          return;
+        }
+        const disp = document.querySelector(".ytp-time-display .ytp-time-duration") ||
+                     document.querySelector(".ytp-time-duration");
+        if (!disp || !disp.parentElement) return;
+        if (!_timeChipEl || !_timeChipEl.isConnected) {
+          _timeChipEl = document.createElement("span");
+          _timeChipEl.className = "ytb-sb-timechip";
+          _timeChipEl.style.cssText = "margin-left:6px;opacity:.82;font-size:inherit;color:inherit;pointer-events:none;";
+          if (disp.parentElement === _timeChipEl) return;
+          try { disp.parentElement.appendChild(_timeChipEl); } catch (_) {}
+        }
+        const videoEl = ie.el();
+        const dur = videoEl && Number.isFinite(videoEl.duration) ? videoEl.duration : 0;
+        let sk = 0;
+        for (const seg of State.segments) {
+          if (!seg || !Settings.showInSeekbar(seg.category)) continue;
+          const act = effectiveAction(seg);
+          if (act !== "skip" && act !== "mute") continue;
+          sk += Math.max(0, Math.min(seg.segment[1], dur || seg.segment[1]) - Math.max(0, seg.segment[0]));
+        }
+        _timeChipEl.textContent = sk > 0.05 ? "(−" + _fmtDur(sk) + ")" : "";
+      };
+
+      // ── v1.7.0: renderSegmentsAsChapters ──────────────────────────────────
+      // SB "chapter" segments are drawn as first-class chapter dividers on the
+      // seekbar, with a chapter-name tooltip on hover. Native YT chapters, when
+      // present, are left untouched — our dividers co-exist with the native UI.
+      let _chOverlay = null, _chTip = null, _chMover = null;
+
+      const clearChapterOverlay = () => {
+        if (_chOverlay) { try { _chOverlay.remove(); } catch (_) {} _chOverlay = null; }
+        if (_chTip) { try { _chTip.remove(); } catch (_) {} _chTip = null; }
+        if (_chMover) { try { document.removeEventListener("pointermove", _chMover, true); } catch (_) {} _chMover = null; }
+      };
+
+      const renderChapters = () => {
+        if (!S.sponsorblockOn || !S.sbRenderChapters) { clearChapterOverlay(); return; }
+        const videoEl = ie.el();
+        const dur = videoEl && Number.isFinite(videoEl.duration) ? videoEl.duration : 0;
+        const chapters = State.segments.filter((sg) => sg && sg.category === "chapter");
+        const host = document.querySelector(".ytp-progress-list") || document.querySelector(".ytp-progress-bar");
+        if (!dur || !chapters.length || !host) { clearChapterOverlay(); return; }
+        if (!S["sb_chapter_en"]) { clearChapterOverlay(); return; }
+        if (!_chOverlay || !_chOverlay.isConnected) {
+          _chOverlay = document.createElement("div");
+          _chOverlay.className = "ytb-sb-chapters";
+          _chOverlay.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:31;";
+          try { host.appendChild(_chOverlay); } catch (_) {}
+        }
+        // (re)build dividers — chapter sets are tiny (≤ a dozen), rebuild is cheap
+        _chOverlay.textContent = "";
+        for (const ch of chapters) {
+          const pct = Math.max(0, Math.min(100, (ch.segment[0] / dur) * 100));
+          const div = document.createElement("div");
+          const name = ch.description || ch.chapterTitle || "Chapter";
+          div.className = "ytb-sb-chdiv";
+          div.title = name;
+          // Match YouTube's native chapter-divider treatment (dark notch with
+          // bright edges) so SB chapters read correctly over both the played
+          // and unplayed parts of the track.
+          div.style.cssText = "position:absolute;top:0;bottom:0;left:" + pct +
+            "%;width:2px;background:rgba(0,0,0,.85);box-shadow:-1px 0 0 rgba(255,255,255,.6),1px 0 0 rgba(255,255,255,.6);border-radius:1px;pointer-events:none;";
+          _chOverlay.appendChild(div);
+        }
+        // chapter-name tooltip on hover over the bar
+        const bar = document.querySelector(".ytp-progress-bar-padding") || host;
+        if (bar && !_chTip) {
+          _chTip = document.createElement("div");
+          _chTip.className = "ytb-sb-chtip";
+          _chTip.style.cssText = "position:absolute;display:none;background:rgba(20,20,22,.95);color:#fff;font-size:11px;padding:4px 8px;border-radius:4px;white-space:nowrap;z-index:75;pointer-events:none;transform:translateX(-50%);bottom:100%;margin-bottom:8px;";
+          // progress-list natively has overflow:hidden — mount the tooltip on
+          // the padding wrapper (overflow:visible) so it can paint above.
+          const tipHost = document.querySelector(".ytp-progress-bar-padding") || host;
+          try { tipHost.appendChild(_chTip); } catch (_) {}
+        }
+        if (bar && !_chMover) {
+          _chMover = (ev) => {
+            if (!S.sbRenderChapters || !State.segments.length || !_chTip) return;
+            const t = ev.target;
+            if (!(t && t.closest && t.closest(".ytp-progress-bar-padding, .ytp-progress-list"))) {
+              if (_chTip) _chTip.style.display = "none";
+              return;
+            }
+            try {
+              const rect = (document.querySelector(".ytp-progress-list") || document.querySelector(".ytp-progress-bar")).getBoundingClientRect();
+              if (!rect.width) return;
+              const tsec = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width)) * dur;
+              let cur = null;
+              for (const ch of chapters) {
+                if (tsec >= ch.segment[0]) cur = ch; else break;
+              }
+              if (!cur && chapters.length) cur = chapters[0];
+              if (cur) {
+                _chTip.textContent = (cur.description || cur.chapterTitle || "Chapter") + " · " + _fmtDur(tsec);
+                const hostRect = host.getBoundingClientRect();
+                _chTip.style.left = Math.max(0, Math.min(hostRect.width, ev.clientX - hostRect.left)) + "px";
+                _chTip.style.display = "block";
+              } else _chTip.style.display = "none";
+            } catch (_) { }
+          };
+          document.addEventListener("pointermove", _chMover, true);
+        }
+      };
+
       const clearMarks = () => {
         St_seekbarMarks.forEach(el => { try { el.remove(); } catch (_) {} });
         St_seekbarMarks.clear();
+        clearChapterOverlay();
+        if (_timeChipEl) { try { _timeChipEl.remove(); } catch (_) {} _timeChipEl = null; }
         lastRenderedDuration = -1;
         lastRenderedSegmentCount = -1;
         lastRenderedConfigKey = "";
@@ -1875,7 +2149,7 @@
         const catMeta = known || { label: "Segment", color: "#fff" };
         const esc = YourTubeResources.Dom.esc;
 
-        hud.innerHTML = `
+        hud.innerHTML = Xy(`
           <div class="hud-header" style="border-left: 4px solid ${esc(catMeta.color)}">
             <span style="font-weight:700">Skipped ${esc(catMeta.label)}</span>
             <span>(${savedSec.toFixed(1)}s saved)</span>
@@ -1886,7 +2160,7 @@
             <button class="hud-btn vote-btn" id="hud-vote-down" title="Downvote segment">👎</button>
             <button class="hud-btn close-btn" id="hud-close-btn">&times;</button>
           </div>
-        `;
+        `);
 
         hud.className = "show";
 
@@ -1977,7 +2251,7 @@
           catOptions += `<option value="${esc(c.id)}" ${State.editor.category === c.id ? "selected" : ""}>${esc(c.label)}</option>`;
         });
 
-        panel.innerHTML = `
+        panel.innerHTML = Xy(`
           <div style="font-weight:700;font-size:14px;color:#fff;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:6px">
             Submit Sponsorship Segment
           </div>
@@ -2016,7 +2290,7 @@
               <button class="editor-btn danger-btn" id="ed-cancel">Cancel</button>
             </div>
           </div>
-        `;
+        `);
 
         panel.querySelector("#ed-start-now").addEventListener("click", () => {
           const videoEl = ie.el();
@@ -2045,7 +2319,7 @@
             const segs = State.segments.filter((sg) => mine.some((m) => m.uuid === sg.UUID));
             const box = panel.querySelector("#ed-sbmine");
             if (box && segs.length) {
-              box.innerHTML = '<span class="ytb-ui-meta">Your submissions:</span>';
+              box.innerHTML = Xy('<span class="ytb-ui-meta">Your submissions:</span>');
               segs.forEach((sg) => {
                 const row = document.createElement("div");
                 row.style.cssText = "display:flex;align-items:center;gap:6px;margin:2px 0";
@@ -2275,12 +2549,99 @@
       pumpVipQueue();
     };
 
+    // Channel whitelist / disable state, resolved once per video. UC ids from
+    // the player response are the primary token; channel names are accepted for
+    // convenience (official extension stores the ID).
+    const _channelId = () => {
+      try {
+        const pr = (typeof unsafeWindow !== "undefined" ? unsafeWindow : window).ytInitialPlayerResponse;
+        if (pr && pr.videoDetails && pr.videoDetails.channelId) return String(pr.videoDetails.channelId);
+      } catch (_) {}
+      return "";
+    };
+    const Whitelisting = {
+      _sig: null,
+      _hit: false,
+      isWhitelisted() {
+        const vid = State.videoId;
+        if (!vid) return false;
+        // Cache keyed on (video, whitelist content, sbDisable) so any settings
+        // write — including TrustedTypes-safe Ta() paths that don't re-init the
+        // feature — self-invalidates the decision on the next tick.
+        const wl = Settings.whitelist();
+        const sig = vid + "|" + (S.sbDisable ? "1" : "0") + "|" + Array.from(wl).join(",");
+        if (Whitelisting._sig === sig) return Whitelisting._hit;
+        let hit = false;
+        if (wl.size) {
+          try { const ch = String(ie.channel() || ""); if (ch && wl.has(ch.toLowerCase())) hit = true; } catch (_) {}
+          if (!hit) try { const cid = _channelId(); if (cid && wl.has(cid.toLowerCase())) hit = true; } catch (_) {}
+        }
+        Whitelisting._sig = sig;
+        Whitelisting._hit = hit;
+        return hit;
+      },
+      invalidate() { Whitelisting._sig = null; Whitelisting._hit = false; },
+      currentChannelToken() {
+        const cid = _channelId();
+        if (cid) return cid;
+        try { return String(ie.channel() || ""); } catch (_) { return ""; }
+      },
+    };
+
+    // Lazy evaluation context for advanced skip rules (never computed unless a
+    // rule set is configured).
+    let _ruleCtx = null, _ruleCtxVid = null;
+    const ruleCtx = () => {
+      const vid = State.videoId || "";
+      if (_ruleCtxVid === vid && _ruleCtx) return _ruleCtx;
+      let vd = 0, title = "", chName = "";
+      try { const el = ie.el(); vd = el && Number.isFinite(el.duration) ? el.duration : 0; } catch (_) {}
+      try { title = String(ie.title() || ""); } catch (_) {}
+      try { chName = String(ie.channel() || ""); } catch (_) {}
+      _ruleCtx = { videoDuration: vd, videoTitle: title, channelName: chName, channelId: _channelId(), chapterSource: "server" };
+      _ruleCtxVid = vid;
+      return _ruleCtx;
+    };
+
+    // Playback decision: per-category action, then advanced-rule override.
+    const effectiveAction = (seg) => {
+      let action = Settings.getCategoryAction(seg.category);
+      if (seg && seg._ruleAction) {
+        const r = seg._ruleAction;
+        // Only skip-like overrides change runtime behavior here; all others
+        // mean "do not auto-skip" (manual/seekbar/disabled/full/chapter/poi).
+        action = r === "skip" || r === "mute" ? r : "disabled";
+      }
+      return action;
+    };
+
     const applySegments = (videoId, generation, segments, hidden, meta = {}) => {
       if (!canCommit(videoId, generation)) return false;
       State.segments = Array.isArray(segments) ? segments.slice() : [];
       Metrics.recordSegments(State.segments.length);
       State.activeSegmentIndex = -1;
       resolveVipForSegments(State.segments);
+      try {
+        // showChapterInfoMessage parity: notice once per video when SB chapters exist.
+        if (S.sbChapterToast && !State._chapterToastShown.has(videoId) && State.segments.some((sg) => sg && sg.category === "chapter")) {
+          State._chapterToastShown.add(videoId);
+          const n = State.segments.filter((sg) => sg && sg.category === "chapter").length;
+          try { pe("SponsorBlock: " + n + " chapter" + (n === 1 ? "" : "s") + " on this video", 2600, "info"); } catch (_) {}
+        }
+      } catch (_) {}
+      // Advanced skip rules run at apply time too: a rule that resolves to
+      // 'seekbar' or 'disabled' suppresses the auto-skip for the matching
+      // segments while keeping them visible on the timeline.
+      try {
+        if (Settings.rules().length) {
+          const ctx = ruleCtx();
+          for (const sg of State.segments) {
+            if (!sg) continue;
+            const r = Settings.rulesActionFor(sg, ctx);
+            if (r) sg._ruleAction = r;
+          }
+        }
+      } catch (_) {}
       if (hidden) {
         Player.detachListeners();
         UI.clearMarks();
@@ -2495,6 +2856,7 @@
       State.betterBeAwareWarned.clear();
       State.vipByUserID.clear();
       State.lastWakeLookupAt = 0;
+      UI.clearMarks();
       State.lastFailedLookupVideoId = "";
       // Body-mounted singletons must not survive a disabled card.
       if (State.countdownTaskId) { try { clearTimeout(State.countdownTaskId); } catch (_) {} State.countdownTaskId = 0; }
@@ -2577,6 +2939,54 @@
       isVideoHidden: (videoId) => HiddenVideos.isHidden(videoId),
       getUserInfo: (userId, force = false) => API.getUserInfo(userId, null, force),
       getIsUserVIP: (userId, force = false) => API.getIsUserVIP(userId, null, force),
+      // v1.6.0 parity exports used by keybinds + dashboard buttons.
+      skipCurrentSegment: () => {
+        try {
+          const videoEl = ie.el();
+          if (!videoEl) return false;
+          const t = videoEl.currentTime;
+          // Active segment at the playhead, else the next upcoming one.
+          let seg = null;
+          const segs = State.segments || [];
+          for (const sg of segs) if (sg && t >= sg.segment[0] && t < segmentEndOf(sg)) { seg = sg; break; }
+          if (!seg) return false;
+          const uuid = seg.UUID || ("active-" + seg.segment[0]);
+          State.processedUUIDs.add(uuid);
+          const savedSec = Math.max(0, seg.segment[1] - t);
+          try { Metrics.recordSkip(savedSec); } catch (_) {}
+          try { videoEl.currentTime = Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON); } catch (_) {}
+          if (Settings.audioCue()) { try { _sbAudioCue(); } catch (_) {} }
+          return true;
+        } catch (_) { return false; }
+      },
+      activeSegment: () => {
+        try {
+          const videoEl = ie.el();
+          if (!videoEl) return null;
+          const t = videoEl.currentTime;
+          for (const sg of (State.segments || [])) if (sg && t >= sg.segment[0] && t < segmentEndOf(sg)) return sg;
+        } catch (_) {}
+        return null;
+      },
+      voteActive: (dir) => {
+        const seg = (function () { try { const v = ie.el(); if (!v) return null; const t = v.currentTime; for (const sg of (State.segments || [])) if (sg && t >= sg.segment[0] && t < segmentEndOf(sg)) return sg; } catch (_) {} return null; })();
+        if (!seg || !seg.UUID) return Promise.resolve({ ok: false, message: "No segment under playhead" });
+        return API.voteOnSegment(seg.UUID, dir ? 1 : 0);
+      },
+      toggleCurrentChannelWhitelist: () => {
+        const tok = Whitelisting.currentChannelToken();
+        if (!tok) return { ok: false, message: "No channel detected" };
+        const wl = Array.from(Settings.whitelist());
+        const low = tok.toLowerCase();
+        const idx = wl.indexOf(low);
+        if (idx >= 0) { wl.splice(idx, 1); Ta("sbWhitelist", wl.join(", ")); Whitelisting.invalidate(); return { ok: true, removed: true, token: tok }; }
+        wl.push(low);
+        Ta("sbWhitelist", wl.join(", "));
+        Whitelisting.invalidate();
+        return { ok: true, added: true, token: tok };
+      },
+      isCurrentChannelWhitelisted: () => Whitelisting.isWhitelisted(),
+      channelToken: () => Whitelisting.currentChannelToken(),
       voteUp: (uuid) => API.voteOnSegment(uuid, 1),
       voteDown: (uuid) => API.voteOnSegment(uuid, 0),
       undoVote: (uuid) => API.undoVote(uuid),
@@ -2586,6 +2996,49 @@
       debugInfo,
       getActionOptions: Settings.getActionOptions,
       getSegments: () => State.segments.slice(),
+      // Editor/test aid: merge synthetic segments into the live set and repaint.
+      debugEffectiveAction: (seg) => (seg ? effectiveAction(seg) : null),
+      debugActions: () => State.segments.map((seg) => [seg.category, Settings.showInSeekbar(seg.category), effectiveAction(seg), S["sb_" + seg.category + "_en"], S["sb_" + seg.category + "_act"], S["sb_" + seg.category + "_sb"]]),
+      debugChipCalc: () => {
+        const videoEl = ie.el();
+        const dur = videoEl && Number.isFinite(videoEl.duration) ? videoEl.duration : 0;
+        let sk = 0; const rows = [];
+        for (const seg of State.segments) {
+          if (!seg) continue;
+          const sho = Settings.showInSeekbar(seg.category);
+          const act = effectiveAction(seg);
+          rows.push([seg.category, sho, act]);
+          if (!sho) continue;
+          if (act !== "skip" && act !== "mute") continue;
+          sk += Math.max(0, Math.min(seg.segment[1], dur || seg.segment[1]) - Math.max(0, seg.segment[0]));
+        }
+        return { dur, sk, rows };
+      },
+      debugTickInfo: () => ({ video: State.videoId, whitelistHit: (function(){ try { return Whitelisting.isWhitelisted(); } catch (_) { return 'err'; } })(), chTok: Whitelisting.currentChannelToken(), paused: (function(){ try { const v = ie.el(); return v ? !!v.paused : null; } catch (_) { return null; } })(), disabled: Settings.disabled(), count: State.segments.length }),
+      debugInjectSegments: (segs) => {
+        if (!Array.isArray(segs)) return 0;
+        let added = 0;
+        for (const sg of segs) {
+          if (!sg || !Array.isArray(sg.segment)) continue;
+          const cat = String(sg.category || "");
+          if (!Categories.some((c) => c.id === cat)) continue;
+          const start = Number(sg.segment[0]), end = Number(sg.segment[1]);
+          if (!(start >= 0 && end > start)) continue;
+          State.segments.push({
+            segment: [start, end], category: cat, actionType: sg.actionType || "skip",
+            UUID: sg.UUID || ("preview-" + cat + "-" + start),
+            description: String(sg.description || ""),
+            userID: S.sbUserId || "",
+            votes: 0, locked: false, videoDuration: 0,
+          });
+          added++;
+        }
+        if (added) {
+          try { UI.renderSeekbarMarks(); } catch (_) {}
+          try { g.emit("sb.segments", { videoId: State.videoId, count: State.segments.length, synthetic: true }); } catch (_) {}
+        }
+        return added;
+      },
       api: {
         fetchWithRetry: API.fetchWithRetry,
         voteOnSegment: API.voteOnSegment,
@@ -2636,6 +3089,15 @@
         skipCountdown: Settings.skipCountdown(),
         betterBeAwareCats: Array.from(Settings.betterBeAwareCats()),
         showInSeekbar: (c) => Settings.showInSeekbar(c),
+        disabled: Settings.disabled(),
+        whitelist: Array.from(Settings.whitelist()),
+        minDuration: Settings.minDuration(),
+        audioCue: Settings.audioCue(),
+        rulesCount: Settings.rules().length,
+        rulesActionFor: (seg, ctx) => Settings.rulesActionFor(seg, ctx),
+        timeWithSkips: !!S.sbTimeWithSkips,
+        renderAsChapters: !!S.sbRenderChapters,
       })
     };
   })();
+

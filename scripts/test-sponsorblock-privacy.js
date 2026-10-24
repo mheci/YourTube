@@ -70,8 +70,8 @@ function makeContext({ withSubtle }) {
     if (expose) source += `\n;globalThis.${expose} = ${expose};\n`;
     vm.runInContext(source, context, { filename: file });
   };
-  run("src/resources.js", "YourTubeResources");
-  run("src/sponsorblock.js", "SponsorBlockEngine");
+  run("src/20-resources.js", "YourTubeResources");
+  run("src/40-sponsorblock.js", "SponsorBlockEngine");
   return context;
 }
 

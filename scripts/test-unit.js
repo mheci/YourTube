@@ -54,8 +54,8 @@ const run = (file, expose) => {
   vm.runInContext(source, context, { filename: file });
 };
 
-run("src/resources.js", "YourTubeResources");
-run("src/sponsorblock.js", "SponsorBlockEngine");
+run("src/20-resources.js", "YourTubeResources");
+run("src/40-sponsorblock.js", "SponsorBlockEngine");
 const { BoundedCache, WeakElementCache, DeferredTask, ResourceScope, Bus, Logger, StateStore, Dom, Retry, ScanScheduler } = context.globalThis.YourTubeResources;
 const engine = context.globalThis.SponsorBlockEngine;
 const TimeWindow = context.globalThis.YourTubeResources.TimeWindow;
@@ -715,9 +715,9 @@ let keepAlive;
       setTimeout, clearTimeout, setInterval, clearInterval, performance,
       AbortController, DOMException,
     });
-    let usrc = fs.readFileSync(path.join(root, "src/ublock-filter.js"), "utf8");
+    let usrc = fs.readFileSync(path.join(root, "src/55-ublock.js"), "utf8");
     usrc += "\n;globalThis.UBlockEngine = UBlockEngine;";
-    vm.runInContext(usrc, uctx, { filename: "src/ublock-filter.js" });
+    vm.runInContext(usrc, uctx, { filename: "src/55-ublock.js" });
     const UE = uctx.UBlockEngine;
 
     assert.strictEqual(UE.parseFilter("! a comment"), null);

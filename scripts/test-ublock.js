@@ -8,7 +8,7 @@ const path = require("path");
 const vm = require("vm");
 
 const root = path.resolve(__dirname, "..");
-const engineSrc = fs.readFileSync(path.join(root, "src", "ublock-filter.js"), "utf8");
+const engineSrc = fs.readFileSync(path.join(root, "src", "55-ublock.js"), "utf8");
 
 function makeContext({ supportsHas }) {
   const hidden = new Set();
@@ -58,7 +58,7 @@ function makeContext({ supportsHas }) {
     globalThis: {},
   });
   vm.runInContext(engineSrc + "\n;globalThis.UBlockEngine = UBlockEngine;\n", context, {
-    filename: "src/ublock-filter.js",
+    filename: "src/55-ublock.js",
   });
   return { engine: context.globalThis.UBlockEngine, hidden, cardWithAd, cardClean, cardLong };
 }

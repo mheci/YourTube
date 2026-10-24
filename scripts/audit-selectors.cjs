@@ -70,50 +70,89 @@ for (const m of src.matchAll(/(?<![\w-])\.((?:ytd|ytm|yt|shorts|ytLockup|ytGrid|
 }
 
 (async () => {
-  let hay = "";
+  // Kept separate so each token can be classified as desktop / mobile / both /
+  // neither. The mobile surface (m.youtube.com, ytm-* elements) shares almost
+  // none of the desktop kevlar DOM, so a token missing from www.youtube.com is
+  // NOT automatically dead: the script also runs on mobile.
+  let hayDesktop = "";
+  let hayMobile = "";
   let cssFailures = 0;
+  let mobileFailed = false;
   try {
     const home = await withTimeout(fetch("https://www.youtube.com/", { headers: UA }));
     const html = await home.text();
-    hay += html;
+    hayDesktop += html;
     const bundleUrl = [...html.matchAll(/<script[^>]+src="([^"]+ytmainappweb[^"]+)"/g)].map((m) => m[1]).pop();
     if (bundleUrl) {
       const js = await withTimeout(fetch(bundleUrl.startsWith("http") ? bundleUrl : "https://www.youtube.com" + bundleUrl, { headers: UA }));
-      hay += await js.text();
+      hayDesktop += await js.text();
     }
     // class tokens live in YouTube's stylesheets, not only in the JS bundle
     const cssUrls = [...new Set([...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g)].map((m) => m[1]))].slice(0, 12);
     for (const href of cssUrls) {
       try {
         const css = await withTimeout(fetch(href.startsWith("http") ? href : "https://www.youtube.com" + href, { headers: UA }));
-        hay += await css.text();
+        hayDesktop += await css.text();
       } catch (_) { cssFailures++; }
     }
   } catch (e) {
-    console.log(`audit-selectors: could not reach YouTube (${e && e.message}); skipping.`);
+    console.log(`audit-selectors: could not reach YouTube desktop (${e && e.message}); skipping.`);
     process.exit(0);
   }
+  try {
+    const MOBILE_UA = {
+      "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      "accept-language": "en-US,en;q=0.9",
+    };
+    const home = await withTimeout(fetch("https://m.youtube.com/", { headers: MOBILE_UA }));
+    const html = await home.text();
+    hayMobile += html;
+    const bundleUrls = [
+      ...new Set([...html.matchAll(/<script[^>]+src="([^"]+\.js[^"]*)"/g)].map((m) => m[1])),
+    ].slice(0, 6);
+    for (const href of bundleUrls) {
+      try {
+        const js = await withTimeout(fetch(href.startsWith("http") ? href : "https://m.youtube.com" + href, { headers: MOBILE_UA }));
+        hayMobile += await js.text();
+      } catch (_) {}
+    }
+  } catch (e) {
+    mobileFailed = true;
+  }
   if (cssFailures) {
-    console.log(`audit-selectors: ${cssFailures} stylesheet fetch(es) failed; token results may be incomplete.`);
+    console.log(`audit-selectors: ${cssFailures} desktop stylesheet fetch(es) failed; token results may be incomplete.`);
+  }
+  if (mobileFailed) {
+    console.log("audit-selectors: m.youtube.com unreachable; mobile-only tokens will be reported as 'neither' (verify manually before pruning).");
   }
 
-  const absent = [];
+  const rows = [];
   for (const [tok, line] of tokens) {
     const name = tok.replace(/^[.#]/, "");
-    if (!hay.includes(name)) absent.push({ tok, line });
+    const d = hayDesktop.includes(name);
+    const m = hayMobile.includes(name);
+    rows.push({ tok, line, d, m });
   }
-  absent.sort((a, b) => a.line - b.line);
+  const absentDesktop = rows.filter((r) => !r.d);
+  const neverLive = rows.filter((r) => !r.d && !r.m);
+  absentDesktop.sort((a, b) => a.line - b.line);
+  neverLive.sort((a, b) => a.line - b.line);
 
-  console.log(`audit-selectors: ${tokens.size} YouTube tokens checked, ${absent.length} absent from live YouTube`);
-  if (absent.length) {
-    console.log("\nToken                                script line");
-    for (const a of absent) console.log(`  ${a.tok.padEnd(36)} ${a.line}`);
-    console.log("\nEach of these matches nothing in today's YouTube HTML/JS/CSS. Treat them as");
-    console.log("candidates to review: player-internal (ytp-*) and design-system (.yt-spec-*)");
-    console.log("tokens may live in bundles this audit does not fetch, so verify before deleting.");
+  console.log(
+    `audit-selectors: ${tokens.size} YouTube tokens checked; ${absentDesktop.length} absent from desktop, of which ${neverLive.length} absent from BOTH desktop and mobile`,
+  );
+  if (absentDesktop.length) {
+    console.log("\nToken                                desktop  mobile   script line");
+    for (const a of absentDesktop) {
+      console.log(`  ${a.tok.padEnd(36)} ${(a.d ? "live" : "absent").padEnd(8)} ${(a.m ? "live" : "absent").padEnd(8)} ${a.line}`);
+    }
+    console.log("\nTokens marked desktop=absent/mobile=live are NOT dead — they drive the mobile");
+    console.log("(m.youtube.com) surface and must be kept. Only neither/never-live rows are true");
+    console.log("bit-rot candidates. Player-internal (ytp-*) and design-system (.yt-spec-*)");
+    console.log("tokens may live in bundles this audit does not fetch: verify before deleting.");
     console.log("Report-only unless --strict is passed.");
   } else {
-    console.log("audit-selectors: clean (every token still exists in YouTube's HTML/JS).");
+    console.log("audit-selectors: clean (every token still exists in YouTube's desktop HTML/JS).");
   }
-  process.exit(strict && absent.length ? 1 : 0);
+  process.exit(strict && neverLive.length ? 1 : 0);
 })();

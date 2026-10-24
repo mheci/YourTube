@@ -8,7 +8,7 @@ const path = require("path");
 const ROOT = path.resolve(__dirname, "..");
 const TARGETS = [
   path.join(ROOT, "yourtube.user.js"),
-  ...["resources", "engine", "ublock-filter", "sponsorblock"].map(
+  ...["20-resources", "80-engine", "55-ublock", "40-sponsorblock"].map(
     (m) => path.join(ROOT, "src", `${m}.js`),
   ),
 ];

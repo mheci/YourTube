@@ -1,78 +1,61 @@
 #!/usr/bin/env node
-
-
+// YourTube build: stamp metadata, assemble src/ modules into the bundle.
+//
+// The bundle is a pure build artifact. Everything between ==UserScript== and
+// the final IIFE close comes from src/ modules, concatenated in lexicographic
+// order (the numeric prefixes are authoritative). No code is edited in the
+// bundle; `npm run verify` proves the artifact matches the sources.
+"use strict";
 const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
+const srcDir = path.join(root, "src");
+
 const toLf = (text) => text.replace(/\r\n/g, "\n");
 const toCrlf = (text) => text.replace(/\n/g, "\r\n");
 const read = (file) => toLf(fs.readFileSync(path.join(root, file), "utf8"));
 
-const replaceBetween = (text, anchor, endMarker, replacement) => {
-  const at = text.indexOf(anchor);
-  if (at < 0) throw new Error(`Missing start marker: ${anchor}`);
-
-  let start = at;
-  while (start > 0 && text[start - 1] !== "\n") start--;
-  for (;;) {
-    if (start === 0) break;
-    const prevLineStart = text.lastIndexOf("\n", start - 2) + 1;
-    const line = text.slice(prevLineStart, start).replace(/\n$/, "");
-    if (/^\s*$/.test(line) || /^\s*\/\/\s*[═║╔╗╚╝╠╣╦╩╬─│·=]+$/.test(line)) {
-      start = prevLineStart;
-    } else {
-      break;
-    }
-  }
-  const end = text.indexOf(endMarker, at);
-  if (end < 0) throw new Error(`Missing end marker: ${endMarker}`);
-  return text.slice(0, start) + replacement.trimEnd() + text.slice(end);
-};
-
-let bundle = read("yourtube.user.js");
-
-const resourceStartCurrent =
-  "  //  YourTubeResources — bounded, disposable, visibility-aware resource primitives";
-bundle = replaceBetween(
-  bundle,
-  resourceStartCurrent,
-  "\n\n    const oe = {",
-  read("src/resources.js"),
-);
-
-bundle = replaceBetween(
-  bundle,
-  "  //  SponsorBlock Engine v2 (YourTube)",
-  "\n\n\n  let St_seekbarMarks",
-  read("src/sponsorblock.js"),
-);
-
-bundle = replaceBetween(
-  bundle,
-  "  //  uBlock Filter Interpreter Engine",
-  "\n\n    function Cb_norm(e) {",
-  read("src/ublock-filter.js"),
-);
-
-bundle = replaceBetween(
-  bundle,
-  "  //  YourTubeEngine Ecosystem v3.0",
-  "\n  (async function () {\n",
-  read("src/engine.js"),
-);
-
 const pkg = JSON.parse(read("package.json"));
-const pkgVersion = pkg.version;
-const pkgLicense = pkg.license || "MIT";
-const stampVersion = (text) =>
-  text.replace(/^\/\/ @version\s+\S+$/m, `// @version      ${pkgVersion}`);
-const stampLicense = (text) =>
-  text.replace(/^\/\/ @license\s+\S+$/m, `// @license      ${pkgLicense}`);
-const stamp = (text) => stampLicense(stampVersion(text));
-let meta = stamp(read("yourtube.meta.js"));
-bundle = stamp(bundle);
-fs.writeFileSync(path.join(root, "yourtube.meta.js"), toCrlf(meta));
+const VERSION = pkg.version;
+const LICENSE = pkg.license || "MIT";
+
+const MODULES = fs.readdirSync(srcDir)
+  .filter((f) => /^\d\d-.+\.js$/.test(f))
+  .sort();
+
+if (!MODULES.length) {
+  console.error("build: no modules found in src/");
+  process.exit(1);
+}
+
+let bundle;
+{
+  const parts = MODULES.map((f) => read(path.join("src", f)));
+  let text = parts.join("\n");
+  // Header stamps: one authoritative source per value (package.json).
+  text = text.replace(/^\/\/ @version\s+.*$/m, "// @version      " + VERSION);
+  text = text.replace(/^\/\/ @license\s+.*$/m, "// @license      " + LICENSE);
+  // Runtime version stamps: the in-code fallback shown when GM_info is absent
+  // (tests, raw script-tag injection) can never drift from package.json again.
+  text = text.split("__YTP_VERSION__").join(VERSION);
+  bundle = text;
+}
+
+const firstBrace = bundle.indexOf("(() => {");
+if (firstBrace < 0 || !/\}\)\(\);\s*$/.test(bundle)) {
+  console.error("build: assembled bundle does not look like the YourTube IIFE");
+  process.exit(1);
+}
 
 fs.writeFileSync(path.join(root, "yourtube.user.js"), toCrlf(bundle));
-console.log(`Built yourtube.user.js from source mirrors (version ${pkgVersion}, ${pkgLicense}).`);
+
+{
+  const m = /^([\s\S]*?==\/UserScript==\n)/.exec(bundle);
+  if (!m) {
+    console.error("build: could not extract userscript header");
+    process.exit(1);
+  }
+  fs.writeFileSync(path.join(root, "yourtube.meta.js"), toCrlf(m[1]));
+}
+console.log("Built yourtube.user.js from " + MODULES.length + " modules (v" + VERSION + ", " + LICENSE + ")");

@@ -58,6 +58,9 @@ const S = {
   sb_poi_highlight_en: true, sb_poi_highlight_act: "poi", sb_poi_highlight_sb: true,
   sb_exclusive_access_en: true, sb_exclusive_access_act: "skip", sb_exclusive_access_sb: true,
   sb_chapter_en: true, sb_chapter_act: "chapter", sb_chapter_sb: true,
+  sbDisable: false, sbWhitelist: "", sbMinDuration: 0, sbAudioCue: false,
+  sbChapterToast: false,
+  sbSkipRules: 'if category == "chapter" and chapter.name ~= "^[Ii]ntro"\nAuto skip\nif time.duration < 5 and category == "sponsor"\nMute\nif channel.id == "UC0000" and category == "preview"\nManual skip\nif time.durationPercent > 40\nShow in seekbar',
 };
 globalThis.S = S;
 globalThis.Ta = noop;
@@ -72,7 +75,7 @@ globalThis.pe = noop; globalThis.ft = noop;
 globalThis.g = { emit: noop, once: noop, on: noop };
 globalThis.Yt = {};
 
-let src = fs.readFileSync(path.resolve(__dirname, "..", "src/sponsorblock.js"), "utf8");
+let src = fs.readFileSync(path.resolve(__dirname, "..", "src/40-sponsorblock.js"), "utf8");
 src += "\n;globalThis.SponsorBlockEngine = SponsorBlockEngine;";
 
 (0, eval)(src);
@@ -113,6 +116,52 @@ ok("normalizeSegments drops invalid segment", norm.segments.length === 1 && norm
   S.sbIncognito = false;
   const sub2 = await SB.api.submitSegment("dQw4w9WgXcQ", 5, 5, "sponsor", "");
   ok("non-incognito submit rejects invalid times (no network needed)", sub2.ok === false && sub2.status === 400);
+
+  // ── v1.6.0 parity options ───────────────────────────────────────────
+  ok("disabled flag off by default", SB.getConfigFlags().disabled === false);
+  S.sbDisable = true;
+  ok("disabled flag reflects config", SB.getConfigFlags().disabled === true);
+  S.sbDisable = false;
+
+  S.sbWhitelist = "UCabc123, Some Channel";
+  ok("whitelist parsed to set", JSON.stringify(SB.getConfigFlags().whitelist) === JSON.stringify(["ucabc123", "some channel"]));
+  S.sbWhitelist = "";
+
+  S.sbMinDuration = 2.5;
+  ok("minDuration passes through", SB.getConfigFlags().minDuration === 2.5);
+  S.sbMinDuration = 0;
+
+  // rule parser: 4 rules from the stub ruleset
+  ok("rules parsed (4)", SB.getConfigFlags().rulesCount === 4);
+  const hitCh = SB.getConfigFlags().rulesActionFor(
+    { segment: [3, 8], category: "chapter", chapterTitle: "Intro", actionType: "chapter" },
+    { videoDuration: 100, videoTitle: "x", channelName: "y", channelId: "", chapterSource: "server" });
+  ok("chapter-name regex rule → skip", hitCh === "skip");
+  const hitMute = SB.getConfigFlags().rulesActionFor(
+    { segment: [10, 13], category: "sponsor", actionType: "skip" },
+    { videoDuration: 100, videoTitle: "x", channelName: "y", channelId: "" });
+  ok("duration < 5 sponsor rule → mute", hitMute === "mute");
+  const hitMan = SB.getConfigFlags().rulesActionFor(
+    { segment: [60, 80], category: "preview", actionType: "skip" },
+    { videoDuration: 100, videoTitle: "x", channelName: "y", channelId: "UC0000" });
+  ok("channel preview rule → manual", hitMan === "manual");
+  const hitSb = SB.getConfigFlags().rulesActionFor(
+    { segment: [10, 70], category: "intro", actionType: "skip" },
+    { videoDuration: 120, videoTitle: "x", channelName: "y", channelId: "" });
+  ok("long-segment rule → seekbar-only", hitSb === "seekbar");
+  const miss = SB.getConfigFlags().rulesActionFor(
+    { segment: [10, 12], category: "outro", actionType: "skip" },
+    { videoDuration: 100, videoTitle: "x", channelName: "y", channelId: "" });
+  ok("no-rule match → null", miss === null);
+  // two-line official spelling parses (done above) + syntax-garbage resilience
+  S.sbSkipRules = "if category ~= (\nbroken!!!";
+  ok("broken rules never crash", SB.getConfigFlags().rulesCount === 0);
+
+  S.sbTimeWithSkips = true; S.sbRenderChapters = true;
+  ok("timeWithSkips flag", SB.getConfigFlags().timeWithSkips === true);
+  ok("renderAsChapters flag", SB.getConfigFlags().renderAsChapters === true);
+  S.sbTimeWithSkips = false;
+  ok("timeWithSkips live toggle", SB.getConfigFlags().timeWithSkips === false);
 
   console.log(`\nSponsorBlock parity test: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

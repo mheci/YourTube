@@ -1,5 +1,3 @@
-
-
   //  uBlock Filter Interpreter Engine
   const UBlockEngine = (() => {
     "use strict";

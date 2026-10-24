@@ -1,5 +1,3 @@
-
-
   //  YourTubeEngine Ecosystem v3.0
   const ytbEscapeHtml = (value) => String(value == null ? "" : value).replace(/[&<>\"']/g, (char) => ({
     "&": "&amp;",
@@ -188,6 +186,12 @@
 
     const innerTube = (endpoint, body, opts) => Ot(endpoint, body, Object.assign({ parseJson: true, timeout: 8000 }, opts || {}));
     const fetchJson = (url, opts) => {
+      // Central gate: the "Maximum privacy" preset promises no script-initiated
+      // third-party network calls. he() (SponsorBlock) already enforces this;
+      // RYD, DeArrow and any other fetchJson consumer now share the contract.
+      try {
+        if (S && S.safeMode) return Promise.resolve({ ok: false, status: 0, json: null, text: "", blocked: "SAFE_MODE_BLOCKED" });
+      } catch (_) {}
       const o = Object.assign({ timeout: 9000, headers: {}, method: "GET" }, opts || {});
       const gmx = (typeof GM_xmlhttpRequest === "function") ? GM_xmlhttpRequest
         : (typeof window !== "undefined" && typeof window.GM_xmlhttpRequest === "function") ? window.GM_xmlhttpRequest : null;
@@ -1828,7 +1832,8 @@
   xa.register({
     id: "discover",
     name: "Discover",
-    summary: "Clean search-based discovery instead of the algorithm.",
+    summary: "Topic-based search discovery with watch-history dedup, no algorithm.",
+      cat: "insights",
     masterKey: "discoverOn",
     keys: ["discoverOn"],
     apply(ctx) {
@@ -2027,7 +2032,20 @@
         ensureUi();
         load();
       }, 0);
-      Yt["discover"].push(() => api.destroy());
+      Yt["discover"].push(() => {
+        // addSection() can return null/undefined if the host failed to build;
+        // destroying unconditionally then throws (caught by ha(), but the
+        // section DOM/pill then survives → leak bisect F8: +1 DOM residue).
+        try {
+          if (api) api.destroy();
+        } catch (_) {}
+        // Belt-and-suspenders: the reopen pill is only removed by removeSection
+        // when the last section goes; make sure it can't linger either way.
+        try {
+          const rp = document.getElementById("ytb-disco-reopen");
+          if (rp && rp.parentNode) rp.remove();
+        } catch (_) {}
+      });
     },
     settings(en) {
       en.appendChild(Io("Enable Discover", "discoverOn"));
@@ -2035,7 +2053,8 @@
         "One toggle for discovery. Browse 8+ categories inside or outside your niche. Picks are filtered against your watch history while Session History is on, and never repeat within a session."));
     } });
 
-  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Upload age and channel trust badges on cards.", masterKey: "credLayerOn", keys: ["credLayerOn"],
+  xa.register({ id: "credibility-layer", name: "Credibility Badges", summary: "Upload-age and channel-trust badges on cards.",
+      cat: "insights", masterKey: "credLayerOn", keys: ["credLayerOn"],
     apply(ctx) {
       if (!S.credLayerOn) return;
       YourTubeEngine.injectCSS();
@@ -2093,7 +2112,8 @@
     },
     settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
 
-  xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Warns when search results are outdated.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
+  xa.register({ id: "dead-link-detector", name: "Outdated Content Flags", summary: "Warns when search results reference stale content.",
+      cat: "insights", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
     apply(ctx) {
       if (!S.deadLinkOn) return;
       YourTubeEngine.injectCSS();
@@ -2128,7 +2148,8 @@
     },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
 
-  xa.register({ id: "curated-collections", name: "Curated Collections", summary: "Organize saved videos into collections.", masterKey: "collectionsOn", keys: ["collectionsOn"],
+  xa.register({ id: "curated-collections", name: "Collections", summary: "Organize saved videos into named collections.",
+      cat: "insights", masterKey: "collectionsOn", keys: ["collectionsOn"],
     apply(ctx) {
       if (!S.collectionsOn) return;
       YourTubeEngine.injectCSS();
@@ -2145,7 +2166,7 @@
           html += '<button class="ytb-ui-btn" data-col="' + ytbEscapeHtml(c.id) + '">' + ytbEscapeHtml(c.name) + ' (' + c.videos.length + ')</button>';
         });
         html += '<button class="ytb-ui-btn primary" id="ytb-col-new">+ New</button></div>';
-        panel.innerHTML = html;
+        panel.innerHTML = Xy(html);
       };
       rebuild();
       const insert = () => {
@@ -2183,7 +2204,7 @@
         const list = document.createElement("div");
         list.style.cssText = "margin-top:6px;font-size:11px;color:#aaa";
         cols.forEach(c => {
-          list.innerHTML += '<div style="padding:2px 0">' + ytbEscapeHtml(c.name) + ' (' + c.videos.length + ' videos)</div>';
+          list.innerHTML += Xy('<div style="padding:2px 0">' + ytbEscapeHtml(c.name) + ' (' + c.videos.length + ' videos)</div>');
         });
         en.appendChild(list);
       }
@@ -2191,8 +2212,9 @@
 
   xa.register({
     id: "algo-intelligence",
-    name: "Algorithm Intelligence",
-    summary: "Shape your feed: fresher, more varied, interest-first.",
+    name: "Feed Intelligence",
+    summary: "Reorders your feed by freshness, variety and interest fit.",
+      cat: "insights",
     masterKey: "algoIntelligenceOn",
     keys: ["algoIntelligenceOn", "algoAutoTrain", "algoBlockTopics", "algoBlockKeywords", "algoBlockChannels", "algoScanInterval", "algoStrength", "algoBoostOn", "algoBoostInterval", "algoDiversityOn", "algoDiversityMax", "algoAutoLikeOn", "algoAutoLikePct", "algoAutoDislikeOn", "algoShortsOn"],
     apply(ctx) {
@@ -2317,7 +2339,7 @@
         }
         const d = AlgoEngine.analyzeDiversity();
         if (d && d.dominant) html += "<br>Feed focus: " + ytbEscapeHtml(d.dominant) + " at " + d.maxShare + "% of recommendations";
-        profileDiv.innerHTML = html;
+        profileDiv.innerHTML = Xy(html);
       };
       updateProfile();
       en.appendChild(profileDiv);
@@ -2421,7 +2443,8 @@
     },
   });
 
-  xa.register({ id: "screen-wake", name: "Keep Screen Awake", summary: "Keeps your screen awake while watching.", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
+  xa.register({ id: "screen-wake", name: "Screen Wake Lock", summary: "Requests a wake lock while a video plays.",
+      cat: "playback", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
     apply(ctx) {
       if (!S.screenWakeOn) return;
       if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") return;
@@ -2456,7 +2479,8 @@
   xa.register({
     id: "perf-mode",
     name: "Performance Mode",
-    summary: "Five performance presets from light to maximum.",
+    summary: "Five presets scaling work from light to maximum.",
+      cat: "tools",
     masterKey: "perfModeOn",
     keys: ["perfModeOn", "perfModeLevel", "perfModeAuto", "perfContainment", "perfLazyThumbs", "perfLazyComments", "perfKillAnim", "perfKillBlur", "perfThumbQuality", "perfDisablePreviews", "perfMemoryTrim", "perfPrefetch", "perfPreconnect", "perfBgThrottle", "perfPaintReduction", "perfQualityCap"],
     apply(ctx) {
@@ -2764,13 +2788,14 @@
       const info = document.createElement("div");
       info.className = "ytb-hist-note";
       info.style.marginTop = "8px";
-      info.innerHTML = "<strong>Level presets:</strong> each preset turns on a set of optimizations. Granular switches add individual optimizations on top of the selected level. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.";
+      info.innerHTML = Xy("<strong>Level presets:</strong> each preset turns on a set of optimizations. Granular switches add individual optimizations on top of the selected level. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.");
       en.appendChild(info);
     } });
   xa.register({
     id: "overlay-hub",
-    name: "Monolith Overlay Hub",
-    summary: "All performance meters docked into one HUD.",
+    name: "Overlay Hub",
+    summary: "Docks every performance meter into one HUD.",
+      cat: "tools",
     masterKey: "overlayHubOn",
     keys: ["overlayHubOn", "overlayHubPos"],
     apply(ctx) {
@@ -2927,15 +2952,16 @@
       const info = document.createElement("div");
       info.className = "ytb-hist-note";
       info.style.marginTop = "8px";
-      info.innerHTML = "<strong>Monolith Overlay Hub:</strong> Consolidates all active floating performance meters and diagnostic tools into a single, unified docked glass HUD.";
+      info.innerHTML = Xy("<strong>Monolith Overlay Hub:</strong> Consolidates all active floating performance meters and diagnostic tools into a single, unified docked glass HUD.");
       en.appendChild(info);
     },
   });
 
   xa.register({
     id: "watch-budget",
-    name: "Watch-Budget Focus Mode",
-    summary: "A gentle daily watch limit with soft nudges.",
+    name: "Watch Budget",
+    summary: "Daily watch limit with soft nudges and a configurable cap.",
+      cat: "wellness",
     masterKey: "watchBudgetOn",
     keys: ["watchBudgetOn", "watchBudgetMinutes"],
     apply(ctx) {
@@ -3087,15 +3113,16 @@
       const info = document.createElement("div");
       info.className = "ytb-hist-note";
       info.style.marginTop = "8px";
-      info.innerHTML = "<strong>How it counts:</strong> only visible playback on watch pages accrues time. At 80% you get one gentle nudge; at 100% a calm screen offers a break or three five-minute extensions per day. Shortcut: Shift+B.";
+      info.innerHTML = Xy("<strong>How it counts:</strong> only visible playback on watch pages accrues time. At 80% you get one gentle nudge; at 100% a calm screen offers a break or three five-minute extensions per day. Shortcut: Shift+B.");
       en.appendChild(info);
     },
   });
 
   xa.register({
     id: "shorts-policy",
-    name: "Shorts Policy Schedule",
-    summary: "Allow or block Shorts during chosen hours.",
+    name: "Shorts Schedule",
+    summary: "Allows or blocks Shorts by time of day.",
+      cat: "wellness",
     masterKey: "shortsScheduleOn",
     keys: ["shortsScheduleOn", "shortsScheduleMode", "shortsScheduleStart", "shortsScheduleEnd"],
     apply(ctx) {
@@ -3226,8 +3253,9 @@
   })();
 
   xa.register({
-    id: "silence-skipper", name: "Silence Fast-Forward",
-    summary: "Speeds through silent stretches.",
+    id: "silence-skipper", name: "Silence Skip",
+    summary: "Fast-forwards through silent stretches at a configurable rate.",
+      cat: "audio",
     masterKey: "silenceSkipOn", keys: ["silenceSkipOn", "silenceSkipRate"],
     apply(ctx) {
       if (!S.silenceSkipOn) return;
@@ -3266,7 +3294,8 @@
 
   xa.register({
     id: "chapter-auto-skip", name: "Chapter Auto-Skip",
-    summary: "Skips chapters titled intro, outro, sponsor, or custom words.",
+    summary: "Skips chapters whose titles match intro/outro/sponsor or your word list.",
+      cat: "playback",
     masterKey: "chapterAutoSkipOn", keys: ["chapterAutoSkipOn", "chapterSkipWords"],
     apply(ctx) {
       if (!S.chapterAutoSkipOn) return;
@@ -3333,7 +3362,8 @@
 
   xa.register({
     id: "video-bookmarks", name: "Timestamp Bookmarks",
-    summary: "Timestamp bookmarks (Alt+B), stored locally.",
+    summary: "Bookmark moments with Alt+B; stored locally.",
+      cat: "data",
     masterKey: "videoBookmarksOn", keys: ["videoBookmarksOn"],
     apply(ctx) {
       if (!S.videoBookmarksOn) return;
@@ -3398,8 +3428,9 @@
   });
 
   xa.register({
-    id: "timestamp-notes", name: "Study Notes",
-    summary: "Timestamped notes while watching (Alt+N).",
+    id: "timestamp-notes", name: "Timestamped Notes",
+    summary: "Notes anchored to playhead positions (Alt+N).",
+      cat: "data",
     masterKey: "timestampNotesOn", keys: ["timestampNotesOn"],
     apply(ctx) {
       if (!S.timestampNotesOn) return;
@@ -3477,7 +3508,8 @@
 
   xa.register({
     id: "pause-auto-rewind", name: "Pause Rewind",
-    summary: "Rewinds a few seconds every time you pause.",
+    summary: "Rewinds a few seconds each time you pause.",
+      cat: "playback",
     masterKey: "pauseRewindOn", keys: ["pauseRewindOn", "pauseRewindSec"],
     apply(ctx) {
       if (!S.pauseRewindOn) return;
@@ -3497,7 +3529,8 @@
 
   xa.register({
     id: "instant-replay", name: "Instant Replay",
-    summary: "Alt+J replays the last few seconds.",
+    summary: "Alt+J replays the last N seconds.",
+      cat: "playback",
     masterKey: "instantReplayOn", keys: ["instantReplayOn", "instantReplaySec"],
     apply(ctx) {
       if (!S.instantReplayOn) return;
@@ -3518,7 +3551,8 @@
 
   xa.register({
     id: "sleep-timer", name: "Sleep Timer",
-    summary: "Alt+O sets a sleep timer; volume fades before pause.",
+    summary: "Alt+O: pauses after N minutes with a volume fade.",
+      cat: "wellness",
     masterKey: "sleepTimerOn", keys: ["sleepTimerOn", "sleepTimerMin"],
     apply(ctx) {
       if (!S.sleepTimerOn) return;
@@ -3570,7 +3604,8 @@
 
   xa.register({
     id: "stretch-reminder", name: "Stretch Reminder",
-    summary: "Gentle reminder after long non-stop watching.",
+    summary: "Reminder after long uninterrupted sessions.",
+      cat: "wellness",
     masterKey: "stretchReminderOn", keys: ["stretchReminderOn", "stretchEveryMin"],
     apply(ctx) {
       if (!S.stretchReminderOn) return;
@@ -3602,7 +3637,8 @@
 
   xa.register({
     id: "intention-lock", name: "Session Intention",
-    summary: "Write your intention before watching; it stays visible.",
+    summary: "Shows your stated intent before watching; stays visible.",
+      cat: "wellness",
     masterKey: "intentionLockOn", keys: ["intentionLockOn"],
     apply(ctx) {
       if (!S.intentionLockOn) return;
@@ -3650,8 +3686,9 @@
   });
 
   xa.register({
-    id: "end-winddown", name: "End-of-Video Wind-Down",
-    summary: "Autoplay waits behind a calm continue screen.",
+    id: "end-winddown", name: "Wind-Down Gate",
+    summary: "Autoplay stops behind a continue screen.",
+      cat: "wellness",
     masterKey: "endWindDownOn", keys: ["endWindDownOn", "windDownSec"],
     apply(ctx) {
       if (!S.endWindDownOn) return;
@@ -3737,7 +3774,8 @@
 
   xa.register({
     id: "shorts-marathon-guard", name: "Shorts Marathon Guard",
-    summary: "Nudges you after N Shorts in a row.",
+    summary: "Interrupts after N consecutive Shorts.",
+      cat: "wellness",
     masterKey: "shortsMarathonOn", keys: ["shortsMarathonOn", "shortsMarathonN"],
     apply(ctx) {
       if (!S.shortsMarathonOn) return;
@@ -3762,8 +3800,9 @@
   });
 
   xa.register({
-    id: "feed-freshness", name: "Feed Freshness Filter",
-    summary: "Hides home-feed videos older than you like.",
+    id: "feed-freshness", name: "Feed Freshness",
+    summary: "Hides home-feed cards older than a set age.",
+      cat: "feed",
     masterKey: "feedFreshnessOn", keys: ["feedFreshnessOn", "feedMaxAgeMonths"],
     apply(ctx) {
       if (!S.feedFreshnessOn) return;
@@ -3806,7 +3845,8 @@
 
   xa.register({
     id: "channel-snooze", name: "Channel Snooze",
-    summary: "Snooze channels from your feeds for days.",
+    summary: "Temporarily hides channels from your feeds for N days.",
+      cat: "channels",
     masterKey: "channelSnoozeOn", keys: ["channelSnoozeOn", "channelSnoozeList"],
     apply(ctx) {
       if (!S.channelSnoozeOn) return;
@@ -3840,8 +3880,9 @@
   });
 
   xa.register({
-    id: "dup-title-spotter", name: "Duplicate Title Spotter",
-    summary: "Flags repeated titles in search (reuploads).",
+    id: "dup-title-spotter", name: "Duplicate Title Flags",
+    summary: "Marks repeated titles in search (reuploads).",
+      cat: "feed",
     masterKey: "dupTitleSpotterOn", keys: ["dupTitleSpotterOn"],
     apply(ctx) {
       if (!S.dupTitleSpotterOn) return;
@@ -3879,7 +3920,8 @@
 
   xa.register({
     id: "playlist-watched-marker", name: "Playlist Watch-Marks",
-    summary: "Dims playlist videos you already watched.",
+    summary: "Dims playlist entries you've already watched.",
+      cat: "channels",
     masterKey: "playlistWatchedMarkerOn", keys: ["playlistWatchedMarkerOn", "sessionRestoreOn"],
     apply(ctx) {
       if (!S.playlistWatchedMarkerOn) return;
@@ -3938,8 +3980,9 @@
   });
 
   xa.register({
-    id: "comment-filter", name: "Comment Filter",
+    id: "comment-filter", name: "Comment Keyword Filter",
     summary: "Hides comments matching your keyword list.",
+      cat: "comments",
     masterKey: "commentFilterOn", keys: ["commentFilterOn", "commentBlockWords"],
     apply(ctx) {
       if (!S.commentFilterOn) return;
@@ -3974,8 +4017,9 @@
   });
 
   xa.register({
-    id: "history-local-hide", name: "History Local Hide",
-    summary: "Hide videos from your history, locally only.",
+    id: "history-local-hide", name: "Local History Hide",
+    summary: "Suppresses videos from YourTube's local history (does not touch account history).",
+      cat: "privacy",
     masterKey: "historyLocalHideOn", keys: ["historyLocalHideOn"],
     apply(ctx) {
       if (!S.historyLocalHideOn) return;
@@ -4026,7 +4070,8 @@
 
   xa.register({
     id: "copy-link-cleaner", name: "Copy Link Cleaner",
-    summary: "Copied links lose tracking baggage.",
+    summary: "Removes tracking parameters from copied URLs.",
+      cat: "privacy",
     masterKey: "copyLinkCleanerOn", keys: ["copyLinkCleanerOn"],
     apply(ctx) {
       if (!S.copyLinkCleanerOn) return;
@@ -4057,8 +4102,9 @@
   });
 
   xa.register({
-    id: "night-scheduler", name: "Night Theme Scheduler",
-    summary: "Dark theme at night, light theme by day.",
+    id: "night-scheduler", name: "Theme Scheduler",
+    summary: "Switches dark/light themes on a schedule.",
+      cat: "appearance",
     masterKey: "nightSchedulerOn", keys: ["nightSchedulerOn", "nightStart", "nightEnd"],
     apply(ctx) {
       if (!S.nightSchedulerOn) return;
@@ -4112,8 +4158,9 @@
   });
 
   xa.register({
-    id: "text-scale", name: "Reading Size Boost",
-    summary: "Bigger text for descriptions and comments.",
+    id: "text-scale", name: "Text Scale",
+    summary: "Adjusts text size for descriptions and comments; site-wide or scoped.",
+      cat: "appearance",
     masterKey: "textScaleOn", keys: ["textScaleOn", "textScalePct", "textScaleScope"],
     apply(ctx) {
       if (!S.textScaleOn) return;
@@ -4138,8 +4185,9 @@
   });
 
   xa.register({
-    id: "storage-dashboard", name: "Storage Dashboard",
-    summary: "See and trim YourTube's local storage use.",
+    id: "storage-dashboard", name: "Storage Usage",
+    summary: "Inspect and prune YourTube's local storage footprint.",
+      cat: "data",
     masterKey: "storageDashboardOn", keys: ["storageDashboardOn"],
     apply(ctx) {  },
     settings(en) {
@@ -4163,7 +4211,7 @@
             lines.push(storeName + ": " + (rows ? rows.length : 0) + " rows ≈ " + fmtBytes(bytes));
           } catch (_) { lines.push(storeName + ": unavailable"); }
         }
-        out.innerHTML = "";
+        out.innerHTML = Xy("");
         const pre = document.createElement("div");
         pre.style.whiteSpace = "pre-line";
         pre.textContent = lines.join("\n");
@@ -4190,7 +4238,8 @@
 
   xa.register({
     id: "health-check", name: "Health Check",
-    summary: "Diagnostics: stats, quarantines, live probes.",
+    summary: "Diagnostics: stats, quarantined features, live DOM probes.",
+      cat: "tools",
     masterKey: "healthCheckOn", keys: ["healthCheckOn"],
     apply(ctx) { },
     settings(en) {
@@ -4245,7 +4294,8 @@
 
   xa.register({
     id: "frame-stepper", name: "Frame Stepper",
-    summary: "Step frame by frame with buttons or Alt+, / Alt+..",
+    summary: "Frame-accurate stepping via buttons or Alt+, / Alt+..",
+      cat: "playback",
     masterKey: "frameStepperOn", keys: ["frameStepperOn", "frameFps"],
     apply(ctx) {
       if (!S.frameStepperOn) return;
@@ -4288,7 +4338,8 @@
 
   xa.register({
     id: "playlist-resume", name: "Playlist Resume",
-    summary: "Resumes playlists where you stopped.",
+    summary: "Reopens playlists at the position you stopped.",
+      cat: "playback",
     masterKey: "playlistResumeOn", keys: ["playlistResumeOn"],
     apply(ctx) {
       if (!S.playlistResumeOn) return;
@@ -4341,7 +4392,8 @@
 
   xa.register({
     id: "channel-volume", name: "Per-Channel Volume",
-    summary: "Remembers volume per channel.",
+    summary: "Stores one volume level per channel.",
+      cat: "audio",
     masterKey: "channelVolumeOn", keys: ["channelVolumeOn"],
     apply(ctx) {
       if (!S.channelVolumeOn) return;
@@ -4388,8 +4440,9 @@
   });
 
   xa.register({
-    id: "quick-collection-send", name: "Quick Save to Collection",
-    summary: "Quick button to save the current video to a collection.",
+    id: "quick-collection-send", name: "Save to Collection",
+    summary: "One-click save of the current video into a collection.",
+      cat: "channels",
     masterKey: "quickCollectionSendOn", keys: ["quickCollectionSendOn"],
     apply(ctx) {
       if (!S.quickCollectionSendOn) return;
@@ -4431,7 +4484,8 @@
 
   xa.register({
     id: "reader-mode", name: "Description Reader",
-    summary: "Read long descriptions in a clean panel.",
+    summary: "Renders long descriptions in a clean reading panel.",
+      cat: "appearance",
     masterKey: "readerModeOn", keys: ["readerModeOn"],
     apply(ctx) {
       if (!S.readerModeOn) return;
@@ -4482,8 +4536,9 @@
   });
 
   xa.register({
-    id: "breather", name: "Breathing Break",
-    summary: "Alt+G opens a one-minute breathing break.",
+    id: "breather", name: "Breather",
+    summary: "Alt+G opens a one-minute breathing exercise.",
+      cat: "wellness",
     masterKey: "ytbBreatherOn", keys: ["ytbBreatherOn"],
     apply(ctx) {
       if (!S.ytbBreatherOn) return;
@@ -4536,12 +4591,26 @@
 
   const aioEnroll = (master, members) => {
     const flag = master + "Enrolled";
+    const listKey = master + "EnrolledMembers";
     if (S[master]) {
       if (S[flag]) return;
-      for (const k of members) { if (!S[k]) Ta(k, true); }
+      const flipped = [];
+      for (const k of members) { if (!S[k]) { Ta(k, true); flipped.push(k); } }
+      // Record exactly which members this enrolment switched on (1.3.0). The
+      // previous version only kept the "Enrolled" marker, so turning the
+      // master off left six enrolled features running that the user never
+      // chose individually — the +1..3 timers/observers/DOM residue the leak
+      // bisect kept attributing to the aio-* cards.
+      Ta(listKey, flipped.join(","));
       Ta(flag, true);
     } else if (S[flag]) {
       Ta(flag, false);
+      // Master OFF un-enrols precisely the members the enrolment enabled, and
+      // only if they are still on: anything the user had set by hand (not in
+      // the recorded list, or turned back on after enrolment) is untouched.
+      const flipped = String(S[listKey] || "").split(",").filter(Boolean);
+      for (const k of flipped) if (S[k]) Ta(k, false);
+      Ta(listKey, "");
     }
   };
   const aioRows = (en, rows) => {
@@ -4552,8 +4621,9 @@
 
   const _playerTools = ["copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn", "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
   xa.register({
-    id: "aio-player-tools", name: "Player Tools (All-in-One)",
-    summary: "One switch for player extras; each stays individually toggleable below.",
+    id: "aio-player-tools", name: "Bundle: Player Tools",
+    summary: "Group switch for the player-bar extras; members stay individually toggleable; OFF removes only what it enabled.",
+      cat: "bundles",
     masterKey: "aioPlayerToolsOn",
     settingsAlways: !0,
     keys: ["aioPlayerToolsOn", "aioPlayerToolsOnEnrolled", ..._playerTools],
@@ -4574,8 +4644,9 @@
 
   const _shorts = ["redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"];
   xa.register({
-    id: "aio-shorts-cleanup", name: "Shorts Cleanup (All-in-One)",
-    summary: "Open Shorts in the player, mute them, or hide the comments panel.",
+    id: "aio-shorts-cleanup", name: "Bundle: Shorts Cleanup",
+    summary: "Group switch: Shorts in player, auto-mute, hide comments.",
+      cat: "bundles",
     masterKey: "aioShortsCleanupOn",
     settingsAlways: !0,
     keys: ["aioShortsCleanupOn", "aioShortsCleanupOnEnrolled", ..._shorts],
@@ -4592,8 +4663,9 @@
 
   const _feed = ["hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn", "numberSearchResultsOn"];
   xa.register({
-    id: "aio-feed-cleanup", name: "Clean Feed (All-in-One)",
-    summary: "Hide recommendations, live cards, premieres, dubs; number the cards.",
+    id: "aio-feed-cleanup", name: "Bundle: Feed Cleanup",
+    summary: "Group switch: hide recs/live/premieres/dubs, number cards.",
+      cat: "bundles",
     masterKey: "aioFeedCleanupOn",
     settingsAlways: !0,
     keys: ["aioFeedCleanupOn", "aioFeedCleanupOnEnrolled", ..._feed, "hideAutoDubbedPreferOriginal"],
@@ -4614,8 +4686,9 @@
 
   const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn"];
   xa.register({
-    id: "aio-compact-dense", name: "Compact Layout (All-in-One)",
-    summary: "Tighter spacing, denser grid, compact playlists.",
+    id: "aio-compact-dense", name: "Bundle: Compact Layout",
+    summary: "Group switch: compact UI, dense grid, compact playlists.",
+      cat: "bundles",
     masterKey: "aioCompactDenseOn",
     settingsAlways: !0,
     keys: ["aioCompactDenseOn", "aioCompactDenseOnEnrolled", ..._dense, "themeCompactOn"],
@@ -4639,8 +4712,9 @@
 
   const _privacy = ["privacyShieldOn", "removeRedirectUrlsOn", "shortenShareUrlOn", "blockYTAIOn"];
   xa.register({
-    id: "aio-privacy-shield", name: "Privacy Shield (All-in-One)",
-    summary: "Skip tracking redirects, shorten share links, block AI features.",
+    id: "aio-privacy-shield", name: "Bundle: Privacy Shield",
+    summary: "Group switch: redirect bypass, short shares, AI hiding.",
+      cat: "bundles",
     masterKey: "aioPrivacyShieldOn",
     settingsAlways: !0,
     keys: ["aioPrivacyShieldOn", "aioPrivacyShieldOnEnrolled", ..._privacy],
@@ -4658,8 +4732,9 @@
 
   const _comments = ["collapseLongCommentsOn", "highlightCreatorCommentsOn", "highlightTimestampLinksOn"];
   xa.register({
-    id: "aio-comment-cleanup", name: "Comment Cleanup (All-in-One)",
-    summary: "Clamp long comments; highlight creator replies and timestamps.",
+    id: "aio-comment-cleanup", name: "Bundle: Comment Cleanup",
+    summary: "Group switch: clamp long comments, highlight creators/timestamps.",
+      cat: "bundles",
     masterKey: "aioCommentCleanupOn",
     settingsAlways: !0,
     keys: ["aioCommentCleanupOn", "aioCommentCleanupOnEnrolled", ..._comments, "collapseLongCommentChars"],
@@ -4766,7 +4841,8 @@
   // while you are looking at it.
   xa.register({
     id: "seen-memory", name: "Anti-Repeat Memory",
-    summary: "Hides videos you have already scrolled past, for a while.",
+    summary: "Suppresses cards scrolled past for a configurable number of days.",
+      cat: "feed",
     masterKey: "antiRepeatOn", keys: ["antiRepeatOn", "antiRepeatDays", "antiRepeatGraceMin"],
     apply(ctx) {
       if (!S.antiRepeatOn) return;
@@ -4848,8 +4924,9 @@
   // Hides cards whose view count is below the threshold. Cards without a view
   // count (live, upcoming, some shorts) are left alone.
   xa.register({
-    id: "hide-low-views", name: "Hide Low-View Videos",
+    id: "hide-low-views", name: "Low-View Filter",
     summary: "Hides cards below a view-count threshold.",
+      cat: "feed",
     masterKey: "hideLowViewsOn", keys: ["hideLowViewsOn", "lowViewThreshold"],
     apply(ctx) {
       if (!S.hideLowViewsOn) return;
@@ -4894,8 +4971,9 @@
   // already reports channel reach; this reports how fast a video is being
   // watched, which is the useful signal when a feed is full of old uploads.
   xa.register({
-    id: "card-metadata", name: "Card Metadata Badges",
-    summary: "Adds upload date and views-per-day to feed and search cards.",
+    id: "card-metadata", name: "Card Metadata",
+    summary: "Upload date and views/day badges on feed and search cards.",
+      cat: "feed",
     masterKey: "cardMetaOn", keys: ["cardMetaOn", "cardMetaVelocity", "cardMetaDate"],
     apply(ctx) {
       if (!S.cardMetaOn) return;
@@ -4951,8 +5029,9 @@
   // by element first, with an English text fallback for sections that have no
   // stable id of their own.
   xa.register({
-    id: "search-filler", name: "Clean Up Search Filler",
-    summary: "Removes related-search and similar filler sections.",
+    id: "search-filler", name: "Search Filler Removal",
+    summary: "Removes related-search and 'similar' filler blocks.",
+      cat: "feed",
     masterKey: "searchFillerOff", keys: ["searchFillerOff"],
     apply(ctx) {
       if (!S.searchFillerOff) return;
@@ -4991,7 +5070,8 @@
 
   xa.register({
     id: "hide-community-posts", name: "Hide Community Posts",
-    summary: "Removes posts and polls from feeds and shelves.",
+    summary: "Removes community posts and polls from feeds and shelves.",
+      cat: "feed",
     masterKey: "hideCommunityPostsOn", keys: ["hideCommunityPostsOn"],
     apply(ctx) {
       S.hideCommunityPostsOn && ctx.addStyle(
@@ -5006,8 +5086,9 @@
   });
 
   xa.register({
-    id: "hide-mixes", name: "Hide Mix / Radio Playlists",
-    summary: "Removes auto-generated mixes and radios from every surface.",
+    id: "hide-mixes", name: "Hide Mixes",
+    summary: "Removes auto-generated Mix/Radio playlists everywhere.",
+      cat: "feed",
     masterKey: "hideMixesOn", keys: ["hideMixesOn"],
     apply(ctx) {
       S.hideMixesOn && ctx.addStyle(
@@ -5027,7 +5108,8 @@
 
   xa.register({
     id: "player-gradient", name: "Remove Player Gradient",
-    summary: "Removes the dark fade YouTube paints over the player edges.",
+    summary: "Removes the vignette shading over the player edges.",
+      cat: "playback",
     masterKey: "hidePlayerGradientOn", keys: ["hidePlayerGradientOn"],
     apply(ctx) {
       S.hidePlayerGradientOn && ctx.addStyle(
@@ -5042,8 +5124,9 @@
   });
 
   xa.register({
-    id: "hide-upnext", name: "Hide Up-Next Overlay",
-    summary: "Removes the autoplay countdown and the end-screen video wall.",
+    id: "hide-upnext", name: "Hide Up-Next Wall",
+    summary: "Removes the autoplay countdown and end-screen video wall.",
+      cat: "feed",
     masterKey: "hideUpNextOn", keys: ["hideUpNextOn"],
     apply(ctx) {
       S.hideUpNextOn && ctx.addStyle(
@@ -5062,8 +5145,9 @@
   // The 2026 "Ask" pill has no stable element name across experiments, so this
   // matches its label instead of its tag.
   xa.register({
-    id: "hide-ai-ask", name: "Hide the AI Ask Button",
-    summary: "Removes the Ask pill from feeds, the watch page and comments.",
+    id: "hide-ai-ask", name: "Hide AI Ask",
+    summary: "Removes the AI Ask pill from feeds, watch and comments.",
+      cat: "feed",
     masterKey: "hideAiAskOn", keys: ["hideAiAskOn"],
     apply(ctx) {
       if (!S.hideAiAskOn) return;
@@ -5109,7 +5193,8 @@
 
   xa.register({
     id: "auto-exit-fullscreen", name: "Auto-Exit Fullscreen",
-    summary: "Leaves fullscreen when the video ends.",
+    summary: "Leaves fullscreen automatically at video end.",
+      cat: "playback",
     masterKey: "autoExitFullscreenOn", keys: ["autoExitFullscreenOn"],
     apply(ctx) {
       if (!S.autoExitFullscreenOn) return;
@@ -5193,7 +5278,8 @@
 
   xa.register({
     id: "wheel-controls", name: "Mouse-Wheel Controls",
-    summary: "Wheel over the player changes volume, over the bar seeks.",
+    summary: "Wheel over the player adjusts volume; over the seek bar seeks.",
+      cat: "audio",
     masterKey: "wheelControlsOn", keys: ["wheelControlsOn", "wheelVolumeStep", "wheelSeekStep"],
     apply(ctx) {
       if (!S.wheelControlsOn) return;
@@ -5244,7 +5330,8 @@
 
   xa.register({
     id: "volume-boost", name: "Volume Boost",
-    summary: "Amplifies playback beyond 100%, optionally per channel.",
+    summary: "Amplifies playback past 100% via WebAudio; optional per-channel.",
+      cat: "audio",
     masterKey: "volumeBoostOn", keys: ["volumeBoostOn", "volumeBoostPct", "volumeBoostPerChannel"],
     apply(ctx) {
       if (!S.volumeBoostOn) return;
@@ -5311,8 +5398,9 @@
   });
 
   xa.register({
-    id: "loudness-leveling", name: "Loudness Leveling",
-    summary: "Evens out quiet dialogue and loud music.",
+    id: "loudness-leveling", name: "Loudness Normalization",
+    summary: "Compressor evens quiet dialogue and loud segments.",
+      cat: "audio",
     masterKey: "loudnessLevelOn", keys: ["loudnessLevelOn", "loudnessStrength"],
     apply(ctx) {
       if (!S.loudnessLevelOn) return;
@@ -5356,8 +5444,9 @@
   });
 
   xa.register({
-    id: "sticky-quality", name: "Sticky Quality for Live",
-    summary: "Re-asserts your quality preference on livestreams.",
+    id: "sticky-quality", name: "Live Quality Lock",
+    summary: "Re-applies the preferred quality on live streams.",
+      cat: "playback",
     masterKey: "stickyQualityOn", keys: ["stickyQualityOn"],
     apply(ctx) {
       if (!S.stickyQualityOn) return;
@@ -5405,7 +5494,8 @@
 
   xa.register({
     id: "wide-player", name: "Wide Player",
-    summary: "Expands the player to the full window width.",
+    summary: "Stretches the player to the full window width.",
+      cat: "playback",
     masterKey: "widePlayerOn", keys: ["widePlayerOn"],
     apply(ctx) {
       if (!S.widePlayerOn) return;
@@ -5426,7 +5516,8 @@
 
   xa.register({
     id: "shorts-speed", name: "Shorts Speed & Progress",
-    summary: "Sets a playback speed and shows a progress bar on Shorts.",
+    summary: "Speed control and a progress bar for Shorts.",
+      cat: "playback",
     masterKey: "shortsSpeedOn", keys: ["shortsSpeedOn", "shortsSpeedDefault", "shortsProgressOn"],
     apply(ctx) {
       if (!S.shortsSpeedOn) return;
@@ -5486,7 +5577,8 @@
   // under it. Failures are silent: the native UI is left alone.
   xa.register({
     id: "return-dislike", name: "Return YouTube Dislike",
-    summary: "Shows dislike counts and a like/dislike ratio bar.",
+    summary: "Restores dislike counts plus a like/dislike ratio bar (RYD API).",
+      cat: "integrations",
     masterKey: "returnDislikeOn", keys: ["returnDislikeOn", "returnDislikeBar"],
     apply(ctx) {
       if (!S.returnDislikeOn) return;
@@ -5586,8 +5678,9 @@
   // cards. Card thumbnails are fetched lazily as cards scroll into view, capped
   // per navigation, because the API is per video.
   xa.register({
-    id: "dearrow", name: "DeArrow Titles & Thumbnails",
-    summary: "Replaces clickbait titles and thumbnails with community versions.",
+    id: "dearrow", name: "DeArrow",
+    summary: "Swaps clickbait titles/thumbnails for community-submitted versions.",
+      cat: "integrations",
     masterKey: "deArrowOn", keys: ["deArrowOn", "deArrowTitles", "deArrowThumbs"],
     apply(ctx) {
       if (!S.deArrowOn) return;
@@ -5745,7 +5838,8 @@
   // Live chat cleanup: hide paid messages and tighten the message layout.
   xa.register({
     id: "live-chat-clean", name: "Live Chat Cleanup",
-    summary: "Hides superchats and compacts live chat.",
+    summary: "Hides paid messages and compacts the chat feed.",
+      cat: "comments",
     masterKey: "liveChatCleanOn", keys: ["liveChatCleanOn", "liveChatHidePaid", "liveChatCompact"],
     apply(ctx) {
       if (!S.liveChatCleanOn) return;
@@ -5779,7 +5873,8 @@
   // from scrolling the page when the panel opens.
   xa.register({
     id: "transcript-tools", name: "Transcript Tools",
-    summary: "Copy or download the transcript, without the page jump.",
+    summary: "Copy or download transcripts without scrolling.",
+      cat: "playback",
     masterKey: "transcriptToolsOn", keys: ["transcriptToolsOn", "transcriptTimestamps", "transcriptNoScroll"],
     apply(ctx) {
       if (!S.transcriptToolsOn) return;
@@ -5862,8 +5957,9 @@
   });
 
   xa.register({
-    id: "notification-clean", name: "Notification Limiting",
-    summary: "Hides the badge and adds a mark-all-read button.",
+    id: "notification-clean", name: "Notification Cleanup",
+    summary: "Hides the notification badge and adds a mark-all-read control.",
+      cat: "feed",
     masterKey: "notificationCleanOn", keys: ["notificationCleanOn", "notificationHideBadge"],
     apply(ctx) {
       if (!S.notificationCleanOn) return;
@@ -5905,7 +6001,8 @@
   // left, and reorder the list by duration client-side.
   xa.register({
     id: "watch-later-tools", name: "Watch Later Tools",
-    summary: "Hide watched entries, copy the rest, sort by duration.",
+    summary: "Hide watched entries, export the rest, sort by duration.",
+      cat: "channels",
     masterKey: "watchLaterToolsOn", keys: ["watchLaterToolsOn", "watchLaterHideWatched", "watchLaterSortDuration"],
     apply(ctx) {
       if (!S.watchLaterToolsOn) return;
@@ -5994,8 +6091,9 @@
   // Statistics computed from the local history store: totals, per-channel and
   // per-day breakdowns. The panel lives in the dashboard.
   xa.register({
-    id: "watch-stats", name: "Watch-Time Statistics",
-    summary: "Hours watched, per channel and per day, from local history.",
+    id: "watch-stats", name: "Watch Statistics",
+    summary: "Hours watched by channel and day, from local history.",
+      cat: "insights",
     masterKey: "watchStatsOn", keys: ["watchStatsOn", "watchStatsDays"],
     apply() { },
     settings(en) {
@@ -6051,8 +6149,9 @@
 
   // A weekly digest shown once per week, built from the same history store.
   xa.register({
-    id: "weekly-report", name: "Weekly Watch Report",
-    summary: "A short summary of the last seven days, once a week.",
+    id: "weekly-report", name: "Weekly Report",
+    summary: "Seven-day watch summary, generated weekly.",
+      cat: "insights",
     masterKey: "weeklyReportOn", keys: ["weeklyReportOn"],
     apply(ctx) {
       if (!S.weeklyReportOn) return;
@@ -6094,8 +6193,9 @@
   });
 
   xa.register({
-    id: "random-pick", name: "Random Video Picker",
-    summary: "Jumps to a random video from a channel or playlist.",
+    id: "random-pick", name: "Random Pick",
+    summary: "Plays a random video from a channel or playlist.",
+      cat: "insights",
     masterKey: "randomPickOn", keys: ["randomPickOn", "randomPickUnwatched"],
     apply(ctx) {
       if (!S.randomPickOn) return;
@@ -6149,8 +6249,9 @@
   // True shuffle for playlists and the queue: YouTube's shuffle keeps the
   // original order in the DOM, which makes it easy to lose your place.
   xa.register({
-    id: "shuffle-tools", name: "Shuffle & Queue Tools",
-    summary: "Randomises playlist order and reorders your own queue.",
+    id: "shuffle-tools", name: "Shuffle & Queue",
+    summary: "Reorders playlists randomly; manages your queue.",
+      cat: "insights",
     masterKey: "shuffleToolsOn", keys: ["shuffleToolsOn"],
     apply(ctx) {
       if (!S.shuffleToolsOn) return;
@@ -6196,8 +6297,9 @@
   // Export local data to files: watch history, notes, bookmarks, collections,
   // the current playlist, and the subscription list.
   xa.register({
-    id: "export-data", name: "Export Lists & History",
-    summary: "Save history, notes, playlists and subscriptions to a file.",
+    id: "export-data", name: "Data Export",
+    summary: "Exports history, notes, playlists and groups to a file.",
+      cat: "data",
     masterKey: "exportDataOn", keys: ["exportDataOn"],
     apply() { },
     settings(en) {
@@ -6287,7 +6389,8 @@
   // subscriptions feed.
   xa.register({
     id: "sub-groups", name: "Subscription Groups",
-    summary: "Local channel folders and a filtered subscriptions feed.",
+    summary: "Local channel folders plus a filtered subscriptions feed.",
+      cat: "channels",
     masterKey: "subGroupsOn", keys: ["subGroupsOn", "subGroupsActive"],
     apply(ctx) {
       if (!S.subGroupsOn) return;
@@ -6418,8 +6521,9 @@
   });
 
   xa.register({
-    id: "ui-restore-2026", name: "Restore 2026 UI Regressions",
-    summary: "Brings back the subscriber count and tidies the 2026 watch layout.",
+    id: "ui-restore-2026", name: "2026 UI Restores",
+    summary: "Restores the subscriber count and tidies the 2026 watch layout.",
+      cat: "appearance",
     masterKey: "uiRestoreOn", keys: ["uiRestoreOn", "uiRestoreSubs", "uiRestoreInlineLikes"],
     apply(ctx) {
       if (!S.uiRestoreOn) return;
@@ -6518,8 +6622,9 @@
   });
 
   xa.register({
-    id: "watch-tabs", name: "Tabbed Watch Page",
-    summary: "Details, comments, chapters and related as tabs.",
+    id: "watch-tabs", name: "Watch Tabs",
+    summary: "Details, comments, chapters and related videos as tabs.",
+      cat: "appearance",
     masterKey: "watchTabsOn", keys: ["watchTabsOn"],
     apply(ctx) {
       if (!S.watchTabsOn) return;
@@ -6590,6 +6695,10 @@
     chapterNext: "equal",
     speedUp: "alt+shift+period",
     speedDown: "alt+shift+comma",
+    sbSkip: "enter",
+    sbHighlight: "",
+    sbUpvote: "",
+    sbDownvote: "",
   };
   function _ytKeySpec(ev) {
     try {
@@ -6607,8 +6716,9 @@
   }
 
   xa.register({
-    id: "keymap", name: "Keyboard Shortcuts",
-    summary: "Rebind the script's own shortcuts.",
+    id: "keymap", name: "Keymap",
+    summary: "Rebinds all of the script's keyboard shortcuts.",
+      cat: "tools",
     masterKey: "keymapOn", keys: ["keymapOn", "keymap"],
     apply() { },
     settings(en) {
@@ -6621,6 +6731,10 @@
         ["chapterNext", "Next chapter"],
         ["speedUp", "Speed up"],
         ["speedDown", "Slow down"],
+        ["sbSkip", "SponsorBlock: skip current segment"],
+        ["sbHighlight", "SponsorBlock: jump to highlight"],
+        ["sbUpvote", "SponsorBlock: upvote segment under playhead"],
+        ["sbDownvote", "SponsorBlock: downvote segment under playhead"],
       ];
       const current = () => Object.assign({}, S.keymap && typeof S.keymap === "object" ? S.keymap : {});
       const pretty = (spec) => String(spec || "").split("+").map((part) => {
@@ -6678,8 +6792,9 @@
 
   // Channel page helper for the subscription groups feature.
   xa.register({
-    id: "sub-group-add", name: "Add Channel to Group",
+    id: "sub-group-add", name: "Assign to Group",
     summary: "Adds the open channel to one of your groups.",
+      cat: "channels",
     masterKey: "subGroupsOn", keys: [],
     apply(ctx) {
       if (!S.subGroupsOn) return;
@@ -6733,8 +6848,9 @@
   // ---------------------------------------------------------------------------
 
   xa.register({
-    id: "subs-only-home", name: "Subscriptions-Only Home",
-    summary: "Turns the front page into your subscriptions.",
+    id: "subs-only-home", name: "Subscriptions Home",
+    summary: "Redirects the home feed to your subscriptions; optional full redirect.",
+      cat: "feed",
     masterKey: "subsOnlyHomeOn", keys: ["subsOnlyHomeOn", "subsOnlyRedirect"],
     apply(ctx) {
       if (!S.subsOnlyHomeOn) return;
@@ -6795,8 +6911,9 @@
   // Client-side sorting of the results YouTube already returned. It reorders the
   // cards on the page; it cannot fetch more results.
   xa.register({
-    id: "sort-search", name: "Sort Search Results",
-    summary: "Reorders the results on the page by date, views or length.",
+    id: "sort-search", name: "Sort Results",
+    summary: "Reorders page results by date, views or length.",
+      cat: "feed",
     masterKey: "sortSearchOn", keys: ["sortSearchOn", "sortSearchBy"],
     apply(ctx) {
       if (!S.sortSearchOn) return;

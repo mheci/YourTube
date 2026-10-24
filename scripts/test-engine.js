@@ -13,9 +13,9 @@ function boot() {
     AbortController, DOMException, setTimeout, clearTimeout, setInterval, clearInterval,
     performance, crypto: require("crypto").webcrypto, FinalizationRegistry, WeakRef,
   });
-  let src = fs.readFileSync(path.join(root, "src/resources.js"), "utf8");
+  let src = fs.readFileSync(path.join(root, "src/20-resources.js"), "utf8");
   src += "\n;globalThis.YourTubeResources = YourTubeResources;";
-  vm.runInContext(src, context, { filename: "src/resources.js" });
+  vm.runInContext(src, context, { filename: "src/20-resources.js" });
   return { Z: context.globalThis.YourTubeResources, vmDate: vm.runInContext("Date", context) };
 }
 const { Z, vmDate } = boot();

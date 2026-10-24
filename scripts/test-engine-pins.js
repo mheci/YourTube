@@ -101,12 +101,12 @@ function boot({ algoOn }) {
     aioRows: () => {},
     GM_info: { script: { version: "test" } },
   });
-  let src = fs.readFileSync(path.join(root, "src", "resources.js"), "utf8");
+  let src = fs.readFileSync(path.join(root, "src", "20-resources.js"), "utf8");
   src += "\n;globalThis.YourTubeResources = YourTubeResources;\n";
-  vm.runInContext(src, context, { filename: "src/resources.js" });
-  let ze = fs.readFileSync(path.join(root, "src", "engine.js"), "utf8");
+  vm.runInContext(src, context, { filename: "src/20-resources.js" });
+  let ze = fs.readFileSync(path.join(root, "src", "80-engine.js"), "utf8");
   ze += "\n;globalThis.__Z = { YourTubeEngine, YourTubeDiscovery, YourTubePlayback, YourTubeSearch, YourTubeSession, AlgoEngine };\n";
-  vm.runInContext(ze, context, { filename: "src/engine.js" });
+  vm.runInContext(ze, context, { filename: "src/80-engine.js" });
   return { Z: context.globalThis.__Z, otCalls, S: context.S };
 }
 

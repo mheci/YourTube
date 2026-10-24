@@ -168,13 +168,19 @@ assert.ok(/"playlistWatchedMarkerOn", "sessionRestoreOn"/.test(bundle),
 assert.ok(/window\.__ytbDashEsc = _esc;/.test(bundle) && /try \{ c\.focus\(\); \}/.test(bundle),
   "DASH-01: dashboard closes on Escape and focuses search");
 
-assert.ok(/const arm = \(\) => \{[\s\S]{0,220}clearInterval\(iv\)/.test(bundle),
+// 1.3.0 (F7): the raw-setInterval retry was replaced by chained ctx-managed
+// timeouts — same 250 ms cadence and ≤5 s ceiling, but teardown-aware. The
+// invariant this pin protects is the retry-until-player-ready behaviour plus
+// the absence of the un-managed setInterval that leaked.
+assert.ok(/const arm = \(\) => \{[\s\S]{0,800}addTimeout\(tick, 250\)/.test(bundle),
   "THEATER-01: theater mode retries until the player is ready");
+assert.ok(!/const arm = \(\) => \{[\s\S]{0,800}?setInterval\(/.test(bundle),
+  "THEATER-02: theater mode must not bury a raw setInterval that teardown cannot clear");
 
 assert.ok(/for \(const mm of map\.markersMap\)/.test(bundle),
   "CHAP-01: chapter auto-skip reads every markers map");
 
-assert.ok(/Shows resolution, quality, FPS, bitrate, time, rate and buffer/.test(bundle),
+assert.ok(/On-player panel: resolution, quality, FPS, bitrate, time, rate, buffer/.test(bundle),
   "STATS-01: overlay summary matches what it renders");
 
 assert.ok(/gr\.autoPaused = !0;/.test(bundle.slice(bundle.indexOf('id: "background-players-pause"'), bundle.indexOf('id: "background-players-pause"') + 1600)),
@@ -223,9 +229,16 @@ assert.ok(/S\.channelBlockerMatchTitleText[\s\S]{0,40}\? ja\.join\(","\)/.test(b
 assert.ok(/ytd-channel-name a, #channel-name a, #owner-name a, ytd-video-owner-renderer a/.test(bundle),
   "CHBLOCK-04: channel-name scope present for the default mode");
 
-// keyword filter covers lockup cards and always runs the DOM matcher.
-assert.ok(/yt-lockup-view-model:has\(a\[title\*="/.test(bundle),
-  "KWFILTER-01: CSS fast path covers lockup cards");
+// keyword filter: the CSS fast path covers legacy renderers (whose
+// #video-title still carries a title attribute) and the DOM matcher covers
+// 2026 lockup cards. 1.3.0 (F6) pruned the lockup CSS branches after live
+// verification that lockup cards expose no title attributes at all — the
+// selectors could only ever cost layout work — and the pins below make both
+// halves of that decision stick.
+assert.ok(/ytd-video-renderer:has\(#video-title\[title\*="/.test(bundle),
+  "KWFILTER-01: CSS fast path keeps legacy renderer coverage");
+assert.ok(!/yt-lockup-view-model(:has\(a)?\[title\*="/.test(bundle),
+  "KWFILTER-01b: dead lockup title*= CSS branches stay pruned");
 assert.ok(/e\.querySelector\("\.ytLockupMetadataViewModelTitle"\)/.test(bundle),
   "KWFILTER-02: DOM matcher falls back to the lockup title");
 

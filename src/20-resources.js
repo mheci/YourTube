@@ -1,5 +1,3 @@
-
-
   //  YourTubeResources — bounded, disposable, visibility-aware resource primitives
   const YourTubeResources = (() => {
     "use strict";

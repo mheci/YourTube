@@ -6,19 +6,20 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
-const files = ["yourtube.user.js", "yourtube.meta.js"]
-  .concat(
-    fs
-      .readdirSync(path.join(root, "src"))
-      .filter((f) => f.endsWith(".js"))
-      .map((f) => path.join("src", f)),
-  )
-  .concat(
-    fs
-      .readdirSync(path.join(root, "scripts"))
-      .filter((f) => (f.endsWith(".js") || f.endsWith(".cjs")) && f !== "check.js")
-      .map((f) => path.join("scripts", f)),
-  );
+// src/ holds FRAGMENT modules: the 12 files cut from the single IIFE body
+// (see scripts/build-userscript.js), intentionally delimited mid-statement.
+// They are not valid standalone scripts, so they are validated as the
+// assembled chain further below, not file-by-file here.
+const srcModules = fs
+  .readdirSync(path.join(root, "src"))
+  .filter((f) => f.endsWith(".js"))
+  .sort();
+const files = ["yourtube.user.js", "yourtube.meta.js"].concat(
+  fs
+    .readdirSync(path.join(root, "scripts"))
+    .filter((f) => (f.endsWith(".js") || f.endsWith(".cjs")) && f !== "check.js")
+    .map((f) => path.join("scripts", f)),
+);
 
 const hasExplosion = (text) => {
   let run = 0;
@@ -53,6 +54,36 @@ for (const file of files) {
     process.stderr.write(`Syntax error in ${file}\n${failedMessage}\n`);
   }
 }
+
+// Assembled-chain syntax validation for the fragment modules. The chain is
+// written to a temp file so `node --check` produces a line number, which is
+// then mapped back to the owning module via accumulated line offsets.
+(function validateAssembledModules() {
+  let assembled = "";
+  const offsets = [];
+  for (const mod of srcModules) {
+    offsets.push({ mod, start: assembled === "" ? 1 : assembled.split("\n").length });
+    const text = fs.readFileSync(path.join(root, "src", mod), "utf8");
+    assembled += (assembled ? "\n" : "") + text;
+  }
+  const tmp = path.join(require("os").tmpdir(), `yt-check-${process.pid}.js`);
+  fs.writeFileSync(tmp, assembled);
+  const result = spawnSync(process.execPath, ["--check", tmp], { encoding: "utf8" });
+  try { fs.unlinkSync(tmp); } catch (_) {}
+  if (result.status !== 0) {
+    const m = /:(\d+)/.exec(result.stderr || "");
+    let where = "";
+    if (m) {
+      const line = Number(m[1]);
+      const owner = [...offsets].reverse().find((o) => o.start <= line);
+      if (owner) where = ` (src/${owner.mod}, line ${line - owner.start + 1})`;
+    }
+    failed++;
+    process.stderr.write(`Syntax error in assembled src/ module chain${where}\n${result.stderr}\n`);
+  } else {
+    console.log(`check: assembled src/ module chain (${srcModules.length} modules) passed syntax validation.`);
+  }
+})();
 
 const bundle = fs.readFileSync(path.join(root, "yourtube.user.js"), "utf8");
 if (hasExplosion(bundle)) {
@@ -95,24 +126,34 @@ if (!bundle.includes("return { createVideoRow, scoreVideo, setStatus, discoveryH
 })();
 
 (function validateThemes() {
-  const start = bundle.indexOf("const Nr = [");
-  if (start < 0) {
+  // 1.4.0: the table ships as positional rows keyed by a _THEME_VARS header
+  // and decoded by the adjacent .map() at module scope. check.js decodes the
+  // same way so succeeding checks see full {id,name,mode,vars} objects.
+  const vMatch = /const _THEME_VARS = (\[[^\]]+\]);/.exec(bundle);
+  const start = bundle.indexOf("const Nr = ([");
+  if (!vMatch || start < 0) {
     failed++;
-    process.stderr.write("check: theme table (const Nr = [) not found in bundle.\n");
+    process.stderr.write("check: theme table (const Nr = ([ / _THEME_VARS) not found in bundle.\n");
     return;
   }
-  const end = bundle.indexOf("\n  ];", start);
+  const end = bundle.indexOf("\n  ]).map", start);
   if (end < 0) {
     failed++;
     process.stderr.write("check: theme table terminator missing.\n");
     return;
   }
 
-  const json = bundle.slice(start + "const Nr =".length, end + 4).replace(/\r?\n/g, "");
   let themes;
   try {
-
-    themes = new Function("return (" + json + ")")();
+    const vars = JSON.parse(vMatch[1]);
+    const rows = JSON.parse(
+      "[" + bundle.slice(start + "const Nr = ([".length, end).replace(/\r?\n/g, " ").replace(/,\s*$/, "") + "]",
+    );
+    themes = rows.map((r) =>
+      r[3]
+        ? { id: r[0], name: r[1], mode: r[2], vars: Object.fromEntries(r[3].map((v, i) => [vars[i], v])) }
+        : { id: r[0], name: r[1], mode: r[2], vars: null },
+    );
   } catch (e) {
     failed++;
     process.stderr.write("check: theme table is not valid data: " + e.message + "\n");
@@ -155,4 +196,4 @@ if (failed > 0) {
   process.stderr.write(`check: ${failed} file(s) failed syntax validation.\n`);
   process.exit(1);
 }
-console.log(`check: ${files.length} file(s) passed syntax validation.`);
+console.log(`check: ${files.length} script file(s) + assembled src/ chain passed syntax validation.`);

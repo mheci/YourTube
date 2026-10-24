@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.2.0
+// @version      1.8.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -810,14 +810,14 @@
     })(),
     a = (a, n) => {
       try {
-        a.innerHTML = ((a) => {
+        a.innerHTML = Xy(((a) => {
           if (t) return t.createHTML(a);
           if (e.trustedTypes && e.trustedTypes.defaultPolicy)
             try {
               return e.trustedTypes.defaultPolicy.createHTML(a);
             } catch (e) {}
           return a;
-        })(n);
+        })(n));
       } catch (e) {
         try {
           const e = document.implementation.createHTMLDocument("");
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "3.13.0",
+      "1.8.0", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -906,6 +906,17 @@
         (e.sbSkipCountdown = !1),
         (e.sbSkipCountdownTime = 3),
         (e.sbBetterBeAware = ""),
+        // v1.6.0 parity options (official extension equivalents):
+        (e.sbDisable = !1),        // disableSkipping
+        (e.sbWhitelist = ""),      // per-channel skip opt-out (UC ids or names)
+        (e.sbMinDuration = 0),     // minDuration
+        (e.sbAudioCue = !1),       // audioNotificationOnSkip
+        (e.sbSkipRules = ""),      // skipRules (advanced skip options)
+        (e.sbChapterToast = !1),   // showChapterInfoMessage
+        (e.sbTimeWithSkips = !0),  // showTimeWithSkips
+        (e.sbRenderChapters = !0), // renderSegmentsAsChapters
+        (e.dashMode = "light"),    // dashboard palette: "light" (Calm paper) | "dark"
+        (e.sbRenderChapters = !0), // renderSegmentsAsChapters
         e
       );
     })(),
@@ -1032,8 +1043,6 @@ algoBlockChannels: "",
         screenshotScale: 1,
 
         screenshotClipboard: !1,
-        sleepTimerOn: !1,
-        sleepTimerMin: 30,
 
         forceWatchedOn: !1,
 
@@ -1182,6 +1191,12 @@ algoBlockChannels: "",
         aioCompactDenseOnEnrolled: !1,
         aioPrivacyShieldOnEnrolled: !1,
         aioCommentCleanupOnEnrolled: !1,
+        aioPlayerToolsOnEnrolledMembers: "",
+        aioShortsCleanupOnEnrolledMembers: "",
+        aioFeedCleanupOnEnrolledMembers: "",
+        aioCompactDenseOnEnrolledMembers: "",
+        aioPrivacyShieldOnEnrolledMembers: "",
+        aioCommentCleanupOnEnrolledMembers: "",
         themeCompactOn: !0,
 
         silenceSkipOn: !1, silenceSkipRate: 4,
@@ -1505,6 +1520,14 @@ algoBlockChannels: "",
     N = !1,
     _ = null,
     H = !1;
+  // Cross-tab convergence state (v1.6.0):
+  //  _cfgTs: timestamp of the last snapshot this tab adopted/saved.
+  //  _localEdits: keys changed locally (until echoed back by a remote snapshot),
+  //    stamped for expiry — they win same-version collisions so two tabs editing
+  //    different keys in the same debounce window never silently lose one side.
+  let _cfgTs = 0;
+  const _localEdits = new Map();
+  const _LOCAL_EDIT_TTL = 1800e3;
   function D(e) {
     if (!e || "object" != typeof e) return {};
     const t = {};
@@ -1630,6 +1653,14 @@ algoBlockChannels: "",
   const _CHECK_BACKOFF_KEY = "yourtube_update_backoff_until";
 
   function Fu(force) {
+    // Safe mode (Maximum privacy preset) means no script-initiated third-party
+    // calls, including the update check.
+    try {
+      if (S.safeMode) {
+        if (force) pe("Update check is off in Maximum privacy mode.", 2600, "info");
+        return;
+      }
+    } catch (_) {}
 
     const installed = (() => {
       try { return (GM_info && GM_info.script && String(GM_info.script.version)) || "0.0.0"; }
@@ -1824,15 +1855,17 @@ algoBlockChannels: "",
     const n = F(e);
     if (n) {
       A = n.ver || 0;
+      _cfgTs = Math.max(_cfgTs, n.ts || 0);
       const e = Object.assign({}, n.data);
       (delete e.__ts, delete e.__ver, j(e));
     }
     return ((T = !0), !!n);
   }
-  function W(e, t) {
-    const a = Date.now(),
+  function W(e, t, ts) {
+    const a = ts || Date.now(),
       n = Object.assign({}, e, { __ts: a, __ver: t }),
       r = JSON.stringify(n);
+    _cfgTs = Math.max(_cfgTs, a);
     try {
       GM_setValue(P, r);
     } catch (e) {}
@@ -1885,6 +1918,20 @@ algoBlockChannels: "",
   function G() {
     T && (clearTimeout(O), (O = 0), U());
   }
+  function _cfgCanon(e) {
+    // Deterministic serialization (sorted keys) for payload identity checks.
+    const ks = Object.keys(e).sort();
+    let s = "{";
+    for (let i = 0; i < ks.length; i++) {
+      const k = ks[i];
+      if (k === "__ts" || k === "__ver") continue;
+      if (s.length > 1) s += ",";
+      s += JSON.stringify(k) + ":" + JSON.stringify(e[k]);
+    }
+    return s + "}";
+  }
+  let _nudgeWindowStart = 0,
+    _nudgeCount = 0;
   function X() {
     const e = [],
       t = q();
@@ -1893,9 +1940,53 @@ algoBlockChannels: "",
     a && e.push({ ts: a.__ts || 0, ver: a.__ver || 0, data: a });
     const n = F(e);
     if (!n) return;
-    const r = n.ver || 0;
-    if (r <= A) return;
-    A = r;
+    const r = n.ver || 0,
+      itsTs = n.ts || 0;
+    if (r < A) return;
+    const sameVer = r === A;
+    let resurrect = null;
+    if (sameVer) {
+      // Same logical version: only accept payloads we can ORDER deterministically.
+      // Newer writer wins by (ver, ts); exact tie falls back to the lexically
+      // greater canonical payload — every tab computes the same winner.
+      if (itsTs > _cfgTs) {
+        // newer timestamp, adopt below
+      } else if (itsTs === _cfgTs && _cfgCanon(n.data) > _cfgCanon(S)) {
+        // ts tie: lexical winner
+      } else return;
+      // On a same-version collision, locally-edited keys the remote snapshot
+      // never saw must survive. Collect them now, re-assert after the adopt,
+      // then rebroadcast at A+1 so the other tab converges to the union.
+      try {
+        const now = Date.now();
+        resurrect = [];
+        for (const [k, ts0] of _localEdits) {
+          if (now - ts0 > _LOCAL_EDIT_TTL) { _localEdits.delete(k); continue; }
+          if (n.data[k] !== S[k]) {
+            if (_FORBIDDEN_CFG_KEYS[k]) continue;
+            // Concede the race: edits made BEFORE the winning snapshot's
+            // timestamp lose on the deterministic (ver, ts) ordering — the
+            // other tab had every chance to observe them. Only edits newer
+            // than that snapshot were truly unseen and get resurrected.
+            if (ts0 > itsTs) resurrect.push(k);
+          } else _localEdits.delete(k);
+        }
+      } catch (e) {}
+    } else if (r > A) {
+      // Strictly newer snapshot: still keep un-echoed local edits (a tab that
+      // edited before this sync landed should not lose its work).
+      try {
+        const now = Date.now();
+        resurrect = [];
+        for (const [k, ts0] of _localEdits) {
+          if (now - ts0 > _LOCAL_EDIT_TTL) { _localEdits.delete(k); continue; }
+          if (n.data[k] === S[k]) { _localEdits.delete(k); continue; }
+          if (_FORBIDDEN_CFG_KEYS[k]) continue;
+          if (ts0 > itsTs) resurrect.push(k);
+        }
+      } catch (e) {}
+      if (!resurrect || !resurrect.length) resurrect = null;
+    }
     // Keys edited in this tab but not yet flushed: the remote snapshot would
     // silently drop them, so re-apply them after it lands.
     let pendingKeys = null;
@@ -1912,12 +2003,27 @@ algoBlockChannels: "",
     const o = Object.assign({}, S),
       i = Object.assign({}, n.data);
     (delete i.__ts, delete i.__ver, j(i));
+    if (resurrect && resurrect.length) {
+      for (const k of resurrect) if (k in o) S[k] = o[k];
+    }
     if (pendingKeys && pendingKeys.length) {
       for (const k of pendingKeys) S[k] = o[k];
     }
+    A = n.ver || r;
+    _cfgTs = Math.max(_cfgTs, itsTs);
     const d = new Set();
     for (const e of Object.keys(S)) S[e] !== o[e] && d.add(e);
     for (const e of Object.keys(o)) e in S || d.add(e);
+    // Convergence rebroadcast: a same-version collision we won with resurrected
+    // keys must be re-saved so the losing tab adopts the union (bounded).
+    if (sameVer && resurrect && resurrect.length && T) {
+      const now = Date.now();
+      if (now - _nudgeWindowStart > 60e3) { _nudgeWindowStart = now; _nudgeCount = 0; }
+      if (_nudgeCount < 4) {
+        _nudgeCount++;
+        setTimeout(() => { try { if (!(A > n.ver)) A = (n.ver || 0) + 1; U(); } catch (e) {} }, 80);
+      }
+    }
     if (!d.size) return;
     (u("Cross-tab sync: " + d.size + " keys updated (v" + A + ")"),
       d.has("silentToasts") && ue());
@@ -3742,7 +3848,20 @@ algoBlockChannels: "",
       ch: void 0,
       chT: 0,
     },
-    ie = {
+    yttrusted = !1;
+  let _ttpInit = !1, _ttp = null;
+  function Xy(html) {
+    if (!_ttpInit) {
+      _ttpInit = !0;
+      try {
+        _ttp = (window.trustedTypes && window.trustedTypes.createPolicy("yourtube", { createHTML: (x) => String(x) })) || !1;
+      } catch (e) {
+        _ttp = !1;
+      }
+    }
+    return _ttp && _ttp.createHTML ? _ttp.createHTML(html) : html;
+  }
+  const ie = {
       el: () =>
         document.querySelector("video.html5-main-video") ||
         document.querySelector("#movie_player video") ||
@@ -5386,6 +5505,7 @@ algoBlockChannels: "",
       betterBeAwareWarned: new Set(),
 
       countdownTaskId: 0,
+      _chapterToastShown: new Set(),
 
       editor: {
         active: false,
@@ -5656,12 +5776,151 @@ algoBlockChannels: "",
         return v === undefined ? true : !!v;
       };
 
+      // ── v1.6.0 parity options ─────────────────────────────────────────────
+      const disabled = () => !!S.sbDisable;
+
+      const whitelist = () => {
+        const raw = typeof S.sbWhitelist === "string" ? S.sbWhitelist : "";
+        const set = new Set();
+        String(raw).split(/[,;\n]+/).forEach((s) => {
+          const t2 = s.trim().toLowerCase();
+          if (t2) set.add(t2);
+        });
+        return set;
+      };
+
+      const minDuration = () => Math.max(0, Math.min(60, Number(S.sbMinDuration) || 0));
+
+      const audioCue = () => !!S.sbAudioCue;
+
+      // Advanced skip rules (official "Advanced skip options", wiki.sponsor.ajay.app/w/Advanced_skip_options):
+      //   if category == "chapter" and chapter.name ~= "^[Ii]ntro" → Auto skip
+      // Conditions AND together; fields: category, actionType, chapter.name (~= regex),
+      // chapter.source, channel.name (= =/!=), channel.id, video.title (~=),
+      // time.start/end/duration (+Percent), video.duration (numeric comps).
+      let _rulesCache = null, _rulesCacheSrc = null;
+      const rules = () => {
+        const src = typeof S.sbSkipRules === "string" ? S.sbSkipRules : "";
+        if (src === _rulesCacheSrc && _rulesCache) return _rulesCache;
+        _rulesCacheSrc = src;
+        const out = [];
+        const actMap = { "auto skip": "skip", "skip once": "skip", "mute": "mute", "manual skip": "manual", "disable": "disabled", "disabled": "disabled", "show in seekbar": "seekbar", "full label": "full" };
+        const rawLines = String(src).split(/\r?\n/);
+        for (let li = 0; li < rawLines.length; li++) {
+          const line = rawLines[li].trim();
+          if (!line || line.startsWith("#")) continue;
+          if (!/^if\s+/i.test(line)) continue;
+          const ifPart = line.replace(/^if\s+/i, "");
+          // ACTION: trailing on the same line OR as the whole next line
+          // (both spellings used in the official options dialogues).
+          let am = /\s+(auto\s*skip|skip\s*once|mute|manual\s*skip|disable|disabled|show\s*in\s*seekbar|full\s*label)\s*$/i.exec(ifPart);
+          let conds;
+          if (am) conds = ifPart.slice(0, am.index).trim();
+          else {
+            const next = (rawLines[li + 1] || "").trim();
+            const am2 = /^(auto\s*skip|skip\s*once|mute|manual\s*skip|disable|disabled|show\s*in\s*seekbar|full\s*label)\s*$/i.exec(next);
+            if (!am2) continue;
+            am = { 1: am2[1], index: 0 };
+            conds = ifPart;
+            li++;
+          }
+          const action = actMap[am[1].toLowerCase().replace(/\s+/g, " ")] || "skip";
+          const parts = conds.split(/\s+and\s+/i).map((s2) => s2.trim()).filter(Boolean);
+          const checks = [];
+          let bad = false;
+          for (const p of parts) {
+            const cm = /^([\w.]+)\s*(~=|==|!=|>=|<=|=|<|>)\s*(.+)$/.exec(p);
+            if (!cm) { bad = true; break; }
+            let [, field, op, rhs] = cm;
+            rhs = rhs.trim();
+            let re = null, num = null, str = null;
+            if (op === "~=") {
+              const rx = /^"([\s\S]*)"$/.exec(rhs);
+              const pat = rx ? rx[1] : rhs;
+              try { re = new RegExp(pat, "i"); } catch (_) { bad = true; break; }
+            } else if (/^[-+]?[0-9]+(\.[0-9]+)?$/.test(rhs) && [">", "<", ">=", "<=", "="].includes(op) && !/^"/.test(rhs)) {
+              num = Number(rhs);
+            } else {
+              const qx = /^"([\s\S]*)"$/.exec(rhs);
+              const st = qx ? qx[1] : rhs;
+              if (op === "==" || op === "=") { op = "=="; str = st; }
+              else if (op === "!=") str = st;
+              else { bad = true; break; }
+            }
+            checks.push({ field, op, re, num, str });
+          }
+          if (!bad && checks.length) out.push({ checks, action });
+        }
+        _rulesCache = out;
+        return out;
+      };
+
+      const rulesActionFor = (seg, ctx) => {
+        const rs = rules();
+        if (!rs.length) return null;
+        const dur = seg.segment[1] - seg.segment[0];
+        const vd = (ctx && ctx.videoDuration) > 0 ? ctx.videoDuration : 0;
+        const vals = {
+          "category": seg.category,
+          "actiontype": seg.actionType || "skip",
+          "chapter.name": seg.description || seg.chapterTitle || "",
+          "chapter.source": (ctx && ctx.chapterSource) || "server",
+          "channel.id": ((ctx && ctx.channelId) || "").toString(),
+          "channel.name": ((ctx && ctx.channelName) || "").toString(),
+          "video.duration": vd,
+          "video.title": ((ctx && ctx.videoTitle) || "").toString(),
+          "time.start": seg.segment[0],
+          "time.end": seg.segment[1],
+          "time.duration": dur,
+          "time.startpercent": vd ? (100 * seg.segment[0]) / vd : 0,
+          "time.endpercent": vd ? (100 * seg.segment[1]) / vd : 0,
+          "time.durationpercent": vd ? (100 * dur) / vd : 0,
+        };
+        for (const rule of rs) {
+          let all = true;
+          for (const c of rule.checks) {
+            const v = vals[c.field.toLowerCase()];
+            if (c.re) { if (!(v != null && c.re.test(String(v)))) { all = false; break; } }
+            else if (c.num != null) {
+              const nv = Number(v);
+              if (!Number.isFinite(nv)) { all = false; break; }
+              const cmp = { "<": nv < c.num, "<=": nv <= c.num, ">": nv > c.num, ">=": nv >= c.num, "=": nv === c.num, "==": nv === c.num, "!=": nv !== c.num }[c.op];
+              if (!cmp) { all = false; break; }
+            } else if (c.str != null) {
+              const eq = String(v) === c.str;
+              if (c.op === "!=" ? eq : !eq) { all = false; break; }
+            }
+            else if (typeof v === "string" && c.op === "=" && v !== c.str) { all = false; break; }
+          }
+          if (all) return rule.action;
+        }
+        return null;
+      };
+
       return {
         getEnabledCategories, getCategoryAction, getActionOptions,
         getConfigKey, getRenderKey, getServerUrl,
         onlySkipIfVip, incognito, skipCountdown, betterBeAwareCats, showInSeekbar,
+        disabled, whitelist, minDuration, audioCue, rules, rulesActionFor,
       };
     })();
+
+    // One shared WebAudio cue for skip notifications; created on first skip
+    // (autoplay policies allow it once playback has started).
+    const _sbAudioCue = () => {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        const ctx = _sbAudioCue._ctx = _sbAudioCue._ctx || new AC();
+        if (ctx.state === "suspended") { try { ctx.resume(); } catch (_) {} }
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.frequency.value = 660; o.type = "sine";
+        g.gain.setValueAtTime(0.12, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + 0.12);
+      } catch (_) {}
+    };
 
     const Cache = (() => {
       const memCache = new Map();
@@ -6741,7 +7000,7 @@ algoBlockChannels: "",
           overlay.className = "YourTube-sb-countdown";
           try { document.body.appendChild(overlay); } catch (_) {}
         }
-        overlay.innerHTML = "";
+        overlay.innerHTML = Xy("");
         const text = document.createElement("span");
         text.textContent = "Skipping " + savedSec.toFixed(1) + "s in " + remaining + "…";
         const cancel = document.createElement("button");
@@ -6760,6 +7019,7 @@ algoBlockChannels: "",
           // timer is still armed for the video it was scheduled on.
           if (!armedForVideo || State.videoId !== armedForVideo) return;
           try { videoEl.currentTime = targetTime; } catch (_) {}
+          if (Settings.audioCue()) { try { _sbAudioCue(); } catch (_) {} }
         }, remaining * 1000);
       };
 
@@ -6783,6 +7043,13 @@ algoBlockChannels: "",
           return;
         }
 
+        // v1.6.0 parity: global pause toggle + channel whitelist.
+        if (Settings.disabled() || Whitelisting.isWhitelisted()) {
+          resetMuteState();
+          State.activeSegmentIndex = -1;
+          return;
+        }
+
         const videoEl = ie.el();
         if (!videoEl || videoEl.paused || videoEl.ended) {
           resetMuteState();
@@ -6797,7 +7064,7 @@ algoBlockChannels: "",
         if (idx >= 0 && idx < segs.length && segs[idx]) {
           const s = segs[idx];
           if (isTimeInSegment(s, currentTime)) {
-            const action = Settings.getCategoryAction(s.category);
+            const action = effectiveAction(s);
             if (action === "mute" && State.mutedActive) return;
             if (action !== "skip" && action !== "mute") {
               resetMuteState();
@@ -6821,7 +7088,7 @@ algoBlockChannels: "",
         }
 
         const seg = segs[idx];
-        const action = Settings.getCategoryAction(seg.category);
+        let action = effectiveAction(seg);
 
         if (action === "disabled" || action === "poi" || action === "full" || action === "chapter") {
           resetMuteState();
@@ -6839,6 +7106,12 @@ algoBlockChannels: "",
         }
 
         if (action === "skip") {
+
+          const _minDur = Settings.minDuration();
+          if (_minDur > 0 && seg.segment[1] - seg.segment[0] < _minDur) {
+            resetMuteState();
+            return;
+          }
 
           if (Settings.betterBeAwareCats().has(seg.category)) {
             // "Warn instead of skipping" means these categories are never
@@ -6888,6 +7161,7 @@ algoBlockChannels: "",
             } else {
               recordSkip(targetTime);
               try { videoEl.currentTime = targetTime; } catch (_) {}
+              if (Settings.audioCue()) { try { _sbAudioCue(); } catch (_) {} }
             }
           }
         }
@@ -7039,6 +7313,8 @@ algoBlockChannels: "",
         lastRenderedDuration = duration;
         lastRenderedSegmentCount = segments.length;
         lastRenderedConfigKey = configKey;
+        try { renderChapters(); } catch (_) {}
+        try { renderTimeWithSkips(); } catch (_) {}
 
         const desired = new Map();
         for (let idx = 0; idx < segments.length; idx++) {
@@ -7078,9 +7354,128 @@ algoBlockChannels: "",
         }
       };
 
+      // ── v1.7.0: showTimeWithSkips ─────────────────────────────────────────
+      // Player time display gets a trailing " −m:ss" chip with the total length
+      // of segments that WILL be muted/skipped under current config.
+      let _timeChipEl = null;
+      const _fmtDur = (sec) => {
+        sec = Math.max(0, Math.round(sec));
+        const h = (sec / 3600) | 0, m = ((sec % 3600) / 60) | 0, ss = sec % 60;
+        return (h ? h + ":" + String(m).padStart(2, "0") : m + ":") + String(ss).padStart(2, "0");
+      };
+      const renderTimeWithSkips = () => {
+        if (!S.sponsorblockOn || !S.sbTimeWithSkips) {
+          if (_timeChipEl) { try { _timeChipEl.remove(); } catch (_) {} _timeChipEl = null; }
+          return;
+        }
+        const disp = document.querySelector(".ytp-time-display .ytp-time-duration") ||
+                     document.querySelector(".ytp-time-duration");
+        if (!disp || !disp.parentElement) return;
+        if (!_timeChipEl || !_timeChipEl.isConnected) {
+          _timeChipEl = document.createElement("span");
+          _timeChipEl.className = "ytb-sb-timechip";
+          _timeChipEl.style.cssText = "margin-left:6px;opacity:.82;font-size:inherit;color:inherit;pointer-events:none;";
+          if (disp.parentElement === _timeChipEl) return;
+          try { disp.parentElement.appendChild(_timeChipEl); } catch (_) {}
+        }
+        const videoEl = ie.el();
+        const dur = videoEl && Number.isFinite(videoEl.duration) ? videoEl.duration : 0;
+        let sk = 0;
+        for (const seg of State.segments) {
+          if (!seg || !Settings.showInSeekbar(seg.category)) continue;
+          const act = effectiveAction(seg);
+          if (act !== "skip" && act !== "mute") continue;
+          sk += Math.max(0, Math.min(seg.segment[1], dur || seg.segment[1]) - Math.max(0, seg.segment[0]));
+        }
+        _timeChipEl.textContent = sk > 0.05 ? "(−" + _fmtDur(sk) + ")" : "";
+      };
+
+      // ── v1.7.0: renderSegmentsAsChapters ──────────────────────────────────
+      // SB "chapter" segments are drawn as first-class chapter dividers on the
+      // seekbar, with a chapter-name tooltip on hover. Native YT chapters, when
+      // present, are left untouched — our dividers co-exist with the native UI.
+      let _chOverlay = null, _chTip = null, _chMover = null;
+
+      const clearChapterOverlay = () => {
+        if (_chOverlay) { try { _chOverlay.remove(); } catch (_) {} _chOverlay = null; }
+        if (_chTip) { try { _chTip.remove(); } catch (_) {} _chTip = null; }
+        if (_chMover) { try { document.removeEventListener("pointermove", _chMover, true); } catch (_) {} _chMover = null; }
+      };
+
+      const renderChapters = () => {
+        if (!S.sponsorblockOn || !S.sbRenderChapters) { clearChapterOverlay(); return; }
+        const videoEl = ie.el();
+        const dur = videoEl && Number.isFinite(videoEl.duration) ? videoEl.duration : 0;
+        const chapters = State.segments.filter((sg) => sg && sg.category === "chapter");
+        const host = document.querySelector(".ytp-progress-list") || document.querySelector(".ytp-progress-bar");
+        if (!dur || !chapters.length || !host) { clearChapterOverlay(); return; }
+        if (!S["sb_chapter_en"]) { clearChapterOverlay(); return; }
+        if (!_chOverlay || !_chOverlay.isConnected) {
+          _chOverlay = document.createElement("div");
+          _chOverlay.className = "ytb-sb-chapters";
+          _chOverlay.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:31;";
+          try { host.appendChild(_chOverlay); } catch (_) {}
+        }
+        // (re)build dividers — chapter sets are tiny (≤ a dozen), rebuild is cheap
+        _chOverlay.textContent = "";
+        for (const ch of chapters) {
+          const pct = Math.max(0, Math.min(100, (ch.segment[0] / dur) * 100));
+          const div = document.createElement("div");
+          const name = ch.description || ch.chapterTitle || "Chapter";
+          div.className = "ytb-sb-chdiv";
+          div.title = name;
+          // Match YouTube's native chapter-divider treatment (dark notch with
+          // bright edges) so SB chapters read correctly over both the played
+          // and unplayed parts of the track.
+          div.style.cssText = "position:absolute;top:0;bottom:0;left:" + pct +
+            "%;width:2px;background:rgba(0,0,0,.85);box-shadow:-1px 0 0 rgba(255,255,255,.6),1px 0 0 rgba(255,255,255,.6);border-radius:1px;pointer-events:none;";
+          _chOverlay.appendChild(div);
+        }
+        // chapter-name tooltip on hover over the bar
+        const bar = document.querySelector(".ytp-progress-bar-padding") || host;
+        if (bar && !_chTip) {
+          _chTip = document.createElement("div");
+          _chTip.className = "ytb-sb-chtip";
+          _chTip.style.cssText = "position:absolute;display:none;background:rgba(20,20,22,.95);color:#fff;font-size:11px;padding:4px 8px;border-radius:4px;white-space:nowrap;z-index:75;pointer-events:none;transform:translateX(-50%);bottom:100%;margin-bottom:8px;";
+          // progress-list natively has overflow:hidden — mount the tooltip on
+          // the padding wrapper (overflow:visible) so it can paint above.
+          const tipHost = document.querySelector(".ytp-progress-bar-padding") || host;
+          try { tipHost.appendChild(_chTip); } catch (_) {}
+        }
+        if (bar && !_chMover) {
+          _chMover = (ev) => {
+            if (!S.sbRenderChapters || !State.segments.length || !_chTip) return;
+            const t = ev.target;
+            if (!(t && t.closest && t.closest(".ytp-progress-bar-padding, .ytp-progress-list"))) {
+              if (_chTip) _chTip.style.display = "none";
+              return;
+            }
+            try {
+              const rect = (document.querySelector(".ytp-progress-list") || document.querySelector(".ytp-progress-bar")).getBoundingClientRect();
+              if (!rect.width) return;
+              const tsec = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width)) * dur;
+              let cur = null;
+              for (const ch of chapters) {
+                if (tsec >= ch.segment[0]) cur = ch; else break;
+              }
+              if (!cur && chapters.length) cur = chapters[0];
+              if (cur) {
+                _chTip.textContent = (cur.description || cur.chapterTitle || "Chapter") + " · " + _fmtDur(tsec);
+                const hostRect = host.getBoundingClientRect();
+                _chTip.style.left = Math.max(0, Math.min(hostRect.width, ev.clientX - hostRect.left)) + "px";
+                _chTip.style.display = "block";
+              } else _chTip.style.display = "none";
+            } catch (_) { }
+          };
+          document.addEventListener("pointermove", _chMover, true);
+        }
+      };
+
       const clearMarks = () => {
         St_seekbarMarks.forEach(el => { try { el.remove(); } catch (_) {} });
         St_seekbarMarks.clear();
+        clearChapterOverlay();
+        if (_timeChipEl) { try { _timeChipEl.remove(); } catch (_) {} _timeChipEl = null; }
         lastRenderedDuration = -1;
         lastRenderedSegmentCount = -1;
         lastRenderedConfigKey = "";
@@ -7177,7 +7572,7 @@ algoBlockChannels: "",
         const catMeta = known || { label: "Segment", color: "#fff" };
         const esc = YourTubeResources.Dom.esc;
 
-        hud.innerHTML = `
+        hud.innerHTML = Xy(`
           <div class="hud-header" style="border-left: 4px solid ${esc(catMeta.color)}">
             <span style="font-weight:700">Skipped ${esc(catMeta.label)}</span>
             <span>(${savedSec.toFixed(1)}s saved)</span>
@@ -7188,7 +7583,7 @@ algoBlockChannels: "",
             <button class="hud-btn vote-btn" id="hud-vote-down" title="Downvote segment">👎</button>
             <button class="hud-btn close-btn" id="hud-close-btn">&times;</button>
           </div>
-        `;
+        `);
 
         hud.className = "show";
 
@@ -7279,7 +7674,7 @@ algoBlockChannels: "",
           catOptions += `<option value="${esc(c.id)}" ${State.editor.category === c.id ? "selected" : ""}>${esc(c.label)}</option>`;
         });
 
-        panel.innerHTML = `
+        panel.innerHTML = Xy(`
           <div style="font-weight:700;font-size:14px;color:#fff;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:6px">
             Submit Sponsorship Segment
           </div>
@@ -7318,7 +7713,7 @@ algoBlockChannels: "",
               <button class="editor-btn danger-btn" id="ed-cancel">Cancel</button>
             </div>
           </div>
-        `;
+        `);
 
         panel.querySelector("#ed-start-now").addEventListener("click", () => {
           const videoEl = ie.el();
@@ -7347,7 +7742,7 @@ algoBlockChannels: "",
             const segs = State.segments.filter((sg) => mine.some((m) => m.uuid === sg.UUID));
             const box = panel.querySelector("#ed-sbmine");
             if (box && segs.length) {
-              box.innerHTML = '<span class="ytb-ui-meta">Your submissions:</span>';
+              box.innerHTML = Xy('<span class="ytb-ui-meta">Your submissions:</span>');
               segs.forEach((sg) => {
                 const row = document.createElement("div");
                 row.style.cssText = "display:flex;align-items:center;gap:6px;margin:2px 0";
@@ -7577,12 +7972,99 @@ algoBlockChannels: "",
       pumpVipQueue();
     };
 
+    // Channel whitelist / disable state, resolved once per video. UC ids from
+    // the player response are the primary token; channel names are accepted for
+    // convenience (official extension stores the ID).
+    const _channelId = () => {
+      try {
+        const pr = (typeof unsafeWindow !== "undefined" ? unsafeWindow : window).ytInitialPlayerResponse;
+        if (pr && pr.videoDetails && pr.videoDetails.channelId) return String(pr.videoDetails.channelId);
+      } catch (_) {}
+      return "";
+    };
+    const Whitelisting = {
+      _sig: null,
+      _hit: false,
+      isWhitelisted() {
+        const vid = State.videoId;
+        if (!vid) return false;
+        // Cache keyed on (video, whitelist content, sbDisable) so any settings
+        // write — including TrustedTypes-safe Ta() paths that don't re-init the
+        // feature — self-invalidates the decision on the next tick.
+        const wl = Settings.whitelist();
+        const sig = vid + "|" + (S.sbDisable ? "1" : "0") + "|" + Array.from(wl).join(",");
+        if (Whitelisting._sig === sig) return Whitelisting._hit;
+        let hit = false;
+        if (wl.size) {
+          try { const ch = String(ie.channel() || ""); if (ch && wl.has(ch.toLowerCase())) hit = true; } catch (_) {}
+          if (!hit) try { const cid = _channelId(); if (cid && wl.has(cid.toLowerCase())) hit = true; } catch (_) {}
+        }
+        Whitelisting._sig = sig;
+        Whitelisting._hit = hit;
+        return hit;
+      },
+      invalidate() { Whitelisting._sig = null; Whitelisting._hit = false; },
+      currentChannelToken() {
+        const cid = _channelId();
+        if (cid) return cid;
+        try { return String(ie.channel() || ""); } catch (_) { return ""; }
+      },
+    };
+
+    // Lazy evaluation context for advanced skip rules (never computed unless a
+    // rule set is configured).
+    let _ruleCtx = null, _ruleCtxVid = null;
+    const ruleCtx = () => {
+      const vid = State.videoId || "";
+      if (_ruleCtxVid === vid && _ruleCtx) return _ruleCtx;
+      let vd = 0, title = "", chName = "";
+      try { const el = ie.el(); vd = el && Number.isFinite(el.duration) ? el.duration : 0; } catch (_) {}
+      try { title = String(ie.title() || ""); } catch (_) {}
+      try { chName = String(ie.channel() || ""); } catch (_) {}
+      _ruleCtx = { videoDuration: vd, videoTitle: title, channelName: chName, channelId: _channelId(), chapterSource: "server" };
+      _ruleCtxVid = vid;
+      return _ruleCtx;
+    };
+
+    // Playback decision: per-category action, then advanced-rule override.
+    const effectiveAction = (seg) => {
+      let action = Settings.getCategoryAction(seg.category);
+      if (seg && seg._ruleAction) {
+        const r = seg._ruleAction;
+        // Only skip-like overrides change runtime behavior here; all others
+        // mean "do not auto-skip" (manual/seekbar/disabled/full/chapter/poi).
+        action = r === "skip" || r === "mute" ? r : "disabled";
+      }
+      return action;
+    };
+
     const applySegments = (videoId, generation, segments, hidden, meta = {}) => {
       if (!canCommit(videoId, generation)) return false;
       State.segments = Array.isArray(segments) ? segments.slice() : [];
       Metrics.recordSegments(State.segments.length);
       State.activeSegmentIndex = -1;
       resolveVipForSegments(State.segments);
+      try {
+        // showChapterInfoMessage parity: notice once per video when SB chapters exist.
+        if (S.sbChapterToast && !State._chapterToastShown.has(videoId) && State.segments.some((sg) => sg && sg.category === "chapter")) {
+          State._chapterToastShown.add(videoId);
+          const n = State.segments.filter((sg) => sg && sg.category === "chapter").length;
+          try { pe("SponsorBlock: " + n + " chapter" + (n === 1 ? "" : "s") + " on this video", 2600, "info"); } catch (_) {}
+        }
+      } catch (_) {}
+      // Advanced skip rules run at apply time too: a rule that resolves to
+      // 'seekbar' or 'disabled' suppresses the auto-skip for the matching
+      // segments while keeping them visible on the timeline.
+      try {
+        if (Settings.rules().length) {
+          const ctx = ruleCtx();
+          for (const sg of State.segments) {
+            if (!sg) continue;
+            const r = Settings.rulesActionFor(sg, ctx);
+            if (r) sg._ruleAction = r;
+          }
+        }
+      } catch (_) {}
       if (hidden) {
         Player.detachListeners();
         UI.clearMarks();
@@ -7797,6 +8279,7 @@ algoBlockChannels: "",
       State.betterBeAwareWarned.clear();
       State.vipByUserID.clear();
       State.lastWakeLookupAt = 0;
+      UI.clearMarks();
       State.lastFailedLookupVideoId = "";
       // Body-mounted singletons must not survive a disabled card.
       if (State.countdownTaskId) { try { clearTimeout(State.countdownTaskId); } catch (_) {} State.countdownTaskId = 0; }
@@ -7879,6 +8362,54 @@ algoBlockChannels: "",
       isVideoHidden: (videoId) => HiddenVideos.isHidden(videoId),
       getUserInfo: (userId, force = false) => API.getUserInfo(userId, null, force),
       getIsUserVIP: (userId, force = false) => API.getIsUserVIP(userId, null, force),
+      // v1.6.0 parity exports used by keybinds + dashboard buttons.
+      skipCurrentSegment: () => {
+        try {
+          const videoEl = ie.el();
+          if (!videoEl) return false;
+          const t = videoEl.currentTime;
+          // Active segment at the playhead, else the next upcoming one.
+          let seg = null;
+          const segs = State.segments || [];
+          for (const sg of segs) if (sg && t >= sg.segment[0] && t < segmentEndOf(sg)) { seg = sg; break; }
+          if (!seg) return false;
+          const uuid = seg.UUID || ("active-" + seg.segment[0]);
+          State.processedUUIDs.add(uuid);
+          const savedSec = Math.max(0, seg.segment[1] - t);
+          try { Metrics.recordSkip(savedSec); } catch (_) {}
+          try { videoEl.currentTime = Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON); } catch (_) {}
+          if (Settings.audioCue()) { try { _sbAudioCue(); } catch (_) {} }
+          return true;
+        } catch (_) { return false; }
+      },
+      activeSegment: () => {
+        try {
+          const videoEl = ie.el();
+          if (!videoEl) return null;
+          const t = videoEl.currentTime;
+          for (const sg of (State.segments || [])) if (sg && t >= sg.segment[0] && t < segmentEndOf(sg)) return sg;
+        } catch (_) {}
+        return null;
+      },
+      voteActive: (dir) => {
+        const seg = (function () { try { const v = ie.el(); if (!v) return null; const t = v.currentTime; for (const sg of (State.segments || [])) if (sg && t >= sg.segment[0] && t < segmentEndOf(sg)) return sg; } catch (_) {} return null; })();
+        if (!seg || !seg.UUID) return Promise.resolve({ ok: false, message: "No segment under playhead" });
+        return API.voteOnSegment(seg.UUID, dir ? 1 : 0);
+      },
+      toggleCurrentChannelWhitelist: () => {
+        const tok = Whitelisting.currentChannelToken();
+        if (!tok) return { ok: false, message: "No channel detected" };
+        const wl = Array.from(Settings.whitelist());
+        const low = tok.toLowerCase();
+        const idx = wl.indexOf(low);
+        if (idx >= 0) { wl.splice(idx, 1); Ta("sbWhitelist", wl.join(", ")); Whitelisting.invalidate(); return { ok: true, removed: true, token: tok }; }
+        wl.push(low);
+        Ta("sbWhitelist", wl.join(", "));
+        Whitelisting.invalidate();
+        return { ok: true, added: true, token: tok };
+      },
+      isCurrentChannelWhitelisted: () => Whitelisting.isWhitelisted(),
+      channelToken: () => Whitelisting.currentChannelToken(),
       voteUp: (uuid) => API.voteOnSegment(uuid, 1),
       voteDown: (uuid) => API.voteOnSegment(uuid, 0),
       undoVote: (uuid) => API.undoVote(uuid),
@@ -7888,6 +8419,49 @@ algoBlockChannels: "",
       debugInfo,
       getActionOptions: Settings.getActionOptions,
       getSegments: () => State.segments.slice(),
+      // Editor/test aid: merge synthetic segments into the live set and repaint.
+      debugEffectiveAction: (seg) => (seg ? effectiveAction(seg) : null),
+      debugActions: () => State.segments.map((seg) => [seg.category, Settings.showInSeekbar(seg.category), effectiveAction(seg), S["sb_" + seg.category + "_en"], S["sb_" + seg.category + "_act"], S["sb_" + seg.category + "_sb"]]),
+      debugChipCalc: () => {
+        const videoEl = ie.el();
+        const dur = videoEl && Number.isFinite(videoEl.duration) ? videoEl.duration : 0;
+        let sk = 0; const rows = [];
+        for (const seg of State.segments) {
+          if (!seg) continue;
+          const sho = Settings.showInSeekbar(seg.category);
+          const act = effectiveAction(seg);
+          rows.push([seg.category, sho, act]);
+          if (!sho) continue;
+          if (act !== "skip" && act !== "mute") continue;
+          sk += Math.max(0, Math.min(seg.segment[1], dur || seg.segment[1]) - Math.max(0, seg.segment[0]));
+        }
+        return { dur, sk, rows };
+      },
+      debugTickInfo: () => ({ video: State.videoId, whitelistHit: (function(){ try { return Whitelisting.isWhitelisted(); } catch (_) { return 'err'; } })(), chTok: Whitelisting.currentChannelToken(), paused: (function(){ try { const v = ie.el(); return v ? !!v.paused : null; } catch (_) { return null; } })(), disabled: Settings.disabled(), count: State.segments.length }),
+      debugInjectSegments: (segs) => {
+        if (!Array.isArray(segs)) return 0;
+        let added = 0;
+        for (const sg of segs) {
+          if (!sg || !Array.isArray(sg.segment)) continue;
+          const cat = String(sg.category || "");
+          if (!Categories.some((c) => c.id === cat)) continue;
+          const start = Number(sg.segment[0]), end = Number(sg.segment[1]);
+          if (!(start >= 0 && end > start)) continue;
+          State.segments.push({
+            segment: [start, end], category: cat, actionType: sg.actionType || "skip",
+            UUID: sg.UUID || ("preview-" + cat + "-" + start),
+            description: String(sg.description || ""),
+            userID: S.sbUserId || "",
+            votes: 0, locked: false, videoDuration: 0,
+          });
+          added++;
+        }
+        if (added) {
+          try { UI.renderSeekbarMarks(); } catch (_) {}
+          try { g.emit("sb.segments", { videoId: State.videoId, count: State.segments.length, synthetic: true }); } catch (_) {}
+        }
+        return added;
+      },
       api: {
         fetchWithRetry: API.fetchWithRetry,
         voteOnSegment: API.voteOnSegment,
@@ -7938,6 +8512,14 @@ algoBlockChannels: "",
         skipCountdown: Settings.skipCountdown(),
         betterBeAwareCats: Array.from(Settings.betterBeAwareCats()),
         showInSeekbar: (c) => Settings.showInSeekbar(c),
+        disabled: Settings.disabled(),
+        whitelist: Array.from(Settings.whitelist()),
+        minDuration: Settings.minDuration(),
+        audioCue: Settings.audioCue(),
+        rulesCount: Settings.rules().length,
+        rulesActionFor: (seg, ctx) => Settings.rulesActionFor(seg, ctx),
+        timeWithSkips: !!S.sbTimeWithSkips,
+        renderAsChapters: !!S.sbRenderChapters,
       })
     };
   })();
@@ -8107,82 +8689,9 @@ algoBlockChannels: "",
       },
     });
   }
-  async function Et(e, t) {
-    return Ot("next", {
-      context: Mt(),
-      videoId: e,
-      cpn: t,
-      racyCheckOk: !0,
-      contentCheckOk: !0,
-      autonavState: "STATE_NONE",
-      playbackContext: { vis: 0, lactMilliseconds: "1000" },
-      captionsRequested: !1,
-    });
-  }
-  async function Bt(e, t) {
-    return Ot("updated_metadata", { context: Mt(), videoId: e, cpn: t });
-  }
-  async function Pt(e, t, a) {
-    return Ot("browse", {
-      context: Mt(),
-      browseId: "FEhistory",
-      params: "",
-      trackingParams: "",
-      formData: {
-        videoId: e,
-        cpn: t,
-        durationMs: String(Math.floor(1e3 * (a || 0))),
-      },
-    });
-  }
-  async function It(e, t, a) {
-    return Ot(
-      "log_event",
-      (function (e, t, a, n) {
-        const r = Date.now();
-        return {
-          context: n,
-          eventLabel:
-            "ytlogevent_engagementType_ENGAGEMENT_TYPE_VIDEO_WATCH_COMPLETE",
-          ytLoggingDocumentEventsList: [
-            {
-              serializedDocumentEvent: "EhYIARIFY2xpY2sYwAIqByIFCMABEAEoCQ==",
-              eventTimeMs: String(r),
-            },
-            {
-              serializedDocumentEvent:
-                "EhsIBhIPdmlkZW9fY29tcGxldGUYwAIqByIFCMABEAEoCQ==",
-              eventTimeMs: String(r + 25),
-            },
-          ],
-          payload: {
-            videoId: e,
-            cpn: t,
-            watchTimeSec: Math.floor(a || 0),
-            completePct: 100,
-            finalStateMs: String(Math.floor(1e3 * (a || 0))),
-          },
-        };
-      })(e, t, a, Mt()),
-    );
-  }
-  async function Rt(e, t) {
-    return Ot("feedback", {
-      context: Mt(),
-      feedbackTokens: [],
-      isFeedbackTokenUnencrypted: !1,
-      shouldMerge: !1,
-      feedbackParams: { videoId: e, cpn: t, action: "WATCH_COMPLETED" },
-    });
-  }
-  async function Nt(e, t) {
-    return Ot("att/get", {
-      context: Mt(),
-      engagementType: "ENGAGEMENT_TYPE_WATCH_COMPLETED",
-      videoId: e,
-      cpn: t,
-    });
-  }
+  // Removed in 1.3.0: Et/Bt/Pt/It/Rt/Nt were legacy YouTube "watched" beacon
+  // composers (next, updated_metadata, browse, log_event, feedback, att/get)
+  // with zero call sites left after the Force-Watched transport overhaul.
 
   let _fwTpl = null;
   function _fwTplSet(u) {
@@ -8376,54 +8885,7 @@ algoBlockChannels: "",
       }
     } catch (e) {}
   }
-  function Vt(e, t, a, n, r) {
-    try {
-      const o = _t(),
-        U2 = _fwUA(),
-        i = Math.floor(t || 0),
-        d = Math.floor(a);
-      Dt(
-        "https://www.youtube.com/api/stats/qoe?" +
-          [
-            "event=" + (r || "streamingstats"),
-            "fexp=" + ((_fwTpl && _fwTpl.fexp) || ""),
-            "ns=yt",
-            "el=detailpage",
-            "cpn=" + encodeURIComponent(n),
-            "docid=" + encodeURIComponent(e),
-            "ver=2",
-            "cmt=" + d,
-            "rt=" +
-              (function () {
-                try {
-                  return (performance.now() / 1000).toFixed(3);
-                } catch (e) {
-                  return String(d);
-                }
-              })(),
-            "len=" + i,
-            "c=WEB",
-            "cver=" + encodeURIComponent(o.ver),
-            "cbr=" + U2.browser,
-            "cbrver=" + U2.bver,
-            "cos=" + U2.os,
-            "cosver=" + (U2.osver || "10.0"),
-            "cplatform=DESKTOP",
-            "hl=" + encodeURIComponent(o.hl),
-            "cr=" + encodeURIComponent(o.gl),
-            "afmt=251",
-            "vfmt=" + (_fwVfmt() || 243),
-            "live=0",
-            "bwe=" + (15e5 + Math.floor(2e6 * Math.random())),
-            "bh=" + (15 + Math.floor(30 * Math.random())),
-            "bat=15,30,45,60",
-            "df=0",
-            "vis=" + (o.visitorData ? encodeURIComponent(o.visitorData) : ""),
-            "ei=" + encodeURIComponent(o.ei),
-          ].join("&"),
-      );
-    } catch (e) {}
-  }
+  // Removed in 1.3.0: Vt (qoe beacons) — zero call sites.
   function _fwPageWin() {
     try { if (typeof unsafeWindow !== "undefined" && unsafeWindow && unsafeWindow !== window) return unsafeWindow; } catch (e) {}
     try { if (window && window.wrappedJSObject) return window.wrappedJSObject; } catch (e) {}
@@ -9470,8 +9932,38 @@ algoBlockChannels: "",
           : "privacyPreset" === e &&
             ((S.privacyShieldOn =
               "stealth" === S.privacyPreset || "maximum" === S.privacyPreset),
-            (S.safeMode = "maximum" === S.privacyPreset));
+            (S.safeMode = "maximum" === S.privacyPreset),
+            // The presets printed promises the keys did not keep: Stealth says
+            // "no traffic monitoring", Maximum says "no network calls". Turn
+            // the monitoring/instrumentation switches off persistently when a
+            // stricter preset is chosen so the label is true. Switching back
+            // to Everyday never re-enables anything on its own.
+            ("stealth" === S.privacyPreset || "maximum" === S.privacyPreset) &&
+              (_privacyPresetClamp(),
+              Y(),
+              pe(
+                "stealth" === S.privacyPreset
+                  ? "Stealth preset: traffic-monitoring features were turned off."
+                  : "Maximum preset: monitoring and all outbound calls were turned off.",
+                3500,
+                "info",
+              )));
   }
+
+  // Switches that violate the stated contract of the stricter presets.
+  const _privacyPresetClamp = () => {
+    const OFF_STEALTH = [
+      "netMonitorOn", "netBudgetOn", "netQualityAttribOn",
+      "sessionReplay", "apiExplorer", "apiExplorerMutations",
+      "netMonitorBadge", "diagConsole", "statsOverlay",
+    ];
+    for (const k of OFF_STEALTH) S[k] = false;
+    if ("maximum" === S.privacyPreset) {
+      // Also nothing that phones home: update checks are additionally gated at
+      // runtime in Fu(); SponsorBlock/RYD/DeArrow are gated in he()/fetchJson().
+      S.updateCheckOn = false;
+    }
+  };
   const _FORBIDDEN_CFG_KEYS = { __proto__: 1, constructor: 1, prototype: 1 };
   function Ta(e, t) {
     if (_FORBIDDEN_CFG_KEYS[e]) return;
@@ -9485,6 +9977,7 @@ algoBlockChannels: "",
       Y(),
       "silentToasts" === e && ue(),
       _cfgWasLoaded || (() => { try { _bootTouched.set(e, t); } catch (_) {} })(),
+      (() => { try { _localEdits.set(e, Date.now()); } catch (_) {} })(),
       wa || ((wa = new Set()), queueMicrotask(Ca)));
     const a = ka.get(e);
     if (a) for (const e of a) wa.add(e.id);
@@ -9500,6 +9993,7 @@ algoBlockChannels: "",
     }
     if (!t.size) return;
     if (!_cfgWasLoaded) { for (const k of t) { try { _bootTouched.set(k, S[k]); } catch (_) {} } }
+    try { const _now = Date.now(); for (const k of t) _localEdits.set(k, _now); } catch (_) {}
     for (const e of t) Sa(e);
     (Y(), t.has("silentToasts") && ue());
     const a = new Set();
@@ -9514,7 +10008,8 @@ algoBlockChannels: "",
   (xa.register({
     id: "speed-controller",
     name: "Playback Speed",
-    summary: "Default speed and per-video memory.",
+    summary: "Applies a default rate and remembers per-session changes.",
+      cat: "playback",
     masterKey: "speedRemember",
     keys: ["speedDefault", "speedRemember", "speedStep"],
     apply(e) {
@@ -9566,8 +10061,9 @@ algoBlockChannels: "",
   }),
     xa.register({
       id: "speed-per-channel",
-      name: "Per-Channel Speed Memory",
-      summary: "Remembers your preferred speed per channel.",
+      name: "Per-Channel Speed",
+      summary: "Stores one playback rate per channel; overrides the global default.",
+      cat: "playback",
       masterKey: "speedPerChannelOn",
       keys: ["speedPerChannelOn"],
       apply(e) {
@@ -9659,7 +10155,8 @@ algoBlockChannels: "",
     xa.register({
       id: "loop-video",
       name: "Loop Video",
-      summary: "Replays the video when it ends.",
+      summary: "Restarts the video at end; toggleable from the player bar.",
+      cat: "playback",
       masterKey: "loopVideo",
       keys: ["loopVideo"],
       apply(e) {
@@ -9686,8 +10183,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "ab-repeat",
-      name: "Loop a Segment",
-      summary: "Loop any segment with A/B markers.",
+      name: "A/B Loop",
+      summary: "Loops between two player timestamps; markers set from the player bar or Alt+A.",
+      cat: "playback",
       masterKey: "abLoopOn",
       keys: ["abLoopOn", "abA", "abB"],
       apply(e) {
@@ -9737,8 +10235,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "auto-hd",
-      name: "Always Use My Preferred Quality",
-      summary: "Locks your chosen resolution on every video.",
+      name: "Preferred Quality Lock",
+      summary: "Re-asserts your chosen resolution whenever YouTube downgrades it.",
+      cat: "playback",
       masterKey: "autoHD",
       keys: ["autoHD", "qualityPref"],
       apply(e) {
@@ -10083,8 +10582,9 @@ algoBlockChannels: "",
   }
   (xa.register({
     id: "force-cc",
-    name: "Always Turn On Captions",
-    summary: "Turns on captions for every video.",
+    name: "Forced Captions",
+    summary: "Enables captions on every video with style, position and language rules.",
+      cat: "playback",
     masterKey: "forceCC",
     keys: [
       "forceCC",
@@ -10442,8 +10942,9 @@ algoBlockChannels: "",
   }),
     xa.register({
       id: "autoskip-ad-btn",
-      name: "Skip Ads Automatically",
-      summary: "Clicks 'Skip Ad' the moment it appears.",
+      name: "Auto-Click Skip Ad",
+      summary: "Clicks YouTube's own Skip Ad button the moment it appears.",
+      cat: "playback",
       masterKey: "autoSkipAdBtn",
       keys: ["autoSkipAdBtn"],
       apply(e) {
@@ -10478,7 +10979,8 @@ algoBlockChannels: "",
     xa.register({
       id: "sponsorblock",
       name: "SponsorBlock",
-      summary: "Skips sponsors, intros, self-promos, and like-begging.",
+      summary: "Skips sponsor segments via hashed-prefix lookups; no video IDs leave the browser.",
+      cat: "integrations",
       masterKey: "sponsorblockOn",
       keys: [
         "sponsorblockOn",
@@ -10492,6 +10994,14 @@ algoBlockChannels: "",
         "sbSkipCountdown",
         "sbSkipCountdownTime",
         "sbBetterBeAware",
+        "sbDisable",
+        "sbWhitelist",
+        "sbMinDuration",
+        "sbAudioCue",
+        "sbSkipRules",
+        "sbChapterToast",
+        "sbTimeWithSkips",
+        "sbRenderChapters",
       ].concat(i.flatMap((e) => ["sb_" + e.id + "_en", "sb_" + e.id + "_act", "sb_" + e.id + "_sb"])),
       apply(e) {
         ft();
@@ -10590,6 +11100,40 @@ algoBlockChannels: "",
         e.appendChild(No("Skip countdown seconds", "sbSkipCountdownTime", 0, 5, 1, (v) => v + "s"));
         e.appendChild(Ho("Warn instead of skipping these categories", "sbBetterBeAware", "interaction,selfpromo"));
 
+        e.appendChild(To("div", "ytb-section-hdr", "Playback & Channel"));
+        e.appendChild(Io("Pause all SponsorBlock skipping (per-site)", "sbDisable"));
+        e.appendChild(Io("Audio cue when a skip fires", "sbAudioCue"));
+        e.appendChild(No("Never auto-skip segments shorter than (seconds)", "sbMinDuration", 0, 60, 0.5, (v) => v + "s"));
+        e.appendChild(Io("Notify when a video has SponsorBlock chapters", "sbChapterToast"));
+        e.appendChild(Io("Render SponsorBlock chapters as seekbar chapters", "sbRenderChapters"));
+        e.appendChild(Io("Show skippable time next to video duration", "sbTimeWithSkips"));
+        e.appendChild(Ho("Channel whitelist (UC ids or channel names, comma-separated)", "sbWhitelist", "UCxxxxxxxxxxxxxx, my channel name"));
+        e.appendChild(Ho("Advanced skip rules (wiki.sponsor.ajay.app/w/Advanced_skip_options)", "sbSkipRules", 'if category == "chapter" and chapter.name ~= "^[Ii]ntro"\nAuto skip'));
+
+        e.appendChild(To("div", "ytb-rowb"));
+        const wlRow = To("div", "ytb-rowb");
+        wlRow.appendChild(
+          Oo(
+            "Toggle whitelist on this channel",
+            () => {
+              try {
+                const r = SponsorBlockEngine.toggleCurrentChannelWhitelist();
+                pe(
+                  !r || !r.ok
+                    ? "Whitelist: " + ((r && r.message) || "no channel")
+                    : r.added
+                      ? "Channel whitelisted: " + r.token
+                      : "Channel removed from whitelist: " + r.token,
+                  2400,
+                  r && r.ok ? "success" : "error",
+                );
+              } catch (e2) { pe("Whitelist toggle failed", 2200, "error"); }
+            },
+            "ytb-normal",
+          ),
+        );
+        e.appendChild(wlRow);
+
         e.appendChild(To("div", "ytb-section-hdr", "Segment Creation"));
         const createRow = To("div", "ytb-row");
         createRow.style.padding = "6px 0";
@@ -10647,7 +11191,8 @@ algoBlockChannels: "",
     xa.register({
       id: "session-restore",
       name: "Session History",
-      summary: "Resume videos where you left off.",
+      summary: "Local watch history with resume positions, bookmarks and search.",
+      cat: "data",
       masterKey: "sessionRestoreOn",
       keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
       apply(e) {
@@ -10852,8 +11397,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "pip-button",
-      name: "Floating Pop-out Window",
-      summary: "Pop the video into a floating mini window.",
+      name: "Picture-in-Picture",
+      summary: "Adds a PiP button; detaches the video into a floating window.",
+      cat: "playback",
       apply() {},
       settings(e) {
         e.appendChild(Eo([Oo("Toggle PiP now", Pa, "primary")]));
@@ -10861,8 +11407,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "screenshot",
-      name: "Screenshot",
-      summary: "Save crisp video frames as PNG/JPG (hotkey available).",
+      name: "Frame Capture",
+      summary: "Saves the current video frame as PNG/JPG; optional clipboard copy; hotkey available.",
+      cat: "playback",
       masterKey: "screenshotOn",
       keys: ["screenshotOn", "screenshotFmt", "screenshotScale", "screenshotClipboard"],
       apply(e) {
@@ -10876,7 +11423,7 @@ algoBlockChannels: "",
           b.className = "ytp-button";
           b.setAttribute("aria-label", "Screenshot (X)");
           b.title = "Screenshot (X)";
-          b.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7l1.5-2.5h5L16 7"/><circle cx="12" cy="13" r="3.5"/></svg>';
+          b.innerHTML = Xy('<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7l1.5-2.5h5L16 7"/><circle cx="12" cy="13" r="3.5"/></svg>');
           b.style.cssText = "display:flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;opacity:.9";
           b.addEventListener("click", (ev) => { ev.stopPropagation(); try { Ia(); } catch (_) {} });
           bar.appendChild(b);
@@ -10908,8 +11455,9 @@ algoBlockChannels: "",
     
     xa.register({
       id: "force-watched",
-      name: "Force Watched (Shift+W)",
-      summary: "Instantly completes the video and verifies it in your account history (Shift+W).",
+      name: "Mark as Watched",
+      summary: "Shift+W sends a full-play beacon and records the video in account history.",
+      cat: "playback",
       masterKey: "forceWatchedOn",
       keys: [
         "forceWatchedOn",
@@ -10948,8 +11496,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "theater-default",
-      name: "Theater Mode Default",
-      summary: "Open videos in full-width theater mode.",
+      name: "Theater Default",
+      summary: "Opens watch pages in theater mode.",
+      cat: "playback",
       masterKey: "theaterDefault",
       keys: ["theaterDefault"],
       apply(e) {
@@ -10964,12 +11513,18 @@ algoBlockChannels: "",
         };
         const arm = () => {
           if (t()) return;
+          // Chained ctx-managed timeouts instead of a raw setInterval: the old
+          // pattern (setInterval + separate clearTimeout for cleanup) left a
+          // zombie interval running up to 5s after the card was disabled,
+          // because the cleanup timeout was cancelled at teardown while the
+          // interval was not tracked. Chained ctx timeouts are cleared by
+          // teardown automatically. Same 250 ms cadence, same ≤5 s ceiling.
           let n = 0;
-          const iv = setInterval(() => {
+          const tick = () => {
             n++;
-            if (t() || n > 20) clearInterval(iv);
-          }, 250);
-          e.addTimeout(() => clearInterval(iv), 8000);
+            if (!t() && n <= 20) e.addTimeout(tick, 250);
+          };
+          tick();
         };
         (arm(), e.onNav(() => { e.addTimeout(arm, 400); e.addTimeout(arm, 1500); }));
       },
@@ -10979,7 +11534,8 @@ algoBlockChannels: "",
     xa.register({
       id: "cinema-mode",
       name: "Cinema Mode",
-      summary: "Dims everything around the video player.",
+      summary: "Dims everything outside the player with adjustable opacity.",
+      cat: "playback",
       masterKey: "cinemaMode",
       keys: ["cinemaMode", "cinemaOp"],
       apply(e) {
@@ -11111,12 +11667,13 @@ algoBlockChannels: "",
     } catch (e) {}
     return ((Na = !1), !1);
   }
-  function Ha(e, t, a, n, r) {
+  function Ha(e, t, a, n, r, o) {
     xa.register({
       id: e,
       name: t,
       summary: a,
       masterKey: n,
+      cat: o,
       keys: [n],
       apply(e) {
         S[n] && e.addStyle(r);
@@ -11484,14 +12041,16 @@ algoBlockChannels: "",
   (Ha(
       "compact-ui",
       "Compact UI",
-      "Reduces watch page margins, metadata font sizes, and layout padding for a tighter, higher-density UI.",
+      "Tighter watch-page margins, metadata sizes and paddings.",
     "compactUI",
     "ytd-watch-metadata{font-size:13px!important}#title h1{font-size:18px!important}#secondary{font-size:12px!important}",
+      "appearance",
   ),
     xa.register({
       id: "video-filters",
-      name: "Video Filters",
-      summary: "Live video controls: brightness, contrast, zoom, flip.",
+      name: "Video Adjustments",
+      summary: "Brightness, contrast, saturation, hue, zoom and flip applied to the player.",
+      cat: "playback",
       masterKey: "videoFiltersOn",
       keys: [
         "videoFiltersOn",
@@ -11560,58 +12119,66 @@ algoBlockChannels: "",
     Ha(
       "hide-recs",
       "Hide Recommendations",
-      "Hides the right-side related videos recommendation sidebar on watch pages.",
+      "Removes the related-videos sidebar on watch pages.",
       "hideRecs",
       "#secondary,#related,ytd-watch-next-secondary-results-renderer{display:none!important}#primary{max-width:100%!important}",
+    "feed"
     ),
     Ha(
       "hide-comments",
       "Hide Comments",
-      "Completely removes the comments section below videos.",
+      "Removes the comments section on watch pages.",
       "hideComments",
       "#comments,ytd-comments{display:none!important}",
+    "comments"
     ),
     Ha(
       "hide-endscreen",
-      "Hide End-screen Cards",
-      "Blocks floating thumbnail recommendation cards and creator teasers from appearing at the end of videos.",
+      "Hide End Cards",
+      "Blocks end-screen recommendation cards and teasers.",
       "hideEndscreen",
       ".ytp-ce-element,.ytb-cards-teaser{display:none!important}",
+    "feed"
     ),
     Ha(
       "hide-livechat",
       "Hide Live Chat",
-      "Collapses and completely hides the live chat stream panel on live broadcasts.",
+      "Collapses and removes the live chat panel on streams.",
       "hideLivechat",
       "ytd-live-chat-frame{display:none!important}",
+    "comments"
     ),
     Ha(
       "hide-watermark",
-      "Hide Channel Watermark",
-      "Hides the floating channel subscribe watermark icon in the bottom-right corner of the video player.",
+      "Hide Watermark",
+      "Removes the channel watermark overlay on the player.",
       "hideWatermark",
       ".ytp-watermark{display:none!important}",
+      "feed"
     ),
     Ha(
       "hide-cards",
       "Hide Info Cards",
-      "Hides interactive info-card (i) teaser popups during video playback.",
+      "Blocks the interactive (i) teaser popups during playback.",
       "hideCards",
       ".ytb-cards-button,.ytb-cards-teaser-text{display:none!important}",
+      "comments"
     ),
     Ha(
       "hide-masthead",
-      "Hide Top Bar",
-      "Hides the top navigation masthead bar across YouTube for an immersive distraction-free view.",
+      "Hide Masthead",
+      "Removes the top navigation bar site-wide.",
       "hideMasthead",
       "ytd-masthead,#masthead,#masthead-container,ytd-topbar,#topbar,#topbar-container,ytd-masthead-container{display:none!important}ytd-page-manager,#page-manager,ytd-app.guide-collapsed{--ytd-masthead-height:0px;margin-top:0!important}",
+    "appearance"
     ),
     Ha(
       "hide-banner-ads",
       "Hide Banner Ads",
-      "Removes display banners, sponsored shelf cards, and promotional ad overlays.",
+      "Removes display banners, sponsored shelves and promo overlays.",
       "hideBannerAds",
       "ytd-ad-slot-renderer,ytd-banner-promo-renderer,ytd-promoted-sparkles-web-renderer,#masthead-ad,#player-ads,.ytp-ad-overlay-container,.ytp-ad-text-overlay,ytd-in-feed-ad-layout-renderer{display:none!important}",
+      "feed"
     ));
   const Fa = [
       "ytd-rich-item-renderer",
@@ -11702,7 +12269,8 @@ algoBlockChannels: "",
   xa.register({
     id: "channel-blocker",
     name: "Channel Blocker",
-    summary: "Hides blocked channels and uBlock rules everywhere.",
+    summary: "Hides listed channels plus uBlock-style rules across every surface.",
+      cat: "channels",
     masterKey: "channelBlockerOn",
     keys: [
       "channelBlockerOn",
@@ -11922,25 +12490,7 @@ algoBlockChannels: "",
       ? e.replace(n, "$1" + t + "=" + encodeURIComponent(a))
       : e + (e.indexOf("?") >= 0 ? "&" : "?") + t + "=" + encodeURIComponent(a);
   }
-  function Qa(e) {
-    try {
-      if (!/^https?:/i.test(String(e || ""))) return;
-    } catch (e) {
-      return;
-    }
-    try {
-      navigator.sendBeacon && navigator.sendBeacon(e);
-    } catch (e) {}
-    try {
-      fetch(e, {
-        method: "GET",
-        credentials: "include",
-        mode: "no-cors",
-        keepalive: !0,
-        cache: "no-store",
-      }).catch(() => {});
-    } catch (e) {}
-  }
+  // Removed in 1.3.0: Qa duplicated Dt; zero call sites.
 
   function rn(e, t) {
     return Lo(e, Bo(t));
@@ -11962,8 +12512,9 @@ algoBlockChannels: "",
     })();
   xa.register({
       id: "keyword-filter",
-      name: "Keyword Filter",
-      summary: "Hides videos whose titles contain your keywords.",
+      name: "Title Keyword Filter",
+      summary: "Hides cards whose titles match your keyword list (CSS fast path + DOM matcher).",
+      cat: "feed",
       masterKey: "keywordFilterOn",
       keys: ["keywordFilterOn", "keywordFilterList"],
       apply(e) {
@@ -11988,16 +12539,18 @@ algoBlockChannels: "",
             t
               .map((e) => {
                 const t = e.replace(/["\\]/g, "\\$&");
+                // NOTE(1.3.0): pruned the `yt-lockup-view-model[title*=]` and
+                // `:has(a[title*=])` branches — the 2026 lockup cards carry no
+                // title attributes at all, so those selectors could never
+                // match and only paid layout cost. Lockup cards are hidden by
+                // the JS scan below; legacy renderers keep the instant CSS
+                // path since #video-title still carries a title attribute.
                 return (
                   'ytd-video-renderer:has(#video-title[title*="' +
                   t +
                   '" i]),ytd-compact-video-renderer:has(#video-title[title*="' +
                   t +
                   '" i]),ytd-rich-item-renderer:has(#video-title[title*="' +
-                  t +
-                  '" i]),ytd-rich-item-renderer:has(yt-lockup-view-model[title*="' +
-                  t +
-                  '" i]),yt-lockup-view-model:has(a[title*="' +
                   t +
                   '" i]){display:none!important}'
                 );
@@ -12843,9 +13396,9 @@ algoBlockChannels: "",
   }
   (xa.register({
     id: "geo-override",
-    name: "Country & Language Override",
-    summary:
-      "Make YouTube think you’re in a different country and language. Useful for unblocking region-restricted content or just browsing as if you were somewhere else.",
+    name: "Geo Override",
+    summary: "Presents a different region/language to YouTube's client; can unblock region-locked content.",
+      cat: "privacy",
     masterKey: "geoOverrideOn",
         keys: [
       "geoOverrideOn",
@@ -13084,8 +13637,9 @@ algoBlockChannels: "",
   }),
     xa.register({
       id: "stats-overlay",
-      name: "Playback Performance Overlay",
-      summary: "Shows resolution, quality, FPS, bitrate, time, rate and buffer.",
+      name: "Playback Stats Overlay",
+      summary: "On-player panel: resolution, quality, FPS, bitrate, time, rate, buffer.",
+      cat: "playback",
       masterKey: "statsOverlay",
       keys: ["statsOverlay"],
       apply(e) {
@@ -13164,8 +13718,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "diag-console",
-      name: "Activity Monitor",
-      summary: "Live console of what YourTube is doing.",
+      name: "Activity Console",
+      summary: "Live log of what YourTube is applying and why.",
+      cat: "tools",
       masterKey: "diagConsole",
       keys: ["diagConsole"],
       apply(e) {
@@ -13197,8 +13752,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "perf-profiler",
-      name: "Feature Performance Tracker",
-      summary: "Watches how much work each feature costs.",
+      name: "Feature Profiler",
+      summary: "Measures per-feature CPU cost.",
+      cat: "tools",
       masterKey: "perfProfilerOn",
       keys: ["perfProfilerOn"],
       apply(e) {
@@ -13215,8 +13771,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "fps-counter",
-      name: "Live FPS Counter",
-      summary: "Small live FPS counter.",
+      name: "FPS Counter",
+      summary: "Corner overlay reporting live rendering frame rate.",
+      cat: "playback",
       masterKey: "fpsCounterOn",
       keys: ["fpsCounterOn", "fpsCounterPos"],
       apply(e) {
@@ -13316,8 +13873,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "buffer-health",
-      name: "Buffer Health Monitor",
-      summary: "Live buffer and rebuffer statistics.",
+      name: "Buffer Monitor",
+      summary: "Buffer depth and rebuffer counters while playing.",
+      cat: "playback",
       masterKey: "bufferHealthOn",
       keys: ["bufferHealthOn"],
       apply(e) {
@@ -13462,8 +14020,9 @@ algoBlockChannels: "",
     
     xa.register({
       id: "dropped-frame-counter",
-      name: "Dropped Frame Counter",
-      summary: "Counts dropped frames to diagnose stutter.",
+      name: "Dropped Frames",
+      summary: "Reports frames dropped by the player to diagnose stutter.",
+      cat: "playback",
       masterKey: "droppedFrameOn",
       keys: ["droppedFrameOn", "droppedFramePos", "droppedFrameResetOnNav", "droppedFrameShowRate"],
       apply(e) {
@@ -13587,8 +14146,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "default-audio-track",
-      name: "Default to Original Audio Track",
-      summary: "Uses original audio instead of auto-dubs.",
+      name: "Original Audio Track",
+      summary: "Picks the original-language audio over auto-dubbed tracks.",
+      cat: "playback",
       masterKey: "defaultOriginalAudioOn",
       keys: ["defaultOriginalAudioOn"],
       apply(e) {
@@ -13623,8 +14183,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "restore-fullscreen-scrolling",
-      name: "Allow Scrolling in Fullscreen",
-      summary: "Scroll with the mouse wheel in fullscreen.",
+      name: "Fullscreen Scrolling",
+      summary: "Restores page scrolling while fullscreen is active.",
+      cat: "playback",
       masterKey: "restoreFsScrollOn",
       keys: ["restoreFsScrollOn"],
       apply(e) {
@@ -13646,8 +14207,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "remove-redirect-urls",
-      name: "Skip YouTube /redirect URLs",
-      summary: "Opens redirect links directly.",
+      name: "Redirect Bypass",
+      summary: "Rewrites /redirect tracker URLs to their targets.",
+      cat: "privacy",
       masterKey: "removeRedirectUrlsOn",
       keys: ["removeRedirectUrlsOn"],
       apply(e) {
@@ -13691,8 +14253,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "shorten-share-url",
-      name: "Shorten Share URLs",
-      summary: "Copied links lose ?si= and ?feature= tracking.",
+      name: "Share Link Shortener",
+      summary: "Strips ?si= and ?feature= tracking from copied links.",
+      cat: "privacy",
       masterKey: "shortenShareUrlOn",
       keys: ["shortenShareUrlOn"],
       apply(e) {
@@ -13740,8 +14303,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "skip-paused-continue",
-      name: "Auto-Continue Paused Video",
-      summary: "Auto-confirms the 'Continue watching?' popup.",
+      name: "Auto-Confirm Pause Prompt",
+      summary: "Confirms YouTube's 'Video paused. Continue watching?' dialog automatically.",
+      cat: "playback",
       masterKey: "skipPausedContinueOn",
       keys: ["skipPausedContinueOn"],
       apply(e) {
@@ -13768,8 +14332,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "click-logo-to-subs",
-      name: "Click Logo to Subscriptions",
-      summary: "The YouTube logo goes to Subscriptions, not Home.",
+      name: "Logo → Subscriptions",
+      summary: "Routes the YouTube logo to Subscriptions instead of Home.",
+      cat: "channels",
       masterKey: "logoToSubsOn",
       keys: ["logoToSubsOn"],
       apply(e) {
@@ -13792,8 +14357,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "default-channel-tab",
-      name: "Default Channel Tab",
-      summary: "Open channel pages on your preferred tab.",
+      name: "Channel Default Tab",
+      summary: "Opens channel pages on your preferred tab.",
+      cat: "channels",
       masterKey: "defaultChannelTab",
       keys: ["defaultChannelTab"],
       apply(e) {
@@ -13823,8 +14389,9 @@ algoBlockChannels: "",
 
     xa.register({
       id: "hide-top-live-games",
-      name: "Hide Top Live Games",
-      summary: "Removes gaming live carousels from feeds.",
+      name: "Hide Gaming Shelves",
+      summary: "Removes 'Top live games' carousels from feeds.",
+      cat: "feed",
       masterKey: "hideTopLiveGamesOn",
       keys: ["hideTopLiveGamesOn"],
       apply(e) {
@@ -13859,9 +14426,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "hfr-allow",
-      name: "Allow High Frame Rate",
-      summary:
-        "Removed: high-frame-rate formats are chosen by YouTube's player, not by a client cookie, and rewriting the visitor cookie churned your anonymous identity. The switch now only reports the formats the player already offers.",
+      name: "High Frame Rate Report",
+      summary: "Reports the frame rates the player offers (YouTube picks formats server-side).",
+      cat: "playback",
       masterKey: "hfrAllowOn",
       keys: ["hfrAllowOn"],
       apply(e) {
@@ -13886,8 +14453,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "update-check",
-      name: "Update Checks",
-      summary: "Look for a newer YourTube release in the background.",
+      name: "Update Check",
+      summary: "Background check for new YourTube releases; disabled in Maximum privacy.",
+      cat: "privacy",
       masterKey: "updateCheckOn",
       keys: ["updateCheckOn", "updateCheckHours"],
       apply() {},
@@ -13906,8 +14474,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "auto-recover-video",
-      name: "Auto-Recover Video on Reconnect",
-      summary: "Recovers playback after a network drop.",
+      name: "Playback Recovery",
+      summary: "Rebuilds the player when it stalls after a network drop.",
+      cat: "playback",
       masterKey: "autoRecoverOn",
       keys: ["autoRecoverOn"],
       apply(e) {
@@ -13930,8 +14499,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "background-players-pause",
-      name: "Pause Background Players",
-      summary: "Pauses playback in background tabs.",
+      name: "Pause Hidden Tabs",
+      summary: "Pauses playback in tabs that lose visibility; resumes on return.",
+      cat: "playback",
       masterKey: "bgPlayersPauseOn",
       keys: ["bgPlayersPauseOn"],
       apply(e) {
@@ -13963,8 +14533,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "forward-rewind-buttons",
-      name: "Forward / Rewind Buttons",
-      summary: "Skip forward/back buttons with adjustable steps.",
+      name: "Seek Buttons",
+      summary: "Player-bar jump buttons with configurable step size.",
+      cat: "playback",
       masterKey: "forwardRewindOn",
       keys: ["forwardRewindOn", "forwardRewindSec"],
       apply(e) {
@@ -14037,8 +14608,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "reverse-playlist",
-      name: "Reverse Playlist Order",
-      summary: "Reverse the order of a playlist.",
+      name: "Reverse Playlist",
+      summary: "Plays a playlist from last item to first.",
+      cat: "playback",
       masterKey: "reversePlaylistOn",
       keys: ["reversePlaylistOn"],
       apply(e) {
@@ -14090,7 +14662,8 @@ algoBlockChannels: "",
     xa.register({
       id: "flip-video",
       name: "Flip Video",
-      summary: "Flip or mirror the video image.",
+      summary: "Mirrors or flips the video frame horizontally/vertically.",
+      cat: "playback",
       masterKey: "flipVideoOn",
       keys: ["flipVideoOn", "flipVideoH", "flipVideoV", "videoFiltersOn"],
       apply(e) {
@@ -14186,8 +14759,9 @@ algoBlockChannels: "",
     }));
   (xa.register({
       id: "session-replay",
-      name: "Click & Navigation Recorder",
-      summary: "Logs your session activity locally, offline only.",
+      name: "Session Recorder",
+      summary: "Logs clicks and navigation locally (never uploaded).",
+      cat: "tools",
       masterKey: "sessionReplay",
       keys: ["sessionReplay"],
       apply(e) {
@@ -14239,8 +14813,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "api-explorer",
-      name: "Developer Player Control",
-      summary: "Expose the player to devtools for debugging.",
+      name: "Developer Player API",
+      summary: "Exposes the player object to devtools for debugging.",
+      cat: "tools",
       masterKey: "apiExplorer",
       keys: ["apiExplorer", "apiExplorerMutations"],
       apply(t) {
@@ -14757,8 +15332,9 @@ algoBlockChannels: "",
   }
   (xa.register({
     id: "net-monitor",
-    name: "Data Usage Tracker",
-    summary: "Graphs your bandwidth use over time.",
+    name: "Bandwidth Monitor",
+    summary: "Graphs transfer volume over time.",
+      cat: "tools",
     masterKey: "netMonitorOn",
     keys: [
       "netMonitorOn",
@@ -15144,7 +15720,8 @@ algoBlockChannels: "",
     xa.register({
       id: "adaptive-throttle",
       name: "Adaptive Throttle",
-      summary: "Saves battery: lighter processing on low power.",
+      summary: "Reduces processing work on battery-saving conditions.",
+      cat: "tools",
       masterKey: "adaptiveThrottleOn",
       keys: ["adaptiveThrottleOn"],
       apply(e) {
@@ -15182,7 +15759,8 @@ algoBlockChannels: "",
     xa.register({
       id: "cookie-control",
       name: "Cookie Control",
-      summary: "View, edit, and back up YouTube cookies and storage.",
+      summary: "View, edit and back up YouTube cookies and storage.",
+      cat: "privacy",
       masterKey: "cookieControlOn",
       keys: ["cookieControlOn", "cookieControlLive", "cookieControlNotify", "cookieControlAutoBackup", "cookieControlFavorites", "cookieControlCategories"],
       apply(e) {
@@ -15335,7 +15913,7 @@ algoBlockChannels: "",
           overlay.style.cssText="position:fixed;inset:0;z-index:2147483647;background:rgba(10,12,18,0.92);display:flex;flex-direction:column;color:#eef;font-family:Inter,Roboto,sans-serif;";
           const header=document.createElement("div");
           header.style.cssText="display:flex;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.1);";
-          header.innerHTML='<b>Cookie Control — '+Manager.getAll().length+' cookies</b>';
+          header.innerHTML=Xy('<b>Cookie Control — '+Manager.getAll().length+' cookies</b>');
           const closeBtn=document.createElement("button");
           closeBtn.textContent="×";
           closeBtn.style.cssText="background:rgba(255,255,255,0.1);border:0;color:#fff;width:28px;height:28px;border-radius:50%;cursor:pointer;";
@@ -15454,8 +16032,9 @@ algoBlockChannels: "",
 
     xa.register({
       id: "player-dashboard-button",
-      name: "YourTube Button on the Player",
-      summary: "YourTube launcher button in the player bar.",
+      name: "Player Launcher Button",
+      summary: "Adds a YourTube dashboard button to the player bar.",
+      cat: "playback",
       masterKey: "playerDashButtonOn",
       keys: ["playerDashButtonOn"],
       apply(e) {
@@ -15504,7 +16083,8 @@ algoBlockChannels: "",
     xa.register({
       id: "stop-button",
       name: "Stop Button",
-      summary: "Adds a player Stop button that halts and unloads the video.",
+      summary: "Player-bar stop: halts playback and releases the stream buffer.",
+      cat: "playback",
       masterKey: "stopButtonOn",
       keys: ["stopButtonOn"],
       apply(e) {
@@ -15559,8 +16139,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "hero-artwork-heal",
-      name: "Fix Broken Channel Hero",
-      summary: "Restores the featured-video artwork on channel pages when YouTube's inline preview fails to bind.",
+      name: "Channel Hero Fix",
+      summary: "Re-binds featured-video artwork on channel pages when YouTube's preview fails.",
+      cat: "appearance",
       masterKey: "heroHealOn",
       keys: ["heroHealOn"],
       apply(ctx) {
@@ -15663,8 +16244,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "disable-video-previews",
-      name: "No Preview on Hover",
-      summary: "Stops videos previewing when you hover thumbnails.",
+      name: "Disable Hover Previews",
+      summary: "Blocks thumbnail hover autoplay.",
+      cat: "feed",
       masterKey: "disableVideoPreviewsOn",
       keys: ["disableVideoPreviewsOn"],
       apply(e) {
@@ -15681,15 +16263,17 @@ algoBlockChannels: "",
     
     Ha(
       "always-progress-bar",
-      "Always-Visible Progress Bar",
-      "Keeps the bottom seekbar and progress line permanently visible even when player controls fade.",
+      "Persistent Seek Bar",
+      "Keeps the seek bar and progress line visible when controls fade.",
       "alwaysShowProgressBar",
       ".ytp-autohide .ytp-chrome-bottom{opacity:1!important;visibility:visible!important;pointer-events:auto!important;bottom:0!important;padding-bottom:0!important;margin-bottom:0!important}.ytp-autohide .ytp-chrome-controls{opacity:0!important;visibility:hidden!important;pointer-events:none!important;height:0!important;min-height:0!important;padding:0!important;margin:0!important;overflow:hidden!important;position:absolute!important}.ytp-autohide .ytp-progress-bar-container{opacity:1!important;visibility:visible!important;bottom:0!important}",
+    "playback"
     ),
     xa.register({
       id: "redirect-shorts",
-      name: "Redirect Shorts to Player",
-      summary: "Opens Shorts in the normal player.",
+      name: "Shorts → Player",
+      summary: "Opens Shorts URLs in the standard player.",
+      cat: "playback",
       masterKey: "redirectShortsOn",
       keys: ["redirectShortsOn"],
       apply(e) {
@@ -15708,8 +16292,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "auto-expand-desc",
-      name: "Auto-Expand Description",
-      summary: "Expands the description automatically.",
+      name: "Expand Description",
+      summary: "Expands the video description on watch pages.",
+      cat: "playback",
       masterKey: "autoExpandDescOn",
       keys: ["autoExpandDescOn"],
       apply(e) {
@@ -15734,7 +16319,8 @@ algoBlockChannels: "",
     xa.register({
       id: "disable-autoplay",
       name: "Disable Autoplay",
-      summary: "Stops autoplay to the next video.",
+      summary: "Blocks automatic playback of the next video.",
+      cat: "playback",
       masterKey: "disableAutoplayOn",
       keys: ["disableAutoplayOn"],
       apply(e) {
@@ -16081,7 +16667,8 @@ algoBlockChannels: "",
   (xa.register({
     id: "auto-pause",
     name: "Auto Pause",
-    summary: "Pauses when you leave the tab, resumes on return.",
+    summary: "Pauses on tab hide or window blur; configurable masking.",
+      cat: "playback",
     masterKey: "autoPauseMode",
     keys: ["autoPauseMode", "autoPauseHiddenOn", "autoPauseBlurOn"],
     isOn: () => S.autoPauseMode && "off" !== S.autoPauseMode,
@@ -16115,8 +16702,9 @@ algoBlockChannels: "",
   }),
     xa.register({
       id: "auto-resume-autopaused",
-      name: "Auto Resume Auto-Paused",
-      summary: "Resumes when you come back to the tab.",
+      name: "Auto Resume",
+      summary: "Resumes playback that was paused by tab visibility.",
+      cat: "playback",
       masterKey: "autoResumeAutoPausedOn",
       keys: ["autoResumeAutoPausedOn"],
       apply(e) {
@@ -16137,8 +16725,9 @@ algoBlockChannels: "",
     (0),
     xa.register({
       id: "top-progress-bar",
-      name: "Top Playback Progress Bar",
-      summary: "Thin progress bar pinned to the top of the window.",
+      name: "Top Progress Bar",
+      summary: "Thin progress strip pinned to the viewport top during playback.",
+      cat: "playback",
       masterKey: "topProgressBarOn",
       keys: ["topProgressBarOn"],
       apply(e) {
@@ -16187,8 +16776,9 @@ algoBlockChannels: "",
     
     xa.register({
       id: "copy-timestamp-button",
-      name: "Copy Timestamp Button",
-      summary: "Copy a link to the exact moment you are on.",
+      name: "Copy Timestamp Link",
+      summary: "Player button: copies a link to the current playhead position.",
+      cat: "playback",
       masterKey: "copyTimestampButtonOn",
       keys: ["copyTimestampButtonOn"],
       apply(e) {
@@ -16213,8 +16803,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "copy-video-info-button",
-      name: "Copy Video Info Button",
-      summary: "Copy title, channel, and a clean link with one click.",
+      name: "Copy Video Info",
+      summary: "Player button: copies title, channel and canonical link.",
+      cat: "playback",
       masterKey: "copyVideoInfoButtonOn",
       keys: ["copyVideoInfoButtonOn"],
       apply(e) {
@@ -16240,8 +16831,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "open-transcript-button",
-      name: "Open Transcript Button",
-      summary: "One-click button to open the transcript.",
+      name: "Transcript Shortcut",
+      summary: "Player button that opens the transcript panel directly.",
+      cat: "playback",
       masterKey: "openTranscriptButtonOn",
       keys: ["openTranscriptButtonOn"],
       apply(e) {
@@ -16274,7 +16866,8 @@ algoBlockChannels: "",
     xa.register({
       id: "video-notes",
       name: "Video Notes",
-      summary: "Private notes per video, stored locally.",
+      summary: "Local per-video notes.",
+      cat: "data",
       masterKey: "videoNotesOn",
       keys: ["videoNotesOn"],
       apply(e) {
@@ -16294,7 +16887,8 @@ algoBlockChannels: "",
     xa.register({
       id: "channel-notes",
       name: "Channel Notes",
-      summary: "Private notes per channel, shown on their page.",
+      summary: "Local per-channel notes shown on their pages.",
+      cat: "channels",
       masterKey: "channelNotesOn",
       keys: ["channelNotesOn"],
       apply(e) {
@@ -16314,7 +16908,8 @@ algoBlockChannels: "",
     xa.register({
       id: "chapter-hotkeys",
       name: "Chapter Hotkeys",
-      summary: "Jump chapters with the - and = keys.",
+      summary: "Jump chapters with - and =.",
+      cat: "playback",
       masterKey: "chapterHotkeysOn",
       keys: ["chapterHotkeysOn"],
       apply() {},
@@ -16323,7 +16918,8 @@ algoBlockChannels: "",
     xa.register({
       id: "chapter-buttons",
       name: "Chapter Buttons",
-      summary: "Previous/next chapter buttons in the player.",
+      summary: "Previous/next chapter controls in the player bar.",
+      cat: "playback",
       masterKey: "chapterButtonsOn",
       keys: ["chapterButtonsOn"],
       apply(e) {
@@ -16350,8 +16946,9 @@ algoBlockChannels: "",
     
     xa.register({
       id: "number-search-results",
-      name: "Number Feed Results",
-      summary: "Numbers the videos in search results and grids.",
+      name: "Number Results",
+      summary: "Indexes feed and search cards for quick reference.",
+      cat: "feed",
       masterKey: "numberSearchResultsOn",
       keys: ["numberSearchResultsOn"],
       apply(e) {
@@ -16363,8 +16960,9 @@ algoBlockChannels: "",
     }),
     xa.register({
       id: "dense-video-grid",
-      name: "Dense Video Grid",
-      summary: "Fits more thumbnails per row on big screens.",
+      name: "Dense Grid",
+      summary: "More thumbnails per row on wide viewports.",
+      cat: "appearance",
       masterKey: "denseVideoGridOn",
       keys: ["denseVideoGridOn"],
       apply(e) {
@@ -16397,8 +16995,9 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "highlight-video-length",
-      name: "Highlight Videos by Length",
-      summary: "Color-codes badges by video length.",
+      name: "Length Highlights",
+      summary: "Color-codes duration badges for long/short videos.",
+      cat: "feed",
       masterKey: "highlightVideoLengthMode",
       keys: [
         "highlightVideoLengthMode",
@@ -16447,8 +17046,9 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "hide-live-content",
-      name: "Hide Live Content",
-      summary: "Hides live streams from feeds and search.",
+      name: "Hide Live Streams",
+      summary: "Removes live/upcoming cards from feeds and search.",
+      cat: "feed",
       masterKey: "hideLiveContentOn",
       keys: ["hideLiveContentOn"],
       apply(e) {
@@ -16459,7 +17059,8 @@ ytd-video-renderer{margin:2px 0!important}
     xa.register({
       id: "hide-premieres",
       name: "Hide Premieres",
-      summary: "Hides upcoming premiere cards.",
+      summary: "Removes scheduled premiere cards from feeds.",
+      cat: "feed",
       masterKey: "hidePremieresOn",
       keys: ["hidePremieresOn"],
       apply(e) {
@@ -16469,8 +17070,9 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "playlist-autoscroll",
-      name: "Playlist Autoscroll Current",
-      summary: "Keeps the playing video centered in the playlist.",
+      name: "Playlist Autoscroll",
+      summary: "Keeps the playing entry visible in the playlist panel.",
+      cat: "playback",
       masterKey: "playlistAutoscrollOn",
       keys: ["playlistAutoscrollOn"],
       apply(e) {
@@ -16488,7 +17090,8 @@ ytd-video-renderer{margin:2px 0!important}
     xa.register({
       id: "compact-playlist",
       name: "Compact Playlist",
-      summary: "Fits more items in the playlist drawer.",
+      summary: "Denser rows in the playlist drawer.",
+      cat: "playback",
       masterKey: "compactPlaylistOn",
       keys: ["compactPlaylistOn"],
       apply(e) {
@@ -16501,8 +17104,9 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "shorts-auto-mute",
-      name: "Shorts Auto Mute",
-      summary: "Shorts always start muted.",
+      name: "Shorts Auto-Mute",
+      summary: "Shorts start muted until unmuted.",
+      cat: "audio",
       masterKey: "shortsAutoMuteOn",
       keys: ["shortsAutoMuteOn"],
       apply(e) {
@@ -16531,8 +17135,9 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "feed-watched",
-      name: "Feed Watched Dim / Hide",
-      summary: "Dims or hides videos you have already watched in feeds.",
+      name: "Watched Feed Treatment",
+      summary: "Dims or hides cards you've already watched.",
+      cat: "feed",
       masterKey: "feedWatchedMode",
       keys: ["feedWatchedMode", "feedDimWatchedOn", "feedHideWatchedOn"],
       isOn: () => !!S.feedWatchedMode && "off" !== S.feedWatchedMode,
@@ -16553,8 +17158,9 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "shorts-hide-comments",
-      name: "Shorts Hide Comments Panel",
+      name: "Hide Shorts Comments",
       summary: "Removes the comments drawer on Shorts.",
+      cat: "comments",
       masterKey: "shortsHideCommentsOn",
       keys: ["shortsHideCommentsOn"],
       apply(e) {
@@ -16568,7 +17174,8 @@ ytd-video-renderer{margin:2px 0!important}
     xa.register({
       id: "collapse-long-comments",
       name: "Collapse Long Comments",
-      summary: "Collapses very long comments behind an Expand button.",
+      summary: "Clamps comments past a character limit behind an expand control.",
+      cat: "comments",
       masterKey: "collapseLongCommentsOn",
       keys: ["collapseLongCommentsOn", "collapseLongCommentChars"],
       apply(e) {
@@ -16617,8 +17224,9 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "highlight-creator-comments",
-      name: "Highlight Creator Comments",
-      summary: "Highlights replies from the video's creator.",
+      name: "Creator Highlight",
+      summary: "Highlights replies authored by the video's channel.",
+      cat: "comments",
       masterKey: "highlightCreatorCommentsOn",
       keys: ["highlightCreatorCommentsOn"],
       apply(e) {
@@ -16631,8 +17239,9 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "highlight-timestamp-links",
-      name: "Highlight Timestamp Links",
-      summary: "Makes timestamp links stand out.",
+      name: "Timestamp Highlight",
+      summary: "Makes timestamp links in comments stand out.",
+      cat: "comments",
       masterKey: "highlightTimestampLinksOn",
       keys: ["highlightTimestampLinksOn"],
       apply(e) {
@@ -16645,8 +17254,9 @@ ytd-video-renderer{margin:2px 0!important}
     }),
     xa.register({
       id: "end-soon-warning",
-      name: "End Soon Warning",
-      summary: "Quiet notice when a video is about to end.",
+      name: "End-of-Video Warning",
+      summary: "Shows a notice N seconds before the video ends.",
+      cat: "playback",
       masterKey: "endSoonWarningOn",
       keys: ["endSoonWarningOn", "endSoonSec"],
       apply(e) {
@@ -16698,4809 +17308,219 @@ ytd-video-renderer{margin:2px 0!important}
         );
       },
     }));
-const Nr = [
-    { id: "none", name: "Default (YouTube)", mode: "auto", vars: null },
-    {
-      id: "d-charcoal",
-      name: "Charcoal",
-      mode: "dark",
-      vars: {
-        "base-background": "#1a1a1a",
-        "raised-background": "#242424",
-        "menu-background": "#2a2a2a",
-        "general-background-a": "#1a1a1a",
-        "general-background-b": "#1a1a1a",
-        "general-background-c": "#242424",
-        "text-primary": "#e8e8e8",
-        "text-secondary": "#aaa",
-        "text-disabled": "#666",
-        "badge-chip-background": "#333",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#c00",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e8e8e8",
-        "icon-inactive": "#aaa",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-midnight",
-      name: "Midnight Blue",
-      mode: "dark",
-      vars: {
-        "base-background": "#0d1117",
-        "raised-background": "#161b22",
-        "menu-background": "#1c2128",
-        "general-background-a": "#0d1117",
-        "general-background-b": "#0d1117",
-        "general-background-c": "#161b22",
-        "text-primary": "#e6edf3",
-        "text-secondary": "#8b949e",
-        "text-disabled": "#555d67",
-        "badge-chip-background": "#21262d",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#58a6ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e6edf3",
-        "icon-inactive": "#8b949e",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-amoled",
-      name: "AMOLED Black",
-      mode: "dark",
-      vars: {
-        "base-background": "#000000",
-        "raised-background": "#0a0a0a",
-        "menu-background": "#111111",
-        "general-background-a": "#000000",
-        "general-background-b": "#000000",
-        "general-background-c": "#0a0a0a",
-        "text-primary": "#e0e0e0",
-        "text-secondary": "#999",
-        "text-disabled": "#555",
-        "badge-chip-background": "#1a1a1a",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#c00",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e0e0e0",
-        "icon-inactive": "#999",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-nord",
-      name: "Nord",
-      mode: "dark",
-      vars: {
-        "base-background": "#2e3440",
-        "raised-background": "#3b4252",
-        "menu-background": "#434c5e",
-        "general-background-a": "#2e3440",
-        "general-background-b": "#2e3440",
-        "general-background-c": "#3b4252",
-        "text-primary": "#eceff4",
-        "text-secondary": "#d8dee9",
-        "text-disabled": "#7a8394",
-        "badge-chip-background": "#4c566a",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#88c0d0",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#eceff4",
-        "icon-inactive": "#d8dee9",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-dracula",
-      name: "Dracula",
-      mode: "dark",
-      vars: {
-        "base-background": "#282a36",
-        "raised-background": "#2d2f3d",
-        "menu-background": "#343746",
-        "general-background-a": "#282a36",
-        "general-background-b": "#282a36",
-        "general-background-c": "#2d2f3d",
-        "text-primary": "#f8f8f2",
-        "text-secondary": "#bfbfbf",
-        "text-disabled": "#6272a4",
-        "badge-chip-background": "#44475a",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#bd93f9",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#f8f8f2",
-        "icon-inactive": "#bfbfbf",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-solarized",
-      name: "Solarized Dark",
-      mode: "dark",
-      vars: {
-        "base-background": "#002b36",
-        "raised-background": "#073642",
-        "menu-background": "#0a3f4e",
-        "general-background-a": "#002b36",
-        "general-background-b": "#002b36",
-        "general-background-c": "#073642",
-        "text-primary": "#fdf6e3",
-        "text-secondary": "#93a1a1",
-        "text-disabled": "#586e75",
-        "badge-chip-background": "#094150",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#268bd2",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#fdf6e3",
-        "icon-inactive": "#93a1a1",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-monokai",
-      name: "Monokai",
-      mode: "dark",
-      vars: {
-        "base-background": "#272822",
-        "raised-background": "#2e2f28",
-        "menu-background": "#3e3d32",
-        "general-background-a": "#272822",
-        "general-background-b": "#272822",
-        "general-background-c": "#2e2f28",
-        "text-primary": "#f8f8f2",
-        "text-secondary": "#c0c0b0",
-        "text-disabled": "#75715e",
-        "badge-chip-background": "#49483e",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#a6e22e",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#f8f8f2",
-        "icon-inactive": "#c0c0b0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-catppuccin",
-      name: "Catppuccin Mocha",
-      mode: "dark",
-      vars: {
-        "base-background": "#1e1e2e",
-        "raised-background": "#24243b",
-        "menu-background": "#2a2a45",
-        "general-background-a": "#1e1e2e",
-        "general-background-b": "#1e1e2e",
-        "general-background-c": "#24243b",
-        "text-primary": "#cdd6f4",
-        "text-secondary": "#a6adc8",
-        "text-disabled": "#6c7086",
-        "badge-chip-background": "#313244",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#cba6f7",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#cdd6f4",
-        "icon-inactive": "#a6adc8",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-deep-ocean",
-      name: "Deep Ocean",
-      mode: "dark",
-      vars: {
-        "base-background": "#0b1622",
-        "raised-background": "#111d2e",
-        "menu-background": "#152238",
-        "general-background-a": "#0b1622",
-        "general-background-b": "#0b1622",
-        "general-background-c": "#111d2e",
-        "text-primary": "#dde4ee",
-        "text-secondary": "#8899aa",
-        "text-disabled": "#506070",
-        "badge-chip-background": "#1a2c42",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#4fc3f7",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#dde4ee",
-        "icon-inactive": "#8899aa",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-forest",
-      name: "Forest Night",
-      mode: "dark",
-      vars: {
-        "base-background": "#1a2316",
-        "raised-background": "#222e1c",
-        "menu-background": "#2a3822",
-        "general-background-a": "#1a2316",
-        "general-background-b": "#1a2316",
-        "general-background-c": "#222e1c",
-        "text-primary": "#dce5d5",
-        "text-secondary": "#a0b090",
-        "text-disabled": "#607050",
-        "badge-chip-background": "#334428",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#66bb6a",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#dce5d5",
-        "icon-inactive": "#a0b090",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-ember",
-      name: "Ember",
-      mode: "dark",
-      vars: {
-        "base-background": "#1c1210",
-        "raised-background": "#271916",
-        "menu-background": "#30201c",
-        "general-background-a": "#1c1210",
-        "general-background-b": "#1c1210",
-        "general-background-c": "#271916",
-        "text-primary": "#eeddd6",
-        "text-secondary": "#bba090",
-        "text-disabled": "#776058",
-        "badge-chip-background": "#3a2824",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#ef5350",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#eeddd6",
-        "icon-inactive": "#bba090",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-amethyst",
-      name: "Amethyst",
-      mode: "dark",
-      vars: {
-        "base-background": "#1a1424",
-        "raised-background": "#221a30",
-        "menu-background": "#2a203a",
-        "general-background-a": "#1a1424",
-        "general-background-b": "#1a1424",
-        "general-background-c": "#221a30",
-        "text-primary": "#e0d8ee",
-        "text-secondary": "#a898c0",
-        "text-disabled": "#6a5888",
-        "badge-chip-background": "#352a48",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#b388ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e0d8ee",
-        "icon-inactive": "#a898c0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-slate",
-      name: "Warm Slate",
-      mode: "dark",
-      vars: {
-        "base-background": "#1e1e1e",
-        "raised-background": "#282828",
-        "menu-background": "#303030",
-        "general-background-a": "#1e1e1e",
-        "general-background-b": "#1e1e1e",
-        "general-background-c": "#282828",
-        "text-primary": "#d4d4d4",
-        "text-secondary": "#a0a0a0",
-        "text-disabled": "#606060",
-        "badge-chip-background": "#3a3a3a",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#ff7043",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d4d4d4",
-        "icon-inactive": "#a0a0a0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-tokyo",
-      name: "Tokyo Night",
-      mode: "dark",
-      vars: {
-        "base-background": "#1a1b26",
-        "raised-background": "#1f2030",
-        "menu-background": "#24253a",
-        "general-background-a": "#1a1b26",
-        "general-background-b": "#1a1b26",
-        "general-background-c": "#1f2030",
-        "text-primary": "#c0caf5",
-        "text-secondary": "#9aa5ce",
-        "text-disabled": "#565f89",
-        "badge-chip-background": "#292a3e",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#7aa2f7",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#c0caf5",
-        "icon-inactive": "#9aa5ce",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-rosepine",
-      name: "Rose Pine",
-      mode: "dark",
-      vars: {
-        "base-background": "#191724",
-        "raised-background": "#1f1d2e",
-        "menu-background": "#26233a",
-        "general-background-a": "#191724",
-        "general-background-b": "#191724",
-        "general-background-c": "#1f1d2e",
-        "text-primary": "#e0def4",
-        "text-secondary": "#908caa",
-        "text-disabled": "#6e6a86",
-        "badge-chip-background": "#2a2740",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#eb6f92",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e0def4",
-        "icon-inactive": "#908caa",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-onedark",
-      name: "One Dark",
-      mode: "dark",
-      vars: {
-        "base-background": "#282c34",
-        "raised-background": "#21252b",
-        "menu-background": "#3a3f4b",
-        "general-background-a": "#282c34",
-        "general-background-b": "#282c34",
-        "general-background-c": "#21252b",
-        "text-primary": "#abb2bf",
-        "text-secondary": "#9099a8",
-        "text-disabled": "#5c6370",
-        "badge-chip-background": "#3e4451",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#61afef",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#abb2bf",
-        "icon-inactive": "#9099a8",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-ayu-mirage",
-      name: "Ayu Mirage",
-      mode: "dark",
-      vars: {
-        "base-background": "#1f2430",
-        "raised-background": "#171b24",
-        "menu-background": "#272d38",
-        "general-background-a": "#1f2430",
-        "general-background-b": "#1f2430",
-        "general-background-c": "#171b24",
-        "text-primary": "#cbccc6",
-        "text-secondary": "#8a9199",
-        "text-disabled": "#5c6773",
-        "badge-chip-background": "#33415e",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#ffcc66",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#cbccc6",
-        "icon-inactive": "#8a9199",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-ayu-dark",
-      name: "Ayu Dark",
-      mode: "dark",
-      vars: {
-        "base-background": "#0a0e14",
-        "raised-background": "#0d1015",
-        "menu-background": "#11151c",
-        "general-background-a": "#0a0e14",
-        "general-background-b": "#0a0e14",
-        "general-background-c": "#0d1015",
-        "text-primary": "#b3b1ad",
-        "text-secondary": "#828891",
-        "text-disabled": "#3e4b59",
-        "badge-chip-background": "#1f242e",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#39bae6",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#b3b1ad",
-        "icon-inactive": "#828891",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-gruvbox",
-      name: "Gruvbox Dark",
-      mode: "dark",
-      vars: {
-        "base-background": "#282828",
-        "raised-background": "#32302f",
-        "menu-background": "#3c3836",
-        "general-background-a": "#282828",
-        "general-background-b": "#282828",
-        "general-background-c": "#32302f",
-        "text-primary": "#ebdbb2",
-        "text-secondary": "#a89984",
-        "text-disabled": "#7c6f64",
-        "badge-chip-background": "#504945",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#fe8019",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#ebdbb2",
-        "icon-inactive": "#a89984",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-gruvbox-soft",
-      name: "Gruvbox Soft",
-      mode: "dark",
-      vars: {
-        "base-background": "#32302f",
-        "raised-background": "#3c3836",
-        "menu-background": "#504945",
-        "general-background-a": "#32302f",
-        "general-background-b": "#32302f",
-        "general-background-c": "#3c3836",
-        "text-primary": "#ddc7a1",
-        "text-secondary": "#a89984",
-        "text-disabled": "#665c54",
-        "badge-chip-background": "#665c54",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#d8a657",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#ddc7a1",
-        "icon-inactive": "#a89984",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-zenburn",
-      name: "YourTubeDark",
-      mode: "dark",
-      vars: {
-        "base-background": "#3f3f3f",
-        "raised-background": "#4a4a4a",
-        "menu-background": "#525252",
-        "general-background-a": "#3f3f3f",
-        "general-background-b": "#3f3f3f",
-        "general-background-c": "#4a4a4a",
-        "text-primary": "#dcdccc",
-        "text-secondary": "#a0a0a0",
-        "text-disabled": "#777767",
-        "badge-chip-background": "#5b5b5b",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#dca3a3",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#dcdccc",
-        "icon-inactive": "#a0a0a0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-night-owl",
-      name: "Night Owl",
-      mode: "dark",
-      vars: {
-        "base-background": "#011627",
-        "raised-background": "#01111d",
-        "menu-background": "#0b2942",
-        "general-background-a": "#011627",
-        "general-background-b": "#011627",
-        "general-background-c": "#01111d",
-        "text-primary": "#d6deeb",
-        "text-secondary": "#8badc1",
-        "text-disabled": "#637777",
-        "badge-chip-background": "#1d3b53",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#82aaff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d6deeb",
-        "icon-inactive": "#8badc1",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-palenight",
-      name: "Palenight",
-      mode: "dark",
-      vars: {
-        "base-background": "#292d3e",
-        "raised-background": "#252836",
-        "menu-background": "#34384a",
-        "general-background-a": "#292d3e",
-        "general-background-b": "#292d3e",
-        "general-background-c": "#252836",
-        "text-primary": "#a6accd",
-        "text-secondary": "#8796b0",
-        "text-disabled": "#676e95",
-        "badge-chip-background": "#3a3f58",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#c792ea",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#a6accd",
-        "icon-inactive": "#8796b0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-shades-of-purple",
-      name: "Shades of Purple",
-      mode: "dark",
-      vars: {
-        "base-background": "#2d2b55",
-        "raised-background": "#1e1e3f",
-        "menu-background": "#3c3676",
-        "general-background-a": "#2d2b55",
-        "general-background-b": "#2d2b55",
-        "general-background-c": "#1e1e3f",
-        "text-primary": "#fad000",
-        "text-secondary": "#a599e9",
-        "text-disabled": "#7068a2",
-        "badge-chip-background": "#3e3a82",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#fa48d8",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#fad000",
-        "icon-inactive": "#a599e9",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-cobalt2",
-      name: "Cobalt2",
-      mode: "dark",
-      vars: {
-        "base-background": "#193549",
-        "raised-background": "#0d2438",
-        "menu-background": "#1f5479",
-        "general-background-a": "#193549",
-        "general-background-b": "#193549",
-        "general-background-c": "#0d2438",
-        "text-primary": "#ffffff",
-        "text-secondary": "#7eb4e3",
-        "text-disabled": "#0088ff",
-        "badge-chip-background": "#234e6b",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#ff9d00",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#ffffff",
-        "icon-inactive": "#7eb4e3",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-material-darker",
-      name: "Material Darker",
-      mode: "dark",
-      vars: {
-        "base-background": "#212121",
-        "raised-background": "#1a1a1a",
-        "menu-background": "#2a2a2a",
-        "general-background-a": "#212121",
-        "general-background-b": "#212121",
-        "general-background-c": "#1a1a1a",
-        "text-primary": "#eeffff",
-        "text-secondary": "#9aa1ab",
-        "text-disabled": "#545454",
-        "badge-chip-background": "#404040",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#80cbc4",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#eeffff",
-        "icon-inactive": "#9aa1ab",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-material-deep-ocean",
-      name: "Material Deep Ocean",
-      mode: "dark",
-      vars: {
-        "base-background": "#0f111a",
-        "raised-background": "#090b10",
-        "menu-background": "#1a1c25",
-        "general-background-a": "#0f111a",
-        "general-background-b": "#0f111a",
-        "general-background-c": "#090b10",
-        "text-primary": "#a6accd",
-        "text-secondary": "#717cb4",
-        "text-disabled": "#464b5d",
-        "badge-chip-background": "#252738",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#84ffff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#a6accd",
-        "icon-inactive": "#717cb4",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-material-oceanic",
-      name: "Material Oceanic",
-      mode: "dark",
-      vars: {
-        "base-background": "#263238",
-        "raised-background": "#1e272c",
-        "menu-background": "#314549",
-        "general-background-a": "#263238",
-        "general-background-b": "#263238",
-        "general-background-c": "#1e272c",
-        "text-primary": "#b0bec5",
-        "text-secondary": "#7f9eaf",
-        "text-disabled": "#546e7a",
-        "badge-chip-background": "#37474f",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#80cbc4",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#b0bec5",
-        "icon-inactive": "#7f9eaf",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-material-palenight",
-      name: "Material Palenight",
-      mode: "dark",
-      vars: {
-        "base-background": "#292d3e",
-        "raised-background": "#202331",
-        "menu-background": "#34394e",
-        "general-background-a": "#292d3e",
-        "general-background-b": "#292d3e",
-        "general-background-c": "#202331",
-        "text-primary": "#a6accd",
-        "text-secondary": "#717cb4",
-        "text-disabled": "#676e95",
-        "badge-chip-background": "#3a3f58",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#c792ea",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#a6accd",
-        "icon-inactive": "#717cb4",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-spacegray",
-      name: "Spacegray",
-      mode: "dark",
-      vars: {
-        "base-background": "#2b303b",
-        "raised-background": "#272b35",
-        "menu-background": "#343d46",
-        "general-background-a": "#2b303b",
-        "general-background-b": "#2b303b",
-        "general-background-c": "#272b35",
-        "text-primary": "#c0c5ce",
-        "text-secondary": "#a7adba",
-        "text-disabled": "#65737e",
-        "badge-chip-background": "#3e4554",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#bf616a",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#c0c5ce",
-        "icon-inactive": "#a7adba",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-base16-default",
-      name: "Base16 Default",
-      mode: "dark",
-      vars: {
-        "base-background": "#181818",
-        "raised-background": "#282828",
-        "menu-background": "#383838",
-        "general-background-a": "#181818",
-        "general-background-b": "#181818",
-        "general-background-c": "#282828",
-        "text-primary": "#d8d8d8",
-        "text-secondary": "#b8b8b8",
-        "text-disabled": "#585858",
-        "badge-chip-background": "#383838",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#7cafc2",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d8d8d8",
-        "icon-inactive": "#b8b8b8",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-iceberg",
-      name: "Iceberg",
-      mode: "dark",
-      vars: {
-        "base-background": "#161821",
-        "raised-background": "#0f1117",
-        "menu-background": "#1e2132",
-        "general-background-a": "#161821",
-        "general-background-b": "#161821",
-        "general-background-c": "#0f1117",
-        "text-primary": "#c6c8d1",
-        "text-secondary": "#84a0c6",
-        "text-disabled": "#6b7089",
-        "badge-chip-background": "#272c42",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#84a0c6",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#c6c8d1",
-        "icon-inactive": "#84a0c6",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-hyper",
-      name: "Hyper",
-      mode: "dark",
-      vars: {
-        "base-background": "#000000",
-        "raised-background": "#1a1a1a",
-        "menu-background": "#242424",
-        "general-background-a": "#000000",
-        "general-background-b": "#000000",
-        "general-background-c": "#1a1a1a",
-        "text-primary": "#ffffff",
-        "text-secondary": "#a0a0a0",
-        "text-disabled": "#606060",
-        "badge-chip-background": "#2a2a2a",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#fe0095",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#ffffff",
-        "icon-inactive": "#a0a0a0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-firefly",
-      name: "Firefly",
-      mode: "dark",
-      vars: {
-        "base-background": "#161A1F",
-        "raised-background": "#1c2027",
-        "menu-background": "#252a31",
-        "general-background-a": "#161A1F",
-        "general-background-b": "#161A1F",
-        "general-background-c": "#1c2027",
-        "text-primary": "#d7d7d7",
-        "text-secondary": "#888c93",
-        "text-disabled": "#5c6066",
-        "badge-chip-background": "#2c3038",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#ffaa00",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d7d7d7",
-        "icon-inactive": "#888c93",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-bluloco",
-      name: "Bluloco Dark",
-      mode: "dark",
-      vars: {
-        "base-background": "#282c34",
-        "raised-background": "#21252b",
-        "menu-background": "#3a3f4b",
-        "general-background-a": "#282c34",
-        "general-background-b": "#282c34",
-        "general-background-c": "#21252b",
-        "text-primary": "#abb2bf",
-        "text-secondary": "#7a829b",
-        "text-disabled": "#5c6370",
-        "badge-chip-background": "#3e4451",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#10b1fe",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#abb2bf",
-        "icon-inactive": "#7a829b",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-blueberry",
-      name: "Blueberry",
-      mode: "dark",
-      vars: {
-        "base-background": "#100d23",
-        "raised-background": "#0a0820",
-        "menu-background": "#170f3d",
-        "general-background-a": "#100d23",
-        "general-background-b": "#100d23",
-        "general-background-c": "#0a0820",
-        "text-primary": "#caf0f8",
-        "text-secondary": "#8ccff8",
-        "text-disabled": "#5c6f9c",
-        "badge-chip-background": "#28265a",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#ff66c4",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#caf0f8",
-        "icon-inactive": "#8ccff8",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-blackmore",
-      name: "Blackmore",
-      mode: "dark",
-      vars: {
-        "base-background": "#181818",
-        "raised-background": "#0d0d0d",
-        "menu-background": "#222222",
-        "general-background-a": "#181818",
-        "general-background-b": "#181818",
-        "general-background-c": "#0d0d0d",
-        "text-primary": "#d0d0d0",
-        "text-secondary": "#909090",
-        "text-disabled": "#606060",
-        "badge-chip-background": "#2a2a2a",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#7e57c2",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d0d0d0",
-        "icon-inactive": "#909090",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-vscode",
-      name: "VS Code Dark+",
-      mode: "dark",
-      vars: {
-        "base-background": "#1e1e1e",
-        "raised-background": "#252526",
-        "menu-background": "#2d2d30",
-        "general-background-a": "#1e1e1e",
-        "general-background-b": "#1e1e1e",
-        "general-background-c": "#252526",
-        "text-primary": "#cccccc",
-        "text-secondary": "#a0a0a0",
-        "text-disabled": "#6a6a6a",
-        "badge-chip-background": "#3c3c3c",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#0098ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#cccccc",
-        "icon-inactive": "#a0a0a0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-github-dark",
-      name: "GitHub Dark",
-      mode: "dark",
-      vars: {
-        "base-background": "#0d1117",
-        "raised-background": "#161b22",
-        "menu-background": "#21262d",
-        "general-background-a": "#0d1117",
-        "general-background-b": "#0d1117",
-        "general-background-c": "#161b22",
-        "text-primary": "#c9d1d9",
-        "text-secondary": "#8b949e",
-        "text-disabled": "#6e7681",
-        "badge-chip-background": "#30363d",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#58a6ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#c9d1d9",
-        "icon-inactive": "#8b949e",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-github-dimmed",
-      name: "GitHub Dimmed",
-      mode: "dark",
-      vars: {
-        "base-background": "#22272e",
-        "raised-background": "#2d333b",
-        "menu-background": "#373e47",
-        "general-background-a": "#22272e",
-        "general-background-b": "#22272e",
-        "general-background-c": "#2d333b",
-        "text-primary": "#adbac7",
-        "text-secondary": "#768390",
-        "text-disabled": "#545d68",
-        "badge-chip-background": "#444c56",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#539bf5",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#adbac7",
-        "icon-inactive": "#768390",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-discord",
-      name: "Discord",
-      mode: "dark",
-      vars: {
-        "base-background": "#36393f",
-        "raised-background": "#2f3136",
-        "menu-background": "#202225",
-        "general-background-a": "#36393f",
-        "general-background-b": "#36393f",
-        "general-background-c": "#2f3136",
-        "text-primary": "#dcddde",
-        "text-secondary": "#b9bbbe",
-        "text-disabled": "#72767d",
-        "badge-chip-background": "#40444b",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#5865f2",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#dcddde",
-        "icon-inactive": "#b9bbbe",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-twitter-dim",
-      name: "Twitter Dim",
-      mode: "dark",
-      vars: {
-        "base-background": "#15202b",
-        "raised-background": "#192734",
-        "menu-background": "#22303c",
-        "general-background-a": "#15202b",
-        "general-background-b": "#15202b",
-        "general-background-c": "#192734",
-        "text-primary": "#ffffff",
-        "text-secondary": "#8899a6",
-        "text-disabled": "#5b7083",
-        "badge-chip-background": "#283340",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#1da1f2",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#ffffff",
-        "icon-inactive": "#8899a6",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-twitter-lights-out",
-      name: "Twitter Lights Out",
-      mode: "dark",
-      vars: {
-        "base-background": "#000000",
-        "raised-background": "#16181c",
-        "menu-background": "#1d1f23",
-        "general-background-a": "#000000",
-        "general-background-b": "#000000",
-        "general-background-c": "#16181c",
-        "text-primary": "#e7e9ea",
-        "text-secondary": "#71767b",
-        "text-disabled": "#5b7083",
-        "badge-chip-background": "#2f3336",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#1d9bf0",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e7e9ea",
-        "icon-inactive": "#71767b",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-spotify",
-      name: "Spotify",
-      mode: "dark",
-      vars: {
-        "base-background": "#121212",
-        "raised-background": "#181818",
-        "menu-background": "#282828",
-        "general-background-a": "#121212",
-        "general-background-b": "#121212",
-        "general-background-c": "#181818",
-        "text-primary": "#ffffff",
-        "text-secondary": "#b3b3b3",
-        "text-disabled": "#727272",
-        "badge-chip-background": "#404040",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#1db954",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#ffffff",
-        "icon-inactive": "#b3b3b3",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-twitch",
-      name: "Twitch",
-      mode: "dark",
-      vars: {
-        "base-background": "#0e0e10",
-        "raised-background": "#18181b",
-        "menu-background": "#1f1f23",
-        "general-background-a": "#0e0e10",
-        "general-background-b": "#0e0e10",
-        "general-background-c": "#18181b",
-        "text-primary": "#efeff1",
-        "text-secondary": "#adadb8",
-        "text-disabled": "#53535f",
-        "badge-chip-background": "#26262c",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#9147ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#efeff1",
-        "icon-inactive": "#adadb8",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-reddit",
-      name: "Reddit Dark",
-      mode: "dark",
-      vars: {
-        "base-background": "#1a1a1b",
-        "raised-background": "#272729",
-        "menu-background": "#343536",
-        "general-background-a": "#1a1a1b",
-        "general-background-b": "#1a1a1b",
-        "general-background-c": "#272729",
-        "text-primary": "#d7dadc",
-        "text-secondary": "#a8aaab",
-        "text-disabled": "#818384",
-        "badge-chip-background": "#3a3a3c",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#ff4500",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d7dadc",
-        "icon-inactive": "#a8aaab",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-stackoverflow",
-      name: "Stack Overflow Dark",
-      mode: "dark",
-      vars: {
-        "base-background": "#0c0d0e",
-        "raised-background": "#1c2024",
-        "menu-background": "#272a32",
-        "general-background-a": "#0c0d0e",
-        "general-background-b": "#0c0d0e",
-        "general-background-c": "#1c2024",
-        "text-primary": "#bcbbbb",
-        "text-secondary": "#9199a1",
-        "text-disabled": "#6a737c",
-        "badge-chip-background": "#393939",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#f48024",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#bcbbbb",
-        "icon-inactive": "#9199a1",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-vampire",
-      name: "Vampire",
-      mode: "dark",
-      vars: {
-        "base-background": "#1c0a1f",
-        "raised-background": "#280f2c",
-        "menu-background": "#3a163f",
-        "general-background-a": "#1c0a1f",
-        "general-background-b": "#1c0a1f",
-        "general-background-c": "#280f2c",
-        "text-primary": "#f0c4f4",
-        "text-secondary": "#c08ec6",
-        "text-disabled": "#7d5483",
-        "badge-chip-background": "#4a234f",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#ff5555",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#f0c4f4",
-        "icon-inactive": "#c08ec6",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-blood",
-      name: "Blood Red",
-      mode: "dark",
-      vars: {
-        "base-background": "#1a0a0a",
-        "raised-background": "#221010",
-        "menu-background": "#2b1414",
-        "general-background-a": "#1a0a0a",
-        "general-background-b": "#1a0a0a",
-        "general-background-c": "#221010",
-        "text-primary": "#ffe5e5",
-        "text-secondary": "#cc9999",
-        "text-disabled": "#805050",
-        "badge-chip-background": "#3a1c1c",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#dc143c",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#ffe5e5",
-        "icon-inactive": "#cc9999",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-toxic",
-      name: "Toxic Green",
-      mode: "dark",
-      vars: {
-        "base-background": "#0a1f0a",
-        "raised-background": "#102810",
-        "menu-background": "#143514",
-        "general-background-a": "#0a1f0a",
-        "general-background-b": "#0a1f0a",
-        "general-background-c": "#102810",
-        "text-primary": "#c5f7c5",
-        "text-secondary": "#80cc80",
-        "text-disabled": "#508050",
-        "badge-chip-background": "#1c4a1c",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#39ff14",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#c5f7c5",
-        "icon-inactive": "#80cc80",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-cyber",
-      name: "Cyberpunk",
-      mode: "dark",
-      vars: {
-        "base-background": "#0a0e27",
-        "raised-background": "#10153d",
-        "menu-background": "#171c52",
-        "general-background-a": "#0a0e27",
-        "general-background-b": "#0a0e27",
-        "general-background-c": "#10153d",
-        "text-primary": "#fcee0a",
-        "text-secondary": "#ff00ff",
-        "text-disabled": "#aaaaff",
-        "badge-chip-background": "#1f2570",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#00ffff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#fcee0a",
-        "icon-inactive": "#ff00ff",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-synthwave",
-      name: "Synthwave '84",
-      mode: "dark",
-      vars: {
-        "base-background": "#241b30",
-        "raised-background": "#2a2139",
-        "menu-background": "#312844",
-        "general-background-a": "#241b30",
-        "general-background-b": "#241b30",
-        "general-background-c": "#2a2139",
-        "text-primary": "#ffffff",
-        "text-secondary": "#a47acb",
-        "text-disabled": "#5d5a73",
-        "badge-chip-background": "#3b2d51",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#fe4cdf",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#ffffff",
-        "icon-inactive": "#a47acb",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-outrun",
-      name: "Outrun",
-      mode: "dark",
-      vars: {
-        "base-background": "#221b40",
-        "raised-background": "#1a1438",
-        "menu-background": "#2c2253",
-        "general-background-a": "#221b40",
-        "general-background-b": "#221b40",
-        "general-background-c": "#1a1438",
-        "text-primary": "#fff7ec",
-        "text-secondary": "#ffa724",
-        "text-disabled": "#9989b8",
-        "badge-chip-background": "#352a66",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#ff0080",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#fff7ec",
-        "icon-inactive": "#ffa724",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-vaporwave",
-      name: "Vaporwave",
-      mode: "dark",
-      vars: {
-        "base-background": "#1d152e",
-        "raised-background": "#251a37",
-        "menu-background": "#2f2244",
-        "general-background-a": "#1d152e",
-        "general-background-b": "#1d152e",
-        "general-background-c": "#251a37",
-        "text-primary": "#ffdbef",
-        "text-secondary": "#ff71ce",
-        "text-disabled": "#a583c7",
-        "badge-chip-background": "#3a2856",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#01cdfe",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#ffdbef",
-        "icon-inactive": "#ff71ce",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-matrix",
-      name: "Matrix",
-      mode: "dark",
-      vars: {
-        "base-background": "#000000",
-        "raised-background": "#001a00",
-        "menu-background": "#002800",
-        "general-background-a": "#000000",
-        "general-background-b": "#000000",
-        "general-background-c": "#001a00",
-        "text-primary": "#00ff00",
-        "text-secondary": "#00cc00",
-        "text-disabled": "#008800",
-        "badge-chip-background": "#003300",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#00ff41",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#00ff00",
-        "icon-inactive": "#00cc00",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-hacker",
-      name: "Hacker Terminal",
-      mode: "dark",
-      vars: {
-        "base-background": "#0a0e0a",
-        "raised-background": "#0d150d",
-        "menu-background": "#101e10",
-        "general-background-a": "#0a0e0a",
-        "general-background-b": "#0a0e0a",
-        "general-background-c": "#0d150d",
-        "text-primary": "#76e57b",
-        "text-secondary": "#509b54",
-        "text-disabled": "#356639",
-        "badge-chip-background": "#173a1a",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#34e848",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#76e57b",
-        "icon-inactive": "#509b54",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-noir",
-      name: "Noir",
-      mode: "dark",
-      vars: {
-        "base-background": "#0d0d0d",
-        "raised-background": "#141414",
-        "menu-background": "#1c1c1c",
-        "general-background-a": "#0d0d0d",
-        "general-background-b": "#0d0d0d",
-        "general-background-c": "#141414",
-        "text-primary": "#e0e0e0",
-        "text-secondary": "#a0a0a0",
-        "text-disabled": "#606060",
-        "badge-chip-background": "#2c2c2c",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#ffd700",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e0e0e0",
-        "icon-inactive": "#a0a0a0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-coffee",
-      name: "Coffee",
-      mode: "dark",
-      vars: {
-        "base-background": "#2c1f17",
-        "raised-background": "#3a2a1f",
-        "menu-background": "#4a382b",
-        "general-background-a": "#2c1f17",
-        "general-background-b": "#2c1f17",
-        "general-background-c": "#3a2a1f",
-        "text-primary": "#e8d8c4",
-        "text-secondary": "#b09980",
-        "text-disabled": "#7a6650",
-        "badge-chip-background": "#5a4538",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#d2691e",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e8d8c4",
-        "icon-inactive": "#b09980",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-burgundy",
-      name: "Burgundy",
-      mode: "dark",
-      vars: {
-        "base-background": "#1a0f12",
-        "raised-background": "#22151a",
-        "menu-background": "#2c1c22",
-        "general-background-a": "#1a0f12",
-        "general-background-b": "#1a0f12",
-        "general-background-c": "#22151a",
-        "text-primary": "#f0c8c8",
-        "text-secondary": "#c08080",
-        "text-disabled": "#805050",
-        "badge-chip-background": "#3a2229",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#800020",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#f0c8c8",
-        "icon-inactive": "#c08080",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-arctic",
-      name: "Arctic",
-      mode: "dark",
-      vars: {
-        "base-background": "#1c2e3f",
-        "raised-background": "#243a4f",
-        "menu-background": "#2c4660",
-        "general-background-a": "#1c2e3f",
-        "general-background-b": "#1c2e3f",
-        "general-background-c": "#243a4f",
-        "text-primary": "#e0eaf4",
-        "text-secondary": "#a0b8d0",
-        "text-disabled": "#6080a0",
-        "badge-chip-background": "#385470",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#80d0ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e0eaf4",
-        "icon-inactive": "#a0b8d0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-jungle",
-      name: "Jungle",
-      mode: "dark",
-      vars: {
-        "base-background": "#0f1a0f",
-        "raised-background": "#172417",
-        "menu-background": "#1f301f",
-        "general-background-a": "#0f1a0f",
-        "general-background-b": "#0f1a0f",
-        "general-background-c": "#172417",
-        "text-primary": "#d0e8d0",
-        "text-secondary": "#80b080",
-        "text-disabled": "#506850",
-        "badge-chip-background": "#284028",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#8bc34a",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d0e8d0",
-        "icon-inactive": "#80b080",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-mocha",
-      name: "Mocha",
-      mode: "dark",
-      vars: {
-        "base-background": "#2b1f1c",
-        "raised-background": "#372a26",
-        "menu-background": "#453530",
-        "general-background-a": "#2b1f1c",
-        "general-background-b": "#2b1f1c",
-        "general-background-c": "#372a26",
-        "text-primary": "#e8d4c4",
-        "text-secondary": "#b89888",
-        "text-disabled": "#7a5e50",
-        "badge-chip-background": "#553f36",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#a0522d",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e8d4c4",
-        "icon-inactive": "#b89888",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-blackcurrant",
-      name: "Blackcurrant",
-      mode: "dark",
-      vars: {
-        "base-background": "#1a0a1f",
-        "raised-background": "#23102a",
-        "menu-background": "#2d1638",
-        "general-background-a": "#1a0a1f",
-        "general-background-b": "#1a0a1f",
-        "general-background-c": "#23102a",
-        "text-primary": "#e8c8f0",
-        "text-secondary": "#a880b8",
-        "text-disabled": "#705080",
-        "badge-chip-background": "#3a1d48",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#9c27b0",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#e8c8f0",
-        "icon-inactive": "#a880b8",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "d-deepforest",
-      name: "Deep Forest",
-      mode: "dark",
-      vars: {
-        "base-background": "#0a1410",
-        "raised-background": "#101a14",
-        "menu-background": "#16241c",
-        "general-background-a": "#0a1410",
-        "general-background-b": "#0a1410",
-        "general-background-c": "#101a14",
-        "text-primary": "#c8e0d0",
-        "text-secondary": "#80a890",
-        "text-disabled": "#506858",
-        "badge-chip-background": "#1f342a",
-        outline: "rgba(255,255,255,.1)",
-        "call-to-action": "#388e3c",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#c8e0d0",
-        "icon-inactive": "#80a890",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        shadow: "rgba(0,0,0,.5)",
-      },
-    },
-    {
-      id: "l-clean",
-      name: "Clean White",
-      mode: "light",
-      vars: {
-        "base-background": "#ffffff",
-        "raised-background": "#f8f8f8",
-        "menu-background": "#ffffff",
-        "general-background-a": "#ffffff",
-        "general-background-b": "#ffffff",
-        "general-background-c": "#f8f8f8",
-        "text-primary": "#111111",
-        "text-secondary": "#606060",
-        "text-disabled": "#aaaaaa",
-        "badge-chip-background": "#eeeeee",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#c00",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#111111",
-        "icon-inactive": "#aaaaaa",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-warm",
-      name: "Warm Cream",
-      mode: "light",
-      vars: {
-        "base-background": "#fdf6ec",
-        "raised-background": "#f8f0e0",
-        "menu-background": "#fdf6ec",
-        "general-background-a": "#fdf6ec",
-        "general-background-b": "#fdf6ec",
-        "general-background-c": "#f8f0e0",
-        "text-primary": "#2c2416",
-        "text-secondary": "#6e5e48",
-        "text-disabled": "#b0a088",
-        "badge-chip-background": "#ede4d0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#c06030",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#2c2416",
-        "icon-inactive": "#b0a088",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-nord",
-      name: "Nord Light",
-      mode: "light",
-      vars: {
-        "base-background": "#eceff4",
-        "raised-background": "#e5e9f0",
-        "menu-background": "#eceff4",
-        "general-background-a": "#eceff4",
-        "general-background-b": "#eceff4",
-        "general-background-c": "#e5e9f0",
-        "text-primary": "#2e3440",
-        "text-secondary": "#4c566a",
-        "text-disabled": "#9aa0ac",
-        "badge-chip-background": "#d8dee9",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#5e81ac",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#2e3440",
-        "icon-inactive": "#9aa0ac",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-solarized",
-      name: "Solarized Light",
-      mode: "light",
-      vars: {
-        "base-background": "#fdf6e3",
-        "raised-background": "#eee8d5",
-        "menu-background": "#fdf6e3",
-        "general-background-a": "#fdf6e3",
-        "general-background-b": "#fdf6e3",
-        "general-background-c": "#eee8d5",
-        "text-primary": "#073642",
-        "text-secondary": "#586e75",
-        "text-disabled": "#93a1a1",
-        "badge-chip-background": "#e6dfcc",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#268bd2",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#073642",
-        "icon-inactive": "#93a1a1",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-catppuccin",
-      name: "Catppuccin Latte",
-      mode: "light",
-      vars: {
-        "base-background": "#eff1f5",
-        "raised-background": "#e6e9ef",
-        "menu-background": "#eff1f5",
-        "general-background-a": "#eff1f5",
-        "general-background-b": "#eff1f5",
-        "general-background-c": "#e6e9ef",
-        "text-primary": "#4c4f69",
-        "text-secondary": "#6c6f85",
-        "text-disabled": "#9ca0b0",
-        "badge-chip-background": "#dce0e8",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#8839ef",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#4c4f69",
-        "icon-inactive": "#9ca0b0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-sky",
-      name: "Sky Blue",
-      mode: "light",
-      vars: {
-        "base-background": "#f0f6ff",
-        "raised-background": "#e6eef8",
-        "menu-background": "#f0f6ff",
-        "general-background-a": "#f0f6ff",
-        "general-background-b": "#f0f6ff",
-        "general-background-c": "#e6eef8",
-        "text-primary": "#1a2a40",
-        "text-secondary": "#4a6080",
-        "text-disabled": "#90a0b8",
-        "badge-chip-background": "#d4e2f4",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#1976d2",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1a2a40",
-        "icon-inactive": "#90a0b8",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-mint",
-      name: "Mint Green",
-      mode: "light",
-      vars: {
-        "base-background": "#f0faf4",
-        "raised-background": "#e4f4ea",
-        "menu-background": "#f0faf4",
-        "general-background-a": "#f0faf4",
-        "general-background-b": "#f0faf4",
-        "general-background-c": "#e4f4ea",
-        "text-primary": "#1a3024",
-        "text-secondary": "#3a6848",
-        "text-disabled": "#88b098",
-        "badge-chip-background": "#d0ead8",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#2e7d32",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1a3024",
-        "icon-inactive": "#88b098",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-lavender",
-      name: "Lavender",
-      mode: "light",
-      vars: {
-        "base-background": "#f5f0fa",
-        "raised-background": "#ece4f4",
-        "menu-background": "#f5f0fa",
-        "general-background-a": "#f5f0fa",
-        "general-background-b": "#f5f0fa",
-        "general-background-c": "#ece4f4",
-        "text-primary": "#261a3a",
-        "text-secondary": "#5a4070",
-        "text-disabled": "#a090b8",
-        "badge-chip-background": "#ddd0ee",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#7b1fa2",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#261a3a",
-        "icon-inactive": "#a090b8",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-peach",
-      name: "Peach",
-      mode: "light",
-      vars: {
-        "base-background": "#fff5f0",
-        "raised-background": "#fceee6",
-        "menu-background": "#fff5f0",
-        "general-background-a": "#fff5f0",
-        "general-background-b": "#fff5f0",
-        "general-background-c": "#fceee6",
-        "text-primary": "#3a2018",
-        "text-secondary": "#7a5040",
-        "text-disabled": "#c0a090",
-        "badge-chip-background": "#f0dcd0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#e64a19",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a2018",
-        "icon-inactive": "#c0a090",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-rose",
-      name: "Rose",
-      mode: "light",
-      vars: {
-        "base-background": "#fdf0f4",
-        "raised-background": "#f8e4ec",
-        "menu-background": "#fdf0f4",
-        "general-background-a": "#fdf0f4",
-        "general-background-b": "#fdf0f4",
-        "general-background-c": "#f8e4ec",
-        "text-primary": "#3a1828",
-        "text-secondary": "#804060",
-        "text-disabled": "#c890a8",
-        "badge-chip-background": "#eed0dc",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#c2185b",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a1828",
-        "icon-inactive": "#c890a8",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-paper",
-      name: "Paper",
-      mode: "light",
-      vars: {
-        "base-background": "#f5f5f0",
-        "raised-background": "#eeeee8",
-        "menu-background": "#f5f5f0",
-        "general-background-a": "#f5f5f0",
-        "general-background-b": "#f5f5f0",
-        "general-background-c": "#eeeee8",
-        "text-primary": "#222222",
-        "text-secondary": "#555555",
-        "text-disabled": "#aaaaaa",
-        "badge-chip-background": "#e0e0d8",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#555555",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#222222",
-        "icon-inactive": "#aaaaaa",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-sand",
-      name: "Sand",
-      mode: "light",
-      vars: {
-        "base-background": "#f8f4ee",
-        "raised-background": "#f0ebe2",
-        "menu-background": "#f8f4ee",
-        "general-background-a": "#f8f4ee",
-        "general-background-b": "#f8f4ee",
-        "general-background-c": "#f0ebe2",
-        "text-primary": "#2e2a22",
-        "text-secondary": "#6e6455",
-        "text-disabled": "#b0a898",
-        "badge-chip-background": "#e4ddd0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#8d6e00",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#2e2a22",
-        "icon-inactive": "#b0a898",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-graphite",
-      name: "Graphite Light",
-      mode: "light",
-      vars: {
-        "base-background": "#eef0f2",
-        "raised-background": "#e2e6ea",
-        "menu-background": "#eef0f2",
-        "general-background-a": "#eef0f2",
-        "general-background-b": "#eef0f2",
-        "general-background-c": "#e2e6ea",
-        "text-primary": "#1a1e24",
-        "text-secondary": "#4a5060",
-        "text-disabled": "#8a90a0",
-        "badge-chip-background": "#d4d8de",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#455a64",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1a1e24",
-        "icon-inactive": "#8a90a0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-ocean",
-      name: "Ocean Foam",
-      mode: "light",
-      vars: {
-        "base-background": "#eef6f6",
-        "raised-background": "#e2f0f0",
-        "menu-background": "#eef6f6",
-        "general-background-a": "#eef6f6",
-        "general-background-b": "#eef6f6",
-        "general-background-c": "#e2f0f0",
-        "text-primary": "#1a3030",
-        "text-secondary": "#406060",
-        "text-disabled": "#88b0b0",
-        "badge-chip-background": "#d0e6e6",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#00897b",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1a3030",
-        "icon-inactive": "#88b0b0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-sunset",
-      name: "Sunset Glow",
-      mode: "light",
-      vars: {
-        "base-background": "#fff8f0",
-        "raised-background": "#fdf0e4",
-        "menu-background": "#fff8f0",
-        "general-background-a": "#fff8f0",
-        "general-background-b": "#fff8f0",
-        "general-background-c": "#fdf0e4",
-        "text-primary": "#3a2810",
-        "text-secondary": "#7a5830",
-        "text-disabled": "#c0a078",
-        "badge-chip-background": "#f0dcc4",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#e65100",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a2810",
-        "icon-inactive": "#c0a078",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-github",
-      name: "GitHub Light",
-      mode: "light",
-      vars: {
-        "base-background": "#ffffff",
-        "raised-background": "#f6f8fa",
-        "menu-background": "#ffffff",
-        "general-background-a": "#ffffff",
-        "general-background-b": "#ffffff",
-        "general-background-c": "#f6f8fa",
-        "text-primary": "#24292e",
-        "text-secondary": "#586069",
-        "text-disabled": "#959da5",
-        "badge-chip-background": "#eaecef",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#0366d6",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#24292e",
-        "icon-inactive": "#959da5",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-vscode",
-      name: "VS Code Light",
-      mode: "light",
-      vars: {
-        "base-background": "#ffffff",
-        "raised-background": "#f3f3f3",
-        "menu-background": "#ffffff",
-        "general-background-a": "#ffffff",
-        "general-background-b": "#ffffff",
-        "general-background-c": "#f3f3f3",
-        "text-primary": "#1e1e1e",
-        "text-secondary": "#383838",
-        "text-disabled": "#9d9d9d",
-        "badge-chip-background": "#e7e7e7",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#005fb8",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1e1e1e",
-        "icon-inactive": "#9d9d9d",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-atom",
-      name: "Atom Light",
-      mode: "light",
-      vars: {
-        "base-background": "#ffffff",
-        "raised-background": "#fafafa",
-        "menu-background": "#ffffff",
-        "general-background-a": "#ffffff",
-        "general-background-b": "#ffffff",
-        "general-background-c": "#fafafa",
-        "text-primary": "#383a42",
-        "text-secondary": "#a0a1a7",
-        "text-disabled": "#a0a1a7",
-        "badge-chip-background": "#e5e5e6",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#4078f2",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#383a42",
-        "icon-inactive": "#a0a1a7",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-one-light",
-      name: "One Light",
-      mode: "light",
-      vars: {
-        "base-background": "#fafafa",
-        "raised-background": "#f0f0f0",
-        "menu-background": "#fafafa",
-        "general-background-a": "#fafafa",
-        "general-background-b": "#fafafa",
-        "general-background-c": "#f0f0f0",
-        "text-primary": "#383a42",
-        "text-secondary": "#a0a1a7",
-        "text-disabled": "#a0a1a7",
-        "badge-chip-background": "#e5e5e6",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#4078f2",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#383a42",
-        "icon-inactive": "#a0a1a7",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-tomorrow",
-      name: "Tomorrow",
-      mode: "light",
-      vars: {
-        "base-background": "#ffffff",
-        "raised-background": "#efefef",
-        "menu-background": "#ffffff",
-        "general-background-a": "#ffffff",
-        "general-background-b": "#ffffff",
-        "general-background-c": "#efefef",
-        "text-primary": "#4d4d4c",
-        "text-secondary": "#8e908c",
-        "text-disabled": "#8e908c",
-        "badge-chip-background": "#d6d6d6",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#4271ae",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#4d4d4c",
-        "icon-inactive": "#8e908c",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-pencil",
-      name: "Base16 Pencil",
-      mode: "light",
-      vars: {
-        "base-background": "#f1f1f1",
-        "raised-background": "#e0e0e0",
-        "menu-background": "#f1f1f1",
-        "general-background-a": "#f1f1f1",
-        "general-background-b": "#f1f1f1",
-        "general-background-c": "#e0e0e0",
-        "text-primary": "#202020",
-        "text-secondary": "#505050",
-        "text-disabled": "#808080",
-        "badge-chip-background": "#b0b0b0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#5fb3b3",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#202020",
-        "icon-inactive": "#808080",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-ayu-light",
-      name: "Ayu Light",
-      mode: "light",
-      vars: {
-        "base-background": "#fafafa",
-        "raised-background": "#f3f4f5",
-        "menu-background": "#fafafa",
-        "general-background-a": "#fafafa",
-        "general-background-b": "#fafafa",
-        "general-background-c": "#f3f4f5",
-        "text-primary": "#5c6773",
-        "text-secondary": "#8a9199",
-        "text-disabled": "#abb0b6",
-        "badge-chip-background": "#e7eaed",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#ff6a00",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#5c6773",
-        "icon-inactive": "#abb0b6",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-iceberg",
-      name: "Iceberg Light",
-      mode: "light",
-      vars: {
-        "base-background": "#e8e9ec",
-        "raised-background": "#dcdfe4",
-        "menu-background": "#e8e9ec",
-        "general-background-a": "#e8e9ec",
-        "general-background-b": "#e8e9ec",
-        "general-background-c": "#dcdfe4",
-        "text-primary": "#33374c",
-        "text-secondary": "#6b7089",
-        "text-disabled": "#9fa6b8",
-        "badge-chip-background": "#cad0de",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#2d539e",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#33374c",
-        "icon-inactive": "#9fa6b8",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-papercolor",
-      name: "PaperColor Light",
-      mode: "light",
-      vars: {
-        "base-background": "#eeeeee",
-        "raised-background": "#e4e4e4",
-        "menu-background": "#eeeeee",
-        "general-background-a": "#eeeeee",
-        "general-background-b": "#eeeeee",
-        "general-background-c": "#e4e4e4",
-        "text-primary": "#444444",
-        "text-secondary": "#5f8787",
-        "text-disabled": "#878787",
-        "badge-chip-background": "#dadada",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#005f87",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#444444",
-        "icon-inactive": "#878787",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-vanilla",
-      name: "Vanilla",
-      mode: "light",
-      vars: {
-        "base-background": "#fefee9",
-        "raised-background": "#f8f8e0",
-        "menu-background": "#fefee9",
-        "general-background-a": "#fefee9",
-        "general-background-b": "#fefee9",
-        "general-background-c": "#f8f8e0",
-        "text-primary": "#3a3320",
-        "text-secondary": "#6c6648",
-        "text-disabled": "#a09880",
-        "badge-chip-background": "#ebe4cc",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#ff8c00",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a3320",
-        "icon-inactive": "#a09880",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-honey",
-      name: "Honey",
-      mode: "light",
-      vars: {
-        "base-background": "#fff8e1",
-        "raised-background": "#fff3c4",
-        "menu-background": "#fff8e1",
-        "general-background-a": "#fff8e1",
-        "general-background-b": "#fff8e1",
-        "general-background-c": "#fff3c4",
-        "text-primary": "#3a2c08",
-        "text-secondary": "#7a5e1c",
-        "text-disabled": "#bda564",
-        "badge-chip-background": "#f5e8a8",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#ffa000",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a2c08",
-        "icon-inactive": "#bda564",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-mint-fresh",
-      name: "Mint Fresh",
-      mode: "light",
-      vars: {
-        "base-background": "#e8f5e9",
-        "raised-background": "#dcefdc",
-        "menu-background": "#e8f5e9",
-        "general-background-a": "#e8f5e9",
-        "general-background-b": "#e8f5e9",
-        "general-background-c": "#dcefdc",
-        "text-primary": "#1b3320",
-        "text-secondary": "#3e7048",
-        "text-disabled": "#82af88",
-        "badge-chip-background": "#c8e6c9",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#43a047",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1b3320",
-        "icon-inactive": "#82af88",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-pink-petal",
-      name: "Pink Petal",
-      mode: "light",
-      vars: {
-        "base-background": "#fce4ec",
-        "raised-background": "#f8d7e2",
-        "menu-background": "#fce4ec",
-        "general-background-a": "#fce4ec",
-        "general-background-b": "#fce4ec",
-        "general-background-c": "#f8d7e2",
-        "text-primary": "#3a1a28",
-        "text-secondary": "#74304a",
-        "text-disabled": "#c08aa0",
-        "badge-chip-background": "#f1c5d4",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#d81b60",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a1a28",
-        "icon-inactive": "#c08aa0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-blueprint",
-      name: "Blueprint",
-      mode: "light",
-      vars: {
-        "base-background": "#e3f2fd",
-        "raised-background": "#cce7fb",
-        "menu-background": "#e3f2fd",
-        "general-background-a": "#e3f2fd",
-        "general-background-b": "#e3f2fd",
-        "general-background-c": "#cce7fb",
-        "text-primary": "#0d2940",
-        "text-secondary": "#1e5485",
-        "text-disabled": "#76a9d8",
-        "badge-chip-background": "#a0d0f5",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#1565c0",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#0d2940",
-        "icon-inactive": "#76a9d8",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-grape",
-      name: "Grape",
-      mode: "light",
-      vars: {
-        "base-background": "#f3e5f5",
-        "raised-background": "#ead0ee",
-        "menu-background": "#f3e5f5",
-        "general-background-a": "#f3e5f5",
-        "general-background-b": "#f3e5f5",
-        "general-background-c": "#ead0ee",
-        "text-primary": "#291a3a",
-        "text-secondary": "#5d3c75",
-        "text-disabled": "#9f80b4",
-        "badge-chip-background": "#dec0e3",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#6a1b9a",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#291a3a",
-        "icon-inactive": "#9f80b4",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-marigold",
-      name: "Marigold",
-      mode: "light",
-      vars: {
-        "base-background": "#fff3c4",
-        "raised-background": "#ffeb9c",
-        "menu-background": "#fff3c4",
-        "general-background-a": "#fff3c4",
-        "general-background-b": "#fff3c4",
-        "general-background-c": "#ffeb9c",
-        "text-primary": "#3d2c00",
-        "text-secondary": "#7c5e16",
-        "text-disabled": "#bda06d",
-        "badge-chip-background": "#ffe082",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#f57f17",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3d2c00",
-        "icon-inactive": "#bda06d",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-spearmint",
-      name: "Spearmint",
-      mode: "light",
-      vars: {
-        "base-background": "#e0f7fa",
-        "raised-background": "#c7eef2",
-        "menu-background": "#e0f7fa",
-        "general-background-a": "#e0f7fa",
-        "general-background-b": "#e0f7fa",
-        "general-background-c": "#c7eef2",
-        "text-primary": "#0e2e34",
-        "text-secondary": "#206d75",
-        "text-disabled": "#73b1b8",
-        "badge-chip-background": "#a4dfe5",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#00838f",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#0e2e34",
-        "icon-inactive": "#73b1b8",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-silver",
-      name: "Silver",
-      mode: "light",
-      vars: {
-        "base-background": "#f5f5f5",
-        "raised-background": "#ededed",
-        "menu-background": "#f5f5f5",
-        "general-background-a": "#f5f5f5",
-        "general-background-b": "#f5f5f5",
-        "general-background-c": "#ededed",
-        "text-primary": "#2c2c2c",
-        "text-secondary": "#5e5e5e",
-        "text-disabled": "#9b9b9b",
-        "badge-chip-background": "#d6d6d6",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#616161",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#2c2c2c",
-        "icon-inactive": "#9b9b9b",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-pearl",
-      name: "Pearl",
-      mode: "light",
-      vars: {
-        "base-background": "#fafafa",
-        "raised-background": "#f0f0f0",
-        "menu-background": "#fafafa",
-        "general-background-a": "#fafafa",
-        "general-background-b": "#fafafa",
-        "general-background-c": "#f0f0f0",
-        "text-primary": "#212121",
-        "text-secondary": "#616161",
-        "text-disabled": "#9e9e9e",
-        "badge-chip-background": "#e0e0e0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#37474f",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#212121",
-        "icon-inactive": "#9e9e9e",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-pastel",
-      name: "Pastel",
-      mode: "light",
-      vars: {
-        "base-background": "#fff5f7",
-        "raised-background": "#fde8ed",
-        "menu-background": "#fff5f7",
-        "general-background-a": "#fff5f7",
-        "general-background-b": "#fff5f7",
-        "general-background-c": "#fde8ed",
-        "text-primary": "#3a2030",
-        "text-secondary": "#704258",
-        "text-disabled": "#b48aa3",
-        "badge-chip-background": "#f5d0db",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#e91e63",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a2030",
-        "icon-inactive": "#b48aa3",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-lemon",
-      name: "Lemon",
-      mode: "light",
-      vars: {
-        "base-background": "#fffde7",
-        "raised-background": "#fff9c4",
-        "menu-background": "#fffde7",
-        "general-background-a": "#fffde7",
-        "general-background-b": "#fffde7",
-        "general-background-c": "#fff9c4",
-        "text-primary": "#3a3000",
-        "text-secondary": "#705e00",
-        "text-disabled": "#aa8f00",
-        "badge-chip-background": "#f0e68c",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#f9a825",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a3000",
-        "icon-inactive": "#aa8f00",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-coral",
-      name: "Coral",
-      mode: "light",
-      vars: {
-        "base-background": "#ffeae0",
-        "raised-background": "#ffd9c5",
-        "menu-background": "#ffeae0",
-        "general-background-a": "#ffeae0",
-        "general-background-b": "#ffeae0",
-        "general-background-c": "#ffd9c5",
-        "text-primary": "#3a1a08",
-        "text-secondary": "#7a3a16",
-        "text-disabled": "#c0805a",
-        "badge-chip-background": "#ffba9a",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#f06292",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a1a08",
-        "icon-inactive": "#c0805a",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-ice",
-      name: "Arctic Ice",
-      mode: "light",
-      vars: {
-        "base-background": "#f0f8ff",
-        "raised-background": "#e0f0ff",
-        "menu-background": "#f0f8ff",
-        "general-background-a": "#f0f8ff",
-        "general-background-b": "#f0f8ff",
-        "general-background-c": "#e0f0ff",
-        "text-primary": "#0a2a4a",
-        "text-secondary": "#2860a0",
-        "text-disabled": "#80a8d0",
-        "badge-chip-background": "#c0d8f0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#039be5",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#0a2a4a",
-        "icon-inactive": "#80a8d0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-cherry",
-      name: "Cherry Blossom",
-      mode: "light",
-      vars: {
-        "base-background": "#fff0f5",
-        "raised-background": "#ffe0eb",
-        "menu-background": "#fff0f5",
-        "general-background-a": "#fff0f5",
-        "general-background-b": "#fff0f5",
-        "general-background-c": "#ffe0eb",
-        "text-primary": "#3a1828",
-        "text-secondary": "#80405e",
-        "text-disabled": "#cc8aa8",
-        "badge-chip-background": "#ffc8de",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#ec407a",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a1828",
-        "icon-inactive": "#cc8aa8",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-newspaper",
-      name: "Newspaper",
-      mode: "light",
-      vars: {
-        "base-background": "#f8f5f0",
-        "raised-background": "#efece6",
-        "menu-background": "#f8f5f0",
-        "general-background-a": "#f8f5f0",
-        "general-background-b": "#f8f5f0",
-        "general-background-c": "#efece6",
-        "text-primary": "#1a1a1a",
-        "text-secondary": "#4a4a4a",
-        "text-disabled": "#888888",
-        "badge-chip-background": "#e0ddd6",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#2a2a2a",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1a1a1a",
-        "icon-inactive": "#888888",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-cotton",
-      name: "Cotton Candy",
-      mode: "light",
-      vars: {
-        "base-background": "#fef0fc",
-        "raised-background": "#fde0fa",
-        "menu-background": "#fef0fc",
-        "general-background-a": "#fef0fc",
-        "general-background-b": "#fef0fc",
-        "general-background-c": "#fde0fa",
-        "text-primary": "#3a1638",
-        "text-secondary": "#7a3878",
-        "text-disabled": "#b888b6",
-        "badge-chip-background": "#f4c4f0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#d500f9",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a1638",
-        "icon-inactive": "#b888b6",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-aqua-light",
-      name: "Aqua Light",
-      mode: "light",
-      vars: {
-        "base-background": "#e0f7f7",
-        "raised-background": "#ccefef",
-        "menu-background": "#e0f7f7",
-        "general-background-a": "#e0f7f7",
-        "general-background-b": "#e0f7f7",
-        "general-background-c": "#ccefef",
-        "text-primary": "#0a3030",
-        "text-secondary": "#206868",
-        "text-disabled": "#70b0b0",
-        "badge-chip-background": "#a0dede",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#00acc1",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#0a3030",
-        "icon-inactive": "#70b0b0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-melon",
-      name: "Melon",
-      mode: "light",
-      vars: {
-        "base-background": "#fff5e1",
-        "raised-background": "#ffe9c4",
-        "menu-background": "#fff5e1",
-        "general-background-a": "#fff5e1",
-        "general-background-b": "#fff5e1",
-        "general-background-c": "#ffe9c4",
-        "text-primary": "#3a2814",
-        "text-secondary": "#7a522a",
-        "text-disabled": "#b58a55",
-        "badge-chip-background": "#fce0a8",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#fb8c00",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a2814",
-        "icon-inactive": "#b58a55",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-eggshell",
-      name: "Eggshell",
-      mode: "light",
-      vars: {
-        "base-background": "#fcfcf0",
-        "raised-background": "#f5f5e0",
-        "menu-background": "#fcfcf0",
-        "general-background-a": "#fcfcf0",
-        "general-background-b": "#fcfcf0",
-        "general-background-c": "#f5f5e0",
-        "text-primary": "#262616",
-        "text-secondary": "#56564a",
-        "text-disabled": "#9c9c8a",
-        "badge-chip-background": "#e6e6cc",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#827717",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#262616",
-        "icon-inactive": "#9c9c8a",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-mist",
-      name: "Morning Mist",
-      mode: "light",
-      vars: {
-        "base-background": "#f5f7f9",
-        "raised-background": "#e9ecef",
-        "menu-background": "#f5f7f9",
-        "general-background-a": "#f5f7f9",
-        "general-background-b": "#f5f7f9",
-        "general-background-c": "#e9ecef",
-        "text-primary": "#1a2330",
-        "text-secondary": "#4a5666",
-        "text-disabled": "#8896a8",
-        "badge-chip-background": "#d1d8e0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#5c7080",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1a2330",
-        "icon-inactive": "#8896a8",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-violet-light",
-      name: "Soft Violet",
-      mode: "light",
-      vars: {
-        "base-background": "#f3e8ff",
-        "raised-background": "#e6d6ff",
-        "menu-background": "#f3e8ff",
-        "general-background-a": "#f3e8ff",
-        "general-background-b": "#f3e8ff",
-        "general-background-c": "#e6d6ff",
-        "text-primary": "#28133a",
-        "text-secondary": "#5a3072",
-        "text-disabled": "#a080c4",
-        "badge-chip-background": "#dac0f0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#7c4dff",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#28133a",
-        "icon-inactive": "#a080c4",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-blush",
-      name: "Blush",
-      mode: "light",
-      vars: {
-        "base-background": "#fde7e9",
-        "raised-background": "#fcd0d4",
-        "menu-background": "#fde7e9",
-        "general-background-a": "#fde7e9",
-        "general-background-b": "#fde7e9",
-        "general-background-c": "#fcd0d4",
-        "text-primary": "#3a1620",
-        "text-secondary": "#7a3848",
-        "text-disabled": "#bb858f",
-        "badge-chip-background": "#f5b5be",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#e91e63",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a1620",
-        "icon-inactive": "#bb858f",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-celeste",
-      name: "Celeste",
-      mode: "light",
-      vars: {
-        "base-background": "#e8f4f8",
-        "raised-background": "#d4eaf0",
-        "menu-background": "#e8f4f8",
-        "general-background-a": "#e8f4f8",
-        "general-background-b": "#e8f4f8",
-        "general-background-c": "#d4eaf0",
-        "text-primary": "#1a2e3a",
-        "text-secondary": "#3a607a",
-        "text-disabled": "#80a0b0",
-        "badge-chip-background": "#b8d6e0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#0288d1",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1a2e3a",
-        "icon-inactive": "#80a0b0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-cream",
-      name: "Vanilla Cream",
-      mode: "light",
-      vars: {
-        "base-background": "#fdf9f0",
-        "raised-background": "#f8f2e2",
-        "menu-background": "#fdf9f0",
-        "general-background-a": "#fdf9f0",
-        "general-background-b": "#fdf9f0",
-        "general-background-c": "#f8f2e2",
-        "text-primary": "#3a3014",
-        "text-secondary": "#75612b",
-        "text-disabled": "#b3a06b",
-        "badge-chip-background": "#e8ddc1",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#bf8d30",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a3014",
-        "icon-inactive": "#b3a06b",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-fawn",
-      name: "Fawn",
-      mode: "light",
-      vars: {
-        "base-background": "#f4ebde",
-        "raised-background": "#ebdfca",
-        "menu-background": "#f4ebde",
-        "general-background-a": "#f4ebde",
-        "general-background-b": "#f4ebde",
-        "general-background-c": "#ebdfca",
-        "text-primary": "#3a2814",
-        "text-secondary": "#75522a",
-        "text-disabled": "#b08a58",
-        "badge-chip-background": "#dec5a3",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#8d6e63",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a2814",
-        "icon-inactive": "#b08a58",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-quartz",
-      name: "Quartz",
-      mode: "light",
-      vars: {
-        "base-background": "#f7f4f8",
-        "raised-background": "#eee8f0",
-        "menu-background": "#f7f4f8",
-        "general-background-a": "#f7f4f8",
-        "general-background-b": "#f7f4f8",
-        "general-background-c": "#eee8f0",
-        "text-primary": "#2a1f30",
-        "text-secondary": "#5a4068",
-        "text-disabled": "#9a80a8",
-        "badge-chip-background": "#d8c8e0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#9c27b0",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#2a1f30",
-        "icon-inactive": "#9a80a8",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-frost",
-      name: "Frost",
-      mode: "light",
-      vars: {
-        "base-background": "#f5f9fc",
-        "raised-background": "#e8f0f7",
-        "menu-background": "#f5f9fc",
-        "general-background-a": "#f5f9fc",
-        "general-background-b": "#f5f9fc",
-        "general-background-c": "#e8f0f7",
-        "text-primary": "#1c2530",
-        "text-secondary": "#445566",
-        "text-disabled": "#88a0b0",
-        "badge-chip-background": "#c8d8e8",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#1976d2",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1c2530",
-        "icon-inactive": "#88a0b0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-rose-gold",
-      name: "Rose Gold",
-      mode: "light",
-      vars: {
-        "base-background": "#fce8e0",
-        "raised-background": "#fad4c8",
-        "menu-background": "#fce8e0",
-        "general-background-a": "#fce8e0",
-        "general-background-b": "#fce8e0",
-        "general-background-c": "#fad4c8",
-        "text-primary": "#3a1c14",
-        "text-secondary": "#7a4032",
-        "text-disabled": "#c08070",
-        "badge-chip-background": "#f5b8a4",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#b76e79",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a1c14",
-        "icon-inactive": "#c08070",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-champagne",
-      name: "Champagne",
-      mode: "light",
-      vars: {
-        "base-background": "#fdf5e6",
-        "raised-background": "#fae9c8",
-        "menu-background": "#fdf5e6",
-        "general-background-a": "#fdf5e6",
-        "general-background-b": "#fdf5e6",
-        "general-background-c": "#fae9c8",
-        "text-primary": "#3a2c14",
-        "text-secondary": "#75582d",
-        "text-disabled": "#b39568",
-        "badge-chip-background": "#e8d3a0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#bf9b30",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a2c14",
-        "icon-inactive": "#b39568",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-jade",
-      name: "Jade",
-      mode: "light",
-      vars: {
-        "base-background": "#e0f2e9",
-        "raised-background": "#cce8d8",
-        "menu-background": "#e0f2e9",
-        "general-background-a": "#e0f2e9",
-        "general-background-b": "#e0f2e9",
-        "general-background-c": "#cce8d8",
-        "text-primary": "#0a2818",
-        "text-secondary": "#1c5436",
-        "text-disabled": "#5e9078",
-        "badge-chip-background": "#a0d0b8",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#00897b",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#0a2818",
-        "icon-inactive": "#5e9078",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-cornsilk",
-      name: "Cornsilk",
-      mode: "light",
-      vars: {
-        "base-background": "#fff8dc",
-        "raised-background": "#fdedb8",
-        "menu-background": "#fff8dc",
-        "general-background-a": "#fff8dc",
-        "general-background-b": "#fff8dc",
-        "general-background-c": "#fdedb8",
-        "text-primary": "#3a3414",
-        "text-secondary": "#75692b",
-        "text-disabled": "#b09e6c",
-        "badge-chip-background": "#e8d894",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#cba135",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#3a3414",
-        "icon-inactive": "#b09e6c",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-blueberry-light",
-      name: "Blueberry Light",
-      mode: "light",
-      vars: {
-        "base-background": "#e8eaf6",
-        "raised-background": "#d4d7ed",
-        "menu-background": "#e8eaf6",
-        "general-background-a": "#e8eaf6",
-        "general-background-b": "#e8eaf6",
-        "general-background-c": "#d4d7ed",
-        "text-primary": "#0d1545",
-        "text-secondary": "#1f3080",
-        "text-disabled": "#7080c0",
-        "badge-chip-background": "#b8c0e0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#3949ab",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#0d1545",
-        "icon-inactive": "#7080c0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-mauve",
-      name: "Mauve",
-      mode: "light",
-      vars: {
-        "base-background": "#ede6ec",
-        "raised-background": "#e0d4de",
-        "menu-background": "#ede6ec",
-        "general-background-a": "#ede6ec",
-        "general-background-b": "#ede6ec",
-        "general-background-c": "#e0d4de",
-        "text-primary": "#2a1828",
-        "text-secondary": "#583a55",
-        "text-disabled": "#a080a0",
-        "badge-chip-background": "#d4bcd0",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#8e24aa",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#2a1828",
-        "icon-inactive": "#a080a0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-sage",
-      name: "Sage",
-      mode: "light",
-      vars: {
-        "base-background": "#eef4e8",
-        "raised-background": "#dfe8d3",
-        "menu-background": "#eef4e8",
-        "general-background-a": "#eef4e8",
-        "general-background-b": "#eef4e8",
-        "general-background-c": "#dfe8d3",
-        "text-primary": "#1c3014",
-        "text-secondary": "#46662a",
-        "text-disabled": "#88a880",
-        "badge-chip-background": "#c4d8b4",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#558b2f",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1c3014",
-        "icon-inactive": "#88a880",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-zen",
-      name: "Zen",
-      mode: "light",
-      vars: {
-        "base-background": "#f7f4ec",
-        "raised-background": "#ebe5d4",
-        "menu-background": "#f7f4ec",
-        "general-background-a": "#f7f4ec",
-        "general-background-b": "#f7f4ec",
-        "general-background-c": "#ebe5d4",
-        "text-primary": "#2c2820",
-        "text-secondary": "#5c5040",
-        "text-disabled": "#a09480",
-        "badge-chip-background": "#d8d0bc",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#6d4c41",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#2c2820",
-        "icon-inactive": "#a09480",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-arctic-snow",
-      name: "Arctic Snow",
-      mode: "light",
-      vars: {
-        "base-background": "#ffffff",
-        "raised-background": "#f0f4f8",
-        "menu-background": "#ffffff",
-        "general-background-a": "#ffffff",
-        "general-background-b": "#ffffff",
-        "general-background-c": "#f0f4f8",
-        "text-primary": "#0d1a30",
-        "text-secondary": "#3a5670",
-        "text-disabled": "#7090b0",
-        "badge-chip-background": "#dde6ee",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#1565c0",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#0d1a30",
-        "icon-inactive": "#7090b0",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "l-meadow",
-      name: "Meadow",
-      mode: "light",
-      vars: {
-        "base-background": "#f0f5e8",
-        "raised-background": "#e0ecd4",
-        "menu-background": "#f0f5e8",
-        "general-background-a": "#f0f5e8",
-        "general-background-b": "#f0f5e8",
-        "general-background-c": "#e0ecd4",
-        "text-primary": "#1f2c14",
-        "text-secondary": "#506830",
-        "text-disabled": "#90a878",
-        "badge-chip-background": "#c8d8b4",
-        outline: "rgba(0,0,0,.1)",
-        "call-to-action": "#689f38",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#1f2c14",
-        "icon-inactive": "#90a878",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        shadow: "rgba(0,0,0,.1)",
-      },
-    },
-    {
-      id: "d-obsidian",
-      name: "Obsidian",
-      mode: "dark",
-      vars: {
-        "base-background": "#0b0c0f",
-        "raised-background": "#1a1b1d",
-        "menu-background": "#232427",
-        "general-background-a": "#0b0c0f",
-        "general-background-b": "#0b0c0f",
-        "general-background-c": "#1a1b1d",
-        "text-primary": "#d3d3d4",
-        "text-secondary": "#9d9e9f",
-        "text-disabled": "#636365",
-        "badge-chip-background": "#232427",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#7f8ff9",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d3d3d4",
-        "icon-inactive": "#9d9e9f",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-night-crimson",
-      name: "Night Crimson",
-      mode: "dark",
-      vars: {
-        "base-background": "#1c0b12",
-        "raised-background": "#2a1a20",
-        "menu-background": "#33232a",
-        "general-background-a": "#1c0b12",
-        "general-background-b": "#1c0b12",
-        "general-background-c": "#2a1a20",
-        "text-primary": "#d6d3d4",
-        "text-secondary": "#a49da0",
-        "text-disabled": "#6e6367",
-        "badge-chip-background": "#33232a",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#ff7bb1",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d6d3d4",
-        "icon-inactive": "#a49da0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-wine",
-      name: "Wine",
-      mode: "dark",
-      vars: {
-        "base-background": "#2a0f16",
-        "raised-background": "#371d24",
-        "menu-background": "#3f272d",
-        "general-background-a": "#2a0f16",
-        "general-background-b": "#2a0f16",
-        "general-background-c": "#371d24",
-        "text-primary": "#d9d4d5",
-        "text-secondary": "#aa9fa2",
-        "text-disabled": "#77656a",
-        "badge-chip-background": "#3f272d",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#ff7d5a",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d9d4d5",
-        "icon-inactive": "#aa9fa2",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-dusk",
-      name: "Dusk",
-      mode: "dark",
-      vars: {
-        "base-background": "#1a1826",
-        "raised-background": "#282633",
-        "menu-background": "#312f3c",
-        "general-background-a": "#1a1826",
-        "general-background-b": "#1a1826",
-        "general-background-c": "#282633",
-        "text-primary": "#d6d5d8",
-        "text-secondary": "#a3a3a8",
-        "text-disabled": "#6c6b74",
-        "badge-chip-background": "#312f3c",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#ff9e64",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d6d5d8",
-        "icon-inactive": "#a3a3a8",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-pine-grove",
-      name: "Pine Grove",
-      mode: "dark",
-      vars: {
-        "base-background": "#0b1913",
-        "raised-background": "#1a2721",
-        "menu-background": "#23302b",
-        "general-background-a": "#0b1913",
-        "general-background-b": "#0b1913",
-        "general-background-c": "#1a2721",
-        "text-primary": "#d3d6d5",
-        "text-secondary": "#9da3a1",
-        "text-disabled": "#636c68",
-        "badge-chip-background": "#23302b",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#9ece6a",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d3d6d5",
-        "icon-inactive": "#9da3a1",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-plum",
-      name: "Plum",
-      mode: "dark",
-      vars: {
-        "base-background": "#231238",
-        "raised-background": "#302044",
-        "menu-background": "#392a4c",
-        "general-background-a": "#231238",
-        "general-background-b": "#231238",
-        "general-background-c": "#302044",
-        "text-primary": "#d7d4db",
-        "text-secondary": "#a7a0af",
-        "text-disabled": "#726780",
-        "badge-chip-background": "#392a4c",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#c792ea",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d7d4db",
-        "icon-inactive": "#a7a0af",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-cyber-glow",
-      name: "Cyber Glow",
-      mode: "dark",
-      vars: {
-        "base-background": "#0a0f2a",
-        "raised-background": "#191d37",
-        "menu-background": "#23273f",
-        "general-background-a": "#0a0f2a",
-        "general-background-b": "#0a0f2a",
-        "general-background-c": "#191d37",
-        "text-primary": "#d3d4d9",
-        "text-secondary": "#9d9faa",
-        "text-disabled": "#626577",
-        "badge-chip-background": "#23273f",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#00e5ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d3d4d9",
-        "icon-inactive": "#9d9faa",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-electric-lime",
-      name: "Electric Lime",
-      mode: "dark",
-      vars: {
-        "base-background": "#121405",
-        "raised-background": "#202214",
-        "menu-background": "#2a2c1e",
-        "general-background-a": "#121405",
-        "general-background-b": "#121405",
-        "general-background-c": "#202214",
-        "text-primary": "#d4d5d2",
-        "text-secondary": "#a0a19b",
-        "text-disabled": "#67695f",
-        "badge-chip-background": "#2a2c1e",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#b6ff3b",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d4d5d2",
-        "icon-inactive": "#a0a19b",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-rose-quartz",
-      name: "Rose Quartz",
-      mode: "dark",
-      vars: {
-        "base-background": "#221018",
-        "raised-background": "#2f1e26",
-        "menu-background": "#38282f",
-        "general-background-a": "#221018",
-        "general-background-b": "#221018",
-        "general-background-c": "#2f1e26",
-        "text-primary": "#d7d4d5",
-        "text-secondary": "#a79fa3",
-        "text-disabled": "#72666b",
-        "badge-chip-background": "#38282f",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#ffb2d6",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d7d4d5",
-        "icon-inactive": "#a79fa3",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-night-navy",
-      name: "Night Navy",
-      mode: "dark",
-      vars: {
-        "base-background": "#0d1730",
-        "raised-background": "#1c253c",
-        "menu-background": "#252e45",
-        "general-background-a": "#0d1730",
-        "general-background-b": "#0d1730",
-        "general-background-c": "#1c253c",
-        "text-primary": "#d3d5da",
-        "text-secondary": "#9ea2ac",
-        "text-disabled": "#646b7b",
-        "badge-chip-background": "#252e45",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#6ea8ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d3d5da",
-        "icon-inactive": "#9ea2ac",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-teal-abyss",
-      name: "Teal Abyss",
-      mode: "dark",
-      vars: {
-        "base-background": "#04140c",
-        "raised-background": "#13221b",
-        "menu-background": "#1d2c24",
-        "general-background-a": "#04140c",
-        "general-background-b": "#04140c",
-        "general-background-c": "#13221b",
-        "text-primary": "#d2d5d3",
-        "text-secondary": "#9ba19e",
-        "text-disabled": "#5e6963",
-        "badge-chip-background": "#1d2c24",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#26e6a8",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d2d5d3",
-        "icon-inactive": "#9ba19e",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-amethyst-haze",
-      name: "Amethyst Haze",
-      mode: "dark",
-      vars: {
-        "base-background": "#1c1633",
-        "raised-background": "#2a243f",
-        "menu-background": "#332d47",
-        "general-background-a": "#1c1633",
-        "general-background-b": "#1c1633",
-        "general-background-c": "#2a243f",
-        "text-primary": "#d6d5da",
-        "text-secondary": "#a4a2ad",
-        "text-disabled": "#6e6a7c",
-        "badge-chip-background": "#332d47",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#a78bfa",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d6d5da",
-        "icon-inactive": "#a4a2ad",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-sapphire",
-      name: "Sapphire",
-      mode: "dark",
-      vars: {
-        "base-background": "#06213a",
-        "raised-background": "#152e46",
-        "menu-background": "#1f374e",
-        "general-background-a": "#06213a",
-        "general-background-b": "#06213a",
-        "general-background-c": "#152e46",
-        "text-primary": "#d2d7dc",
-        "text-secondary": "#9ba6b0",
-        "text-disabled": "#607181",
-        "badge-chip-background": "#1f374e",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#4fc3f7",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d2d7dc",
-        "icon-inactive": "#9ba6b0",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-garnet",
-      name: "Garnet",
-      mode: "dark",
-      vars: {
-        "base-background": "#24070f",
-        "raised-background": "#31161d",
-        "menu-background": "#3a2027",
-        "general-background-a": "#24070f",
-        "general-background-b": "#24070f",
-        "general-background-c": "#31161d",
-        "text-primary": "#d8d2d4",
-        "text-secondary": "#a79c9f",
-        "text-disabled": "#736065",
-        "badge-chip-background": "#3a2027",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#ff7f94",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d8d2d4",
-        "icon-inactive": "#a79c9f",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-periwinkle",
-      name: "Periwinkle",
-      mode: "dark",
-      vars: {
-        "base-background": "#141d40",
-        "raised-background": "#222b4b",
-        "menu-background": "#2c3453",
-        "general-background-a": "#141d40",
-        "general-background-b": "#141d40",
-        "general-background-c": "#222b4b",
-        "text-primary": "#d5d6dd",
-        "text-secondary": "#a1a5b3",
-        "text-disabled": "#696e85",
-        "badge-chip-background": "#2c3453",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#9aa5ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d5d6dd",
-        "icon-inactive": "#a1a5b3",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-sunbeam",
-      name: "Sunbeam",
-      mode: "dark",
-      vars: {
-        "base-background": "#241c08",
-        "raised-background": "#312a17",
-        "menu-background": "#3a3321",
-        "general-background-a": "#241c08",
-        "general-background-b": "#241c08",
-        "general-background-c": "#312a17",
-        "text-primary": "#d8d6d3",
-        "text-secondary": "#a7a49c",
-        "text-disabled": "#736e61",
-        "badge-chip-background": "#3a3321",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#ffd75e",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d8d6d3",
-        "icon-inactive": "#a7a49c",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-undersea",
-      name: "Undersea",
-      mode: "dark",
-      vars: {
-        "base-background": "#0a1f1d",
-        "raised-background": "#192c2b",
-        "menu-background": "#233534",
-        "general-background-a": "#0a1f1d",
-        "general-background-b": "#0a1f1d",
-        "general-background-c": "#192c2b",
-        "text-primary": "#d3d7d6",
-        "text-secondary": "#9da5a5",
-        "text-disabled": "#62706e",
-        "badge-chip-background": "#233534",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#26d0c6",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d3d7d6",
-        "icon-inactive": "#9da5a5",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-smoke",
-      name: "Smoke",
-      mode: "dark",
-      vars: {
-        "base-background": "#17181a",
-        "raised-background": "#252628",
-        "menu-background": "#2e2f31",
-        "general-background-a": "#17181a",
-        "general-background-b": "#17181a",
-        "general-background-c": "#252628",
-        "text-primary": "#d5d5d6",
-        "text-secondary": "#a2a3a3",
-        "text-disabled": "#6b6b6c",
-        "badge-chip-background": "#2e2f31",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#d0a24e",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d5d5d6",
-        "icon-inactive": "#a2a3a3",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-graphite",
-      name: "Graphite",
-      mode: "dark",
-      vars: {
-        "base-background": "#141414",
-        "raised-background": "#222222",
-        "menu-background": "#2c2c2c",
-        "general-background-a": "#141414",
-        "general-background-b": "#141414",
-        "general-background-c": "#222222",
-        "text-primary": "#d5d5d5",
-        "text-secondary": "#a1a1a1",
-        "text-disabled": "#696969",
-        "badge-chip-background": "#2c2c2c",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#8fb6ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d5d5d5",
-        "icon-inactive": "#a1a1a1",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-crimson-tide",
-      name: "Crimson Tide",
-      mode: "dark",
-      vars: {
-        "base-background": "#2b0508",
-        "raised-background": "#381417",
-        "menu-background": "#401e21",
-        "general-background-a": "#2b0508",
-        "general-background-b": "#2b0508",
-        "general-background-c": "#381417",
-        "text-primary": "#d9d2d3",
-        "text-secondary": "#aa9b9c",
-        "text-disabled": "#775f61",
-        "badge-chip-background": "#401e21",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#ff4d4d",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d9d2d3",
-        "icon-inactive": "#aa9b9c",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-lavender-night",
-      name: "Lavender Night",
-      mode: "dark",
-      vars: {
-        "base-background": "#1a1530",
-        "raised-background": "#28233c",
-        "menu-background": "#312c45",
-        "general-background-a": "#1a1530",
-        "general-background-b": "#1a1530",
-        "general-background-c": "#28233c",
-        "text-primary": "#d6d5da",
-        "text-secondary": "#a3a1ac",
-        "text-disabled": "#6c697b",
-        "badge-chip-background": "#312c45",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#d9c7ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d6d5da",
-        "icon-inactive": "#a3a1ac",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-rich-espresso",
-      name: "Rich Espresso",
-      mode: "dark",
-      vars: {
-        "base-background": "#2c1609",
-        "raised-background": "#392418",
-        "menu-background": "#412d22",
-        "general-background-a": "#2c1609",
-        "general-background-b": "#2c1609",
-        "general-background-c": "#392418",
-        "text-primary": "#d9d5d3",
-        "text-secondary": "#aba29d",
-        "text-disabled": "#786a62",
-        "badge-chip-background": "#412d22",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#dfa15c",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d9d5d3",
-        "icon-inactive": "#aba29d",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-boysenberry",
-      name: "Boysenberry",
-      mode: "dark",
-      vars: {
-        "base-background": "#250b2e",
-        "raised-background": "#321a3b",
-        "menu-background": "#3b2343",
-        "general-background-a": "#250b2e",
-        "general-background-b": "#250b2e",
-        "general-background-c": "#321a3b",
-        "text-primary": "#d8d3d9",
-        "text-secondary": "#a89dab",
-        "text-disabled": "#736379",
-        "badge-chip-background": "#3b2343",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#b18aff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d8d3d9",
-        "icon-inactive": "#a89dab",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-rust",
-      name: "Rust",
-      mode: "dark",
-      vars: {
-        "base-background": "#2b0f06",
-        "raised-background": "#381d15",
-        "menu-background": "#40271f",
-        "general-background-a": "#2b0f06",
-        "general-background-b": "#2b0f06",
-        "general-background-c": "#381d15",
-        "text-primary": "#d9d4d2",
-        "text-secondary": "#aa9f9b",
-        "text-disabled": "#776560",
-        "badge-chip-background": "#40271f",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#ff8a5c",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d9d4d2",
-        "icon-inactive": "#aa9f9b",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-afterglow",
-      name: "Afterglow",
-      mode: "dark",
-      vars: {
-        "base-background": "#17140a",
-        "raised-background": "#252219",
-        "menu-background": "#2e2c23",
-        "general-background-a": "#17140a",
-        "general-background-b": "#17140a",
-        "general-background-c": "#252219",
-        "text-primary": "#d5d5d3",
-        "text-secondary": "#a2a19d",
-        "text-disabled": "#6b6962",
-        "badge-chip-background": "#2e2c23",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#c8d13b",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d5d5d3",
-        "icon-inactive": "#a2a19d",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-glacier",
-      name: "Glacier",
-      mode: "dark",
-      vars: {
-        "base-background": "#0e1b22",
-        "raised-background": "#1c292f",
-        "menu-background": "#263238",
-        "general-background-a": "#0e1b22",
-        "general-background-b": "#0e1b22",
-        "general-background-c": "#1c292f",
-        "text-primary": "#d4d6d7",
-        "text-secondary": "#9fa4a7",
-        "text-disabled": "#656d72",
-        "badge-chip-background": "#263238",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#6bd4ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d4d6d7",
-        "icon-inactive": "#9fa4a7",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-blackberry",
-      name: "Blackberry",
-      mode: "dark",
-      vars: {
-        "base-background": "#1c0f26",
-        "raised-background": "#2a1d33",
-        "menu-background": "#33273c",
-        "general-background-a": "#1c0f26",
-        "general-background-b": "#1c0f26",
-        "general-background-c": "#2a1d33",
-        "text-primary": "#d6d4d8",
-        "text-secondary": "#a49fa8",
-        "text-disabled": "#6e6574",
-        "badge-chip-background": "#33273c",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#c06fff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d6d4d8",
-        "icon-inactive": "#a49fa8",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-orchid-night",
-      name: "Orchid Night",
-      mode: "dark",
-      vars: {
-        "base-background": "#1f0f22",
-        "raised-background": "#2c1d2f",
-        "menu-background": "#352738",
-        "general-background-a": "#1f0f22",
-        "general-background-b": "#1f0f22",
-        "general-background-c": "#2c1d2f",
-        "text-primary": "#d7d4d7",
-        "text-secondary": "#a59fa7",
-        "text-disabled": "#706572",
-        "badge-chip-background": "#352738",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#ff8ad2",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d7d4d7",
-        "icon-inactive": "#a59fa7",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-midnight-cobalt",
-      name: "Midnight Cobalt",
-      mode: "dark",
-      vars: {
-        "base-background": "#0a1027",
-        "raised-background": "#191e34",
-        "menu-background": "#23283d",
-        "general-background-a": "#0a1027",
-        "general-background-b": "#0a1027",
-        "general-background-c": "#191e34",
-        "text-primary": "#d3d4d8",
-        "text-secondary": "#9d9fa9",
-        "text-disabled": "#626675",
-        "badge-chip-background": "#23283d",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#4080ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d3d4d8",
-        "icon-inactive": "#9d9fa9",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-forest-floor",
-      name: "Forest Floor",
-      mode: "dark",
-      vars: {
-        "base-background": "#0d1715",
-        "raised-background": "#1c2523",
-        "menu-background": "#252e2c",
-        "general-background-a": "#0d1715",
-        "general-background-b": "#0d1715",
-        "general-background-c": "#1c2523",
-        "text-primary": "#d3d5d5",
-        "text-secondary": "#9ea2a1",
-        "text-disabled": "#646b69",
-        "badge-chip-background": "#252e2c",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#7fbf6f",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d3d5d5",
-        "icon-inactive": "#9ea2a1",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-indigo-ink",
-      name: "Indigo Ink",
-      mode: "dark",
-      vars: {
-        "base-background": "#160f2e",
-        "raised-background": "#241d3b",
-        "menu-background": "#2d2743",
-        "general-background-a": "#160f2e",
-        "general-background-b": "#160f2e",
-        "general-background-c": "#241d3b",
-        "text-primary": "#d5d4d9",
-        "text-secondary": "#a29fab",
-        "text-disabled": "#6a6579",
-        "badge-chip-background": "#2d2743",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#7f6cff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d5d4d9",
-        "icon-inactive": "#a29fab",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-amber-sunset",
-      name: "Amber Sunset",
-      mode: "dark",
-      vars: {
-        "base-background": "#2c1313",
-        "raised-background": "#392121",
-        "menu-background": "#412b2b",
-        "general-background-a": "#2c1313",
-        "general-background-b": "#2c1313",
-        "general-background-c": "#392121",
-        "text-primary": "#d9d5d5",
-        "text-secondary": "#aba1a1",
-        "text-disabled": "#786868",
-        "badge-chip-background": "#412b2b",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#ff9f5a",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d9d5d5",
-        "icon-inactive": "#aba1a1",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-slate-storm",
-      name: "Slate Storm",
-      mode: "dark",
-      vars: {
-        "base-background": "#1c2024",
-        "raised-background": "#2a2d31",
-        "menu-background": "#33363a",
-        "general-background-a": "#1c2024",
-        "general-background-b": "#1c2024",
-        "general-background-c": "#2a2d31",
-        "text-primary": "#d6d7d8",
-        "text-secondary": "#a4a6a7",
-        "text-disabled": "#6e7073",
-        "badge-chip-background": "#33363a",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#a7c1e0",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d6d7d8",
-        "icon-inactive": "#a4a6a7",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-onyx",
-      name: "Onyx",
-      mode: "dark",
-      vars: {
-        "base-background": "#0a0a0c",
-        "raised-background": "#19191b",
-        "menu-background": "#232324",
-        "general-background-a": "#0a0a0c",
-        "general-background-b": "#0a0a0c",
-        "general-background-c": "#19191b",
-        "text-primary": "#d3d3d3",
-        "text-secondary": "#9d9d9e",
-        "text-disabled": "#626263",
-        "badge-chip-background": "#232324",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#e0e0e5",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d3d3d3",
-        "icon-inactive": "#9d9d9e",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-night-sky",
-      name: "Night Sky",
-      mode: "dark",
-      vars: {
-        "base-background": "#02102a",
-        "raised-background": "#111e37",
-        "menu-background": "#1b283f",
-        "general-background-a": "#02102a",
-        "general-background-b": "#02102a",
-        "general-background-c": "#111e37",
-        "text-primary": "#d1d4d9",
-        "text-secondary": "#9a9faa",
-        "text-disabled": "#5d6677",
-        "badge-chip-background": "#1b283f",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#7fd4ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d1d4d9",
-        "icon-inactive": "#9a9faa",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "d-copperberry",
-      name: "Copperberry",
-      mode: "dark",
-      vars: {
-        "base-background": "#171426",
-        "raised-background": "#252233",
-        "menu-background": "#2e2c3c",
-        "general-background-a": "#171426",
-        "general-background-b": "#171426",
-        "general-background-c": "#252233",
-        "text-primary": "#d5d5d8",
-        "text-secondary": "#a2a1a8",
-        "text-disabled": "#6b6974",
-        "badge-chip-background": "#2e2c3c",
-        "outline": "rgba(255,255,255,.1)",
-        "call-to-action": "#b3a3ff",
-        "call-to-action-inverse": "#fff",
-        "icon-active-other": "#d5d5d8",
-        "icon-inactive": "#a2a1a8",
-        "10-percent-layer": "rgba(255,255,255,.07)",
-        "shadow": "rgba(0,0,0,.55)"
-      },
-    },
-    {
-      id: "l-alabaster",
-      name: "Alabaster",
-      mode: "light",
-      vars: {
-        "base-background": "#f7f4ea",
-        "raised-background": "#f2efe5",
-        "menu-background": "#ebe8de",
-        "general-background-a": "#f7f4ea",
-        "general-background-b": "#f7f4ea",
-        "general-background-c": "#f2efe5",
-        "text-primary": "#31312f",
-        "text-secondary": "#777570",
-        "text-disabled": "#b2b0a8",
-        "badge-chip-background": "#ebe8de",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#3b82f6",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#31312f",
-        "icon-inactive": "#777570",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-porcelain",
-      name: "Porcelain",
-      mode: "light",
-      vars: {
-        "base-background": "#f2f5f8",
-        "raised-background": "#edf0f3",
-        "menu-background": "#e6e9ec",
-        "general-background-a": "#f2f5f8",
-        "general-background-b": "#f2f5f8",
-        "general-background-c": "#edf0f3",
-        "text-primary": "#303132",
-        "text-secondary": "#747677",
-        "text-disabled": "#aeb0b3",
-        "badge-chip-background": "#e6e9ec",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#2563eb",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303132",
-        "icon-inactive": "#747677",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-cloud-white",
-      name: "Cloud White",
-      mode: "light",
-      vars: {
-        "base-background": "#fbfbfd",
-        "raised-background": "#f6f6f8",
-        "menu-background": "#eeeef0",
-        "general-background-a": "#fbfbfd",
-        "general-background-b": "#fbfbfd",
-        "general-background-c": "#f6f6f8",
-        "text-primary": "#323233",
-        "text-secondary": "#787879",
-        "text-disabled": "#b5b5b6",
-        "badge-chip-background": "#eeeef0",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#4f6ef7",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#323233",
-        "icon-inactive": "#787879",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-ivory",
-      name: "Ivory",
-      mode: "light",
-      vars: {
-        "base-background": "#fbf6e6",
-        "raised-background": "#f6f1e1",
-        "menu-background": "#eeeadb",
-        "general-background-a": "#fbf6e6",
-        "general-background-b": "#fbf6e6",
-        "general-background-c": "#f6f1e1",
-        "text-primary": "#32312e",
-        "text-secondary": "#78766e",
-        "text-disabled": "#b5b1a6",
-        "badge-chip-background": "#eeeadb",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#c99a2e",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#32312e",
-        "icon-inactive": "#78766e",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-pearl-gray",
-      name: "Pearl Gray",
-      mode: "light",
-      vars: {
-        "base-background": "#f1f2f4",
-        "raised-background": "#ecedef",
-        "menu-background": "#e5e6e8",
-        "general-background-a": "#f1f2f4",
-        "general-background-b": "#f1f2f4",
-        "general-background-c": "#ecedef",
-        "text-primary": "#303031",
-        "text-secondary": "#747475",
-        "text-disabled": "#aeaeb0",
-        "badge-chip-background": "#e5e6e8",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#5b6472",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303031",
-        "icon-inactive": "#747475",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-warm-light",
-      name: "Warm Light",
-      mode: "light",
-      vars: {
-        "base-background": "#fff3e6",
-        "raised-background": "#faeee1",
-        "menu-background": "#f2e7db",
-        "general-background-a": "#fff3e6",
-        "general-background-b": "#fff3e6",
-        "general-background-c": "#faeee1",
-        "text-primary": "#33312e",
-        "text-secondary": "#7a756e",
-        "text-disabled": "#b8afa6",
-        "badge-chip-background": "#f2e7db",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#ef6c00",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#33312e",
-        "icon-inactive": "#7a756e",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-cloud-nine",
-      name: "Cloud Nine",
-      mode: "light",
-      vars: {
-        "base-background": "#e7f0ee",
-        "raised-background": "#e2ebe9",
-        "menu-background": "#dbe4e2",
-        "general-background-a": "#e7f0ee",
-        "general-background-b": "#e7f0ee",
-        "general-background-c": "#e2ebe9",
-        "text-primary": "#2e3030",
-        "text-secondary": "#6f7372",
-        "text-disabled": "#a6adab",
-        "badge-chip-background": "#dbe4e2",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#3f7d6b",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#2e3030",
-        "icon-inactive": "#6f7372",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-petal",
-      name: "Petal",
-      mode: "light",
-      vars: {
-        "base-background": "#fefcf7",
-        "raised-background": "#f9f7f2",
-        "menu-background": "#f1efeb",
-        "general-background-a": "#fefcf7",
-        "general-background-b": "#fefcf7",
-        "general-background-c": "#f9f7f2",
-        "text-primary": "#333231",
-        "text-secondary": "#7a7977",
-        "text-disabled": "#b7b5b2",
-        "badge-chip-background": "#f1efeb",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#8a9a4a",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#333231",
-        "icon-inactive": "#7a7977",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-pecan-linen",
-      name: "Pecan Linen",
-      mode: "light",
-      vars: {
-        "base-background": "#faf6ef",
-        "raised-background": "#f5f1ea",
-        "menu-background": "#eeeae3",
-        "general-background-a": "#faf6ef",
-        "general-background-b": "#faf6ef",
-        "general-background-c": "#f5f1ea",
-        "text-primary": "#323130",
-        "text-secondary": "#787673",
-        "text-disabled": "#b4b1ac",
-        "badge-chip-background": "#eeeae3",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#a16207",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#323130",
-        "icon-inactive": "#787673",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-ice-frost",
-      name: "Ice Frost",
-      mode: "light",
-      vars: {
-        "base-background": "#f0f7fc",
-        "raised-background": "#ebf2f7",
-        "menu-background": "#e4ebef",
-        "general-background-a": "#f0f7fc",
-        "general-background-b": "#f0f7fc",
-        "general-background-c": "#ebf2f7",
-        "text-primary": "#303132",
-        "text-secondary": "#737779",
-        "text-disabled": "#adb2b5",
-        "badge-chip-background": "#e4ebef",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#38bdf8",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303132",
-        "icon-inactive": "#737779",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-beige-sand",
-      name: "Beige Sand",
-      mode: "light",
-      vars: {
-        "base-background": "#f2ecdf",
-        "raised-background": "#ede7db",
-        "menu-background": "#e6e0d4",
-        "general-background-a": "#f2ecdf",
-        "general-background-b": "#f2ecdf",
-        "general-background-c": "#ede7db",
-        "text-primary": "#302f2d",
-        "text-secondary": "#74716b",
-        "text-disabled": "#aeaaa1",
-        "badge-chip-background": "#e6e0d4",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#a67c52",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#302f2d",
-        "icon-inactive": "#74716b",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-rose-water",
-      name: "Rose Water",
-      mode: "light",
-      vars: {
-        "base-background": "#fcf1f3",
-        "raised-background": "#f7ecee",
-        "menu-background": "#efe5e7",
-        "general-background-a": "#fcf1f3",
-        "general-background-b": "#fcf1f3",
-        "general-background-c": "#f7ecee",
-        "text-primary": "#323031",
-        "text-secondary": "#797475",
-        "text-disabled": "#b5aeaf",
-        "badge-chip-background": "#efe5e7",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#e6487c",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#323031",
-        "icon-inactive": "#797475",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-daffodil",
-      name: "Daffodil",
-      mode: "light",
-      vars: {
-        "base-background": "#fdf9e8",
-        "raised-background": "#f8f4e3",
-        "menu-background": "#f0eddc",
-        "general-background-a": "#fdf9e8",
-        "general-background-b": "#fdf9e8",
-        "general-background-c": "#f8f4e3",
-        "text-primary": "#33322e",
-        "text-secondary": "#79786f",
-        "text-disabled": "#b6b3a7",
-        "badge-chip-background": "#f0eddc",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#d9a521",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#33322e",
-        "icon-inactive": "#79786f",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-seafoam",
-      name: "Seafoam",
-      mode: "light",
-      vars: {
-        "base-background": "#eefaf4",
-        "raised-background": "#e9f5ef",
-        "menu-background": "#e2eee8",
-        "general-background-a": "#eefaf4",
-        "general-background-b": "#eefaf4",
-        "general-background-c": "#e9f5ef",
-        "text-primary": "#303231",
-        "text-secondary": "#727875",
-        "text-disabled": "#abb4b0",
-        "badge-chip-background": "#e2eee8",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#10b981",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303231",
-        "icon-inactive": "#727875",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-wisteria",
-      name: "Wisteria",
-      mode: "light",
-      vars: {
-        "base-background": "#f6f2fc",
-        "raised-background": "#f1edf7",
-        "menu-background": "#eae6ef",
-        "general-background-a": "#f6f2fc",
-        "general-background-b": "#f6f2fc",
-        "general-background-c": "#f1edf7",
-        "text-primary": "#313032",
-        "text-secondary": "#767479",
-        "text-disabled": "#b1aeb5",
-        "badge-chip-background": "#eae6ef",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#8b5cf6",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#313032",
-        "icon-inactive": "#767479",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-salmon",
-      name: "Salmon",
-      mode: "light",
-      vars: {
-        "base-background": "#fdeeec",
-        "raised-background": "#f8e9e7",
-        "menu-background": "#f0e2e0",
-        "general-background-a": "#fdeeec",
-        "general-background-b": "#fdeeec",
-        "general-background-c": "#f8e9e7",
-        "text-primary": "#33302f",
-        "text-secondary": "#797271",
-        "text-disabled": "#b6abaa",
-        "badge-chip-background": "#f0e2e0",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#e4485a",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#33302f",
-        "icon-inactive": "#797271",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-buttermilk",
-      name: "Buttermilk",
-      mode: "light",
-      vars: {
-        "base-background": "#f8f3e0",
-        "raised-background": "#f3eedc",
-        "menu-background": "#ece7d5",
-        "general-background-a": "#f8f3e0",
-        "general-background-b": "#f8f3e0",
-        "general-background-c": "#f3eedc",
-        "text-primary": "#32312d",
-        "text-secondary": "#77756c",
-        "text-disabled": "#b3afa1",
-        "badge-chip-background": "#ece7d5",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#d4a017",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#32312d",
-        "icon-inactive": "#77756c",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-mint-julep",
-      name: "Mint Julep",
-      mode: "light",
-      vars: {
-        "base-background": "#effaf3",
-        "raised-background": "#eaf5ee",
-        "menu-background": "#e3eee7",
-        "general-background-a": "#effaf3",
-        "general-background-b": "#effaf3",
-        "general-background-c": "#eaf5ee",
-        "text-primary": "#303231",
-        "text-secondary": "#737875",
-        "text-disabled": "#acb4af",
-        "badge-chip-background": "#e3eee7",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#2f9e44",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303231",
-        "icon-inactive": "#737875",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-powder-blue",
-      name: "Powder Blue",
-      mode: "light",
-      vars: {
-        "base-background": "#eef6fd",
-        "raised-background": "#e9f1f8",
-        "menu-background": "#e2eaf0",
-        "general-background-a": "#eef6fd",
-        "general-background-b": "#eef6fd",
-        "general-background-c": "#e9f1f8",
-        "text-primary": "#303133",
-        "text-secondary": "#727679",
-        "text-disabled": "#abb1b6",
-        "badge-chip-background": "#e2eaf0",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#4b9cf5",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303133",
-        "icon-inactive": "#727679",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-camellia",
-      name: "Camellia",
-      mode: "light",
-      vars: {
-        "base-background": "#fbeef0",
-        "raised-background": "#f6e9eb",
-        "menu-background": "#eee2e4",
-        "general-background-a": "#fbeef0",
-        "general-background-b": "#fbeef0",
-        "general-background-c": "#f6e9eb",
-        "text-primary": "#323030",
-        "text-secondary": "#787273",
-        "text-disabled": "#b5abad",
-        "badge-chip-background": "#eee2e4",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#e05d7c",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#323030",
-        "icon-inactive": "#787273",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-soft-mist",
-      name: "Soft Mist",
-      mode: "light",
-      vars: {
-        "base-background": "#f2f4f6",
-        "raised-background": "#edeff1",
-        "menu-background": "#e6e8ea",
-        "general-background-a": "#f2f4f6",
-        "general-background-b": "#f2f4f6",
-        "general-background-c": "#edeff1",
-        "text-primary": "#303131",
-        "text-secondary": "#747576",
-        "text-disabled": "#aeb0b1",
-        "badge-chip-background": "#e6e8ea",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#7d8996",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303131",
-        "icon-inactive": "#747576",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-champagne-glow",
-      name: "Champagne Glow",
-      mode: "light",
-      vars: {
-        "base-background": "#f8ecd0",
-        "raised-background": "#f3e7cc",
-        "menu-background": "#ece0c6",
-        "general-background-a": "#f8ecd0",
-        "general-background-b": "#f8ecd0",
-        "general-background-c": "#f3e7cc",
-        "text-primary": "#322f2a",
-        "text-secondary": "#777164",
-        "text-disabled": "#b3aa96",
-        "badge-chip-background": "#ece0c6",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#c9a227",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#322f2a",
-        "icon-inactive": "#777164",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-peachy",
-      name: "Peachy",
-      mode: "light",
-      vars: {
-        "base-background": "#fdeee4",
-        "raised-background": "#f8e9df",
-        "menu-background": "#f0e2d9",
-        "general-background-a": "#fdeee4",
-        "general-background-b": "#fdeee4",
-        "general-background-c": "#f8e9df",
-        "text-primary": "#33302e",
-        "text-secondary": "#79726d",
-        "text-disabled": "#b6aba4",
-        "badge-chip-background": "#f0e2d9",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#fb923c",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#33302e",
-        "icon-inactive": "#79726d",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-quiet-sage",
-      name: "Quiet Sage",
-      mode: "light",
-      vars: {
-        "base-background": "#f1f7ee",
-        "raised-background": "#ecf2e9",
-        "menu-background": "#e5ebe2",
-        "general-background-a": "#f1f7ee",
-        "general-background-b": "#f1f7ee",
-        "general-background-c": "#ecf2e9",
-        "text-primary": "#303130",
-        "text-secondary": "#747772",
-        "text-disabled": "#aeb2ab",
-        "badge-chip-background": "#e5ebe2",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#6f9e6b",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303130",
-        "icon-inactive": "#747772",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-snowdrop",
-      name: "Snowdrop",
-      mode: "light",
-      vars: {
-        "base-background": "#fbfbfb",
-        "raised-background": "#f6f6f6",
-        "menu-background": "#eeeeee",
-        "general-background-a": "#fbfbfb",
-        "general-background-b": "#fbfbfb",
-        "general-background-c": "#f6f6f6",
-        "text-primary": "#323232",
-        "text-secondary": "#787878",
-        "text-disabled": "#b5b5b5",
-        "badge-chip-background": "#eeeeee",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#334155",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#323232",
-        "icon-inactive": "#787878",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-moonstone",
-      name: "Moonstone",
-      mode: "light",
-      vars: {
-        "base-background": "#f0f4f8",
-        "raised-background": "#ebeff3",
-        "menu-background": "#e4e8ec",
-        "general-background-a": "#f0f4f8",
-        "general-background-b": "#f0f4f8",
-        "general-background-c": "#ebeff3",
-        "text-primary": "#303132",
-        "text-secondary": "#737577",
-        "text-disabled": "#adb0b3",
-        "badge-chip-background": "#e4e8ec",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#5e7ea3",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303132",
-        "icon-inactive": "#737577",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-buttercream",
-      name: "Buttercream",
-      mode: "light",
-      vars: {
-        "base-background": "#fbf0dc",
-        "raised-background": "#f6ebd8",
-        "menu-background": "#eee4d1",
-        "general-background-a": "#fbf0dc",
-        "general-background-b": "#fbf0dc",
-        "general-background-c": "#f6ebd8",
-        "text-primary": "#32302c",
-        "text-secondary": "#78736a",
-        "text-disabled": "#b5ad9e",
-        "badge-chip-background": "#eee4d1",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#eab308",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#32302c",
-        "icon-inactive": "#78736a",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-lilac",
-      name: "Lilac",
-      mode: "light",
-      vars: {
-        "base-background": "#f2f3fb",
-        "raised-background": "#edeef6",
-        "menu-background": "#e6e7ee",
-        "general-background-a": "#f2f3fb",
-        "general-background-b": "#f2f3fb",
-        "general-background-c": "#edeef6",
-        "text-primary": "#303132",
-        "text-secondary": "#747578",
-        "text-disabled": "#aeafb5",
-        "badge-chip-background": "#e6e7ee",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#a78bfa",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303132",
-        "icon-inactive": "#747578",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-mint-chip",
-      name: "Mint Chip",
-      mode: "light",
-      vars: {
-        "base-background": "#eefaf2",
-        "raised-background": "#e9f5ed",
-        "menu-background": "#e2eee6",
-        "general-background-a": "#eefaf2",
-        "general-background-b": "#eefaf2",
-        "general-background-c": "#e9f5ed",
-        "text-primary": "#303230",
-        "text-secondary": "#727874",
-        "text-disabled": "#abb4ae",
-        "badge-chip-background": "#e2eee6",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#00a86b",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303230",
-        "icon-inactive": "#727874",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-rosebud",
-      name: "Rosebud",
-      mode: "light",
-      vars: {
-        "base-background": "#fef0f4",
-        "raised-background": "#f9ebef",
-        "menu-background": "#f1e4e8",
-        "general-background-a": "#fef0f4",
-        "general-background-b": "#fef0f4",
-        "general-background-c": "#f9ebef",
-        "text-primary": "#333031",
-        "text-secondary": "#7a7375",
-        "text-disabled": "#b7adb0",
-        "badge-chip-background": "#f1e4e8",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#fb7185",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#333031",
-        "icon-inactive": "#7a7375",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-driftwood",
-      name: "Driftwood",
-      mode: "light",
-      vars: {
-        "base-background": "#f5efe4",
-        "raised-background": "#f0eadf",
-        "menu-background": "#e9e3d9",
-        "general-background-a": "#f5efe4",
-        "general-background-b": "#f5efe4",
-        "general-background-c": "#f0eadf",
-        "text-primary": "#31302e",
-        "text-secondary": "#76736d",
-        "text-disabled": "#b0aca4",
-        "badge-chip-background": "#e9e3d9",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#b98a3e",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#31302e",
-        "icon-inactive": "#76736d",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-clear-sky",
-      name: "Clear Sky",
-      mode: "light",
-      vars: {
-        "base-background": "#eef7fd",
-        "raised-background": "#e9f2f8",
-        "menu-background": "#e2ebf0",
-        "general-background-a": "#eef7fd",
-        "general-background-b": "#eef7fd",
-        "general-background-c": "#e9f2f8",
-        "text-primary": "#303133",
-        "text-secondary": "#727779",
-        "text-disabled": "#abb2b6",
-        "badge-chip-background": "#e2ebf0",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#2196f3",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303133",
-        "icon-inactive": "#727779",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-creme-brulee",
-      name: "Creme Brulee",
-      mode: "light",
-      vars: {
-        "base-background": "#fdf4e0",
-        "raised-background": "#f8efdc",
-        "menu-background": "#f0e8d5",
-        "general-background-a": "#fdf4e0",
-        "general-background-b": "#fdf4e0",
-        "general-background-c": "#f8efdc",
-        "text-primary": "#33312d",
-        "text-secondary": "#79756c",
-        "text-disabled": "#b6b0a1",
-        "badge-chip-background": "#f0e8d5",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#b8860b",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#33312d",
-        "icon-inactive": "#79756c",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-blue-horizon",
-      name: "Blue Horizon",
-      mode: "light",
-      vars: {
-        "base-background": "#eef2fb",
-        "raised-background": "#e9edf6",
-        "menu-background": "#e2e6ee",
-        "general-background-a": "#eef2fb",
-        "general-background-b": "#eef2fb",
-        "general-background-c": "#e9edf6",
-        "text-primary": "#303032",
-        "text-secondary": "#727478",
-        "text-disabled": "#abaeb5",
-        "badge-chip-background": "#e2e6ee",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#4169e1",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303032",
-        "icon-inactive": "#727478",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-watermelon",
-      name: "Watermelon",
-      mode: "light",
-      vars: {
-        "base-background": "#eefaf0",
-        "raised-background": "#e9f5eb",
-        "menu-background": "#e2eee4",
-        "general-background-a": "#eefaf0",
-        "general-background-b": "#eefaf0",
-        "general-background-c": "#e9f5eb",
-        "text-primary": "#303230",
-        "text-secondary": "#727873",
-        "text-disabled": "#abb4ad",
-        "badge-chip-background": "#e2eee4",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#34c759",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#303230",
-        "icon-inactive": "#727873",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-lavender-haze",
-      name: "Lavender Haze",
-      mode: "light",
-      vars: {
-        "base-background": "#f6f2fa",
-        "raised-background": "#f1edf5",
-        "menu-background": "#eae6ee",
-        "general-background-a": "#f6f2fa",
-        "general-background-b": "#f6f2fa",
-        "general-background-c": "#f1edf5",
-        "text-primary": "#313032",
-        "text-secondary": "#767478",
-        "text-disabled": "#b1aeb4",
-        "badge-chip-background": "#eae6ee",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#9c7de5",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#313032",
-        "icon-inactive": "#767478",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-morning-glory",
-      name: "Morning Glory",
-      mode: "light",
-      vars: {
-        "base-background": "#edf9fb",
-        "raised-background": "#e8f4f6",
-        "menu-background": "#e1edee",
-        "general-background-a": "#edf9fb",
-        "general-background-b": "#edf9fb",
-        "general-background-c": "#e8f4f6",
-        "text-primary": "#2f3232",
-        "text-secondary": "#727878",
-        "text-disabled": "#abb3b5",
-        "badge-chip-background": "#e1edee",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#2fb4c4",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#2f3232",
-        "icon-inactive": "#727878",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-    {
-      id: "l-amber-mist",
-      name: "Amber Mist",
-      mode: "light",
-      vars: {
-        "base-background": "#fbf2df",
-        "raised-background": "#f6eddb",
-        "menu-background": "#eee6d4",
-        "general-background-a": "#fbf2df",
-        "general-background-b": "#fbf2df",
-        "general-background-c": "#f6eddb",
-        "text-primary": "#32302d",
-        "text-secondary": "#78746b",
-        "text-disabled": "#b5aea1",
-        "badge-chip-background": "#eee6d4",
-        "outline": "rgba(0,0,0,.1)",
-        "call-to-action": "#e07a2a",
-        "call-to-action-inverse": "#ffffff",
-        "icon-active-other": "#32302d",
-        "icon-inactive": "#78746b",
-        "10-percent-layer": "rgba(0,0,0,.05)",
-        "shadow": "rgba(0,0,0,.1)"
-      },
-    },
-  ];
+const _THEME_VARS = ["base-background","raised-background","menu-background","general-background-a","general-background-b","general-background-c","text-primary","text-secondary","text-disabled","badge-chip-background","outline","call-to-action","call-to-action-inverse","icon-active-other","icon-inactive","10-percent-layer","shadow"];
+  const Nr = ([
+    ["none", "Default (YouTube)", "auto", null],
+    ["d-charcoal", "Charcoal", "dark", ["#1a1a1a","#242424","#2a2a2a","#1a1a1a","#1a1a1a","#242424","#e8e8e8","#aaa","#666","#333","rgba(255,255,255,.1)","#c00","#fff","#e8e8e8","#aaa","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-midnight", "Midnight Blue", "dark", ["#0d1117","#161b22","#1c2128","#0d1117","#0d1117","#161b22","#e6edf3","#8b949e","#555d67","#21262d","rgba(255,255,255,.1)","#58a6ff","#fff","#e6edf3","#8b949e","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-amoled", "AMOLED Black", "dark", ["#000000","#0a0a0a","#111111","#000000","#000000","#0a0a0a","#e0e0e0","#999","#555","#1a1a1a","rgba(255,255,255,.1)","#c00","#fff","#e0e0e0","#999","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-nord", "Nord", "dark", ["#2e3440","#3b4252","#434c5e","#2e3440","#2e3440","#3b4252","#eceff4","#d8dee9","#7a8394","#4c566a","rgba(255,255,255,.1)","#88c0d0","#fff","#eceff4","#d8dee9","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-dracula", "Dracula", "dark", ["#282a36","#2d2f3d","#343746","#282a36","#282a36","#2d2f3d","#f8f8f2","#bfbfbf","#6272a4","#44475a","rgba(255,255,255,.1)","#bd93f9","#fff","#f8f8f2","#bfbfbf","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-solarized", "Solarized Dark", "dark", ["#002b36","#073642","#0a3f4e","#002b36","#002b36","#073642","#fdf6e3","#93a1a1","#586e75","#094150","rgba(255,255,255,.1)","#268bd2","#fff","#fdf6e3","#93a1a1","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-monokai", "Monokai", "dark", ["#272822","#2e2f28","#3e3d32","#272822","#272822","#2e2f28","#f8f8f2","#c0c0b0","#75715e","#49483e","rgba(255,255,255,.1)","#a6e22e","#fff","#f8f8f2","#c0c0b0","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-catppuccin", "Catppuccin Mocha", "dark", ["#1e1e2e","#24243b","#2a2a45","#1e1e2e","#1e1e2e","#24243b","#cdd6f4","#a6adc8","#6c7086","#313244","rgba(255,255,255,.1)","#cba6f7","#fff","#cdd6f4","#a6adc8","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-deep-ocean", "Deep Ocean", "dark", ["#0b1622","#111d2e","#152238","#0b1622","#0b1622","#111d2e","#dde4ee","#8899aa","#506070","#1a2c42","rgba(255,255,255,.1)","#4fc3f7","#fff","#dde4ee","#8899aa","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-forest", "Forest Night", "dark", ["#1a2316","#222e1c","#2a3822","#1a2316","#1a2316","#222e1c","#dce5d5","#a0b090","#607050","#334428","rgba(255,255,255,.1)","#66bb6a","#fff","#dce5d5","#a0b090","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-ember", "Ember", "dark", ["#1c1210","#271916","#30201c","#1c1210","#1c1210","#271916","#eeddd6","#bba090","#776058","#3a2824","rgba(255,255,255,.1)","#ef5350","#fff","#eeddd6","#bba090","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-amethyst", "Amethyst", "dark", ["#1a1424","#221a30","#2a203a","#1a1424","#1a1424","#221a30","#e0d8ee","#a898c0","#6a5888","#352a48","rgba(255,255,255,.1)","#b388ff","#fff","#e0d8ee","#a898c0","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-slate", "Warm Slate", "dark", ["#1e1e1e","#282828","#303030","#1e1e1e","#1e1e1e","#282828","#d4d4d4","#a0a0a0","#606060","#3a3a3a","rgba(255,255,255,.1)","#ff7043","#fff","#d4d4d4","#a0a0a0","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-tokyo", "Tokyo Night", "dark", ["#1a1b26","#1f2030","#24253a","#1a1b26","#1a1b26","#1f2030","#c0caf5","#9aa5ce","#565f89","#292a3e","rgba(255,255,255,.1)","#7aa2f7","#fff","#c0caf5","#9aa5ce","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-rosepine", "Rose Pine", "dark", ["#191724","#1f1d2e","#26233a","#191724","#191724","#1f1d2e","#e0def4","#908caa","#6e6a86","#2a2740","rgba(255,255,255,.1)","#eb6f92","#fff","#e0def4","#908caa","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-onedark", "One Dark", "dark", ["#282c34","#21252b","#3a3f4b","#282c34","#282c34","#21252b","#abb2bf","#9099a8","#5c6370","#3e4451","rgba(255,255,255,.1)","#61afef","#fff","#abb2bf","#9099a8","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-ayu-mirage", "Ayu Mirage", "dark", ["#1f2430","#171b24","#272d38","#1f2430","#1f2430","#171b24","#cbccc6","#8a9199","#5c6773","#33415e","rgba(255,255,255,.1)","#ffcc66","#fff","#cbccc6","#8a9199","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-ayu-dark", "Ayu Dark", "dark", ["#0a0e14","#0d1015","#11151c","#0a0e14","#0a0e14","#0d1015","#b3b1ad","#828891","#3e4b59","#1f242e","rgba(255,255,255,.1)","#39bae6","#fff","#b3b1ad","#828891","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-gruvbox", "Gruvbox Dark", "dark", ["#282828","#32302f","#3c3836","#282828","#282828","#32302f","#ebdbb2","#a89984","#7c6f64","#504945","rgba(255,255,255,.1)","#fe8019","#fff","#ebdbb2","#a89984","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-gruvbox-soft", "Gruvbox Soft", "dark", ["#32302f","#3c3836","#504945","#32302f","#32302f","#3c3836","#ddc7a1","#a89984","#665c54","#665c54","rgba(255,255,255,.1)","#d8a657","#fff","#ddc7a1","#a89984","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-zenburn", "YourTubeDark", "dark", ["#3f3f3f","#4a4a4a","#525252","#3f3f3f","#3f3f3f","#4a4a4a","#dcdccc","#a0a0a0","#777767","#5b5b5b","rgba(255,255,255,.1)","#dca3a3","#fff","#dcdccc","#a0a0a0","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-night-owl", "Night Owl", "dark", ["#011627","#01111d","#0b2942","#011627","#011627","#01111d","#d6deeb","#8badc1","#637777","#1d3b53","rgba(255,255,255,.1)","#82aaff","#fff","#d6deeb","#8badc1","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-palenight", "Palenight", "dark", ["#292d3e","#252836","#34384a","#292d3e","#292d3e","#252836","#a6accd","#8796b0","#676e95","#3a3f58","rgba(255,255,255,.1)","#c792ea","#fff","#a6accd","#8796b0","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-shades-of-purple", "Shades of Purple", "dark", ["#2d2b55","#1e1e3f","#3c3676","#2d2b55","#2d2b55","#1e1e3f","#fad000","#a599e9","#7068a2","#3e3a82","rgba(255,255,255,.1)","#fa48d8","#fff","#fad000","#a599e9","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-cobalt2", "Cobalt2", "dark", ["#193549","#0d2438","#1f5479","#193549","#193549","#0d2438","#ffffff","#7eb4e3","#0088ff","#234e6b","rgba(255,255,255,.1)","#ff9d00","#fff","#ffffff","#7eb4e3","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-material-darker", "Material Darker", "dark", ["#212121","#1a1a1a","#2a2a2a","#212121","#212121","#1a1a1a","#eeffff","#9aa1ab","#545454","#404040","rgba(255,255,255,.1)","#80cbc4","#fff","#eeffff","#9aa1ab","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-material-deep-ocean", "Material Deep Ocean", "dark", ["#0f111a","#090b10","#1a1c25","#0f111a","#0f111a","#090b10","#a6accd","#717cb4","#464b5d","#252738","rgba(255,255,255,.1)","#84ffff","#fff","#a6accd","#717cb4","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-material-oceanic", "Material Oceanic", "dark", ["#263238","#1e272c","#314549","#263238","#263238","#1e272c","#b0bec5","#7f9eaf","#546e7a","#37474f","rgba(255,255,255,.1)","#80cbc4","#fff","#b0bec5","#7f9eaf","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-material-palenight", "Material Palenight", "dark", ["#292d3e","#202331","#34394e","#292d3e","#292d3e","#202331","#a6accd","#717cb4","#676e95","#3a3f58","rgba(255,255,255,.1)","#c792ea","#fff","#a6accd","#717cb4","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-spacegray", "Spacegray", "dark", ["#2b303b","#272b35","#343d46","#2b303b","#2b303b","#272b35","#c0c5ce","#a7adba","#65737e","#3e4554","rgba(255,255,255,.1)","#bf616a","#fff","#c0c5ce","#a7adba","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-base16-default", "Base16 Default", "dark", ["#181818","#282828","#383838","#181818","#181818","#282828","#d8d8d8","#b8b8b8","#585858","#383838","rgba(255,255,255,.1)","#7cafc2","#fff","#d8d8d8","#b8b8b8","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-iceberg", "Iceberg", "dark", ["#161821","#0f1117","#1e2132","#161821","#161821","#0f1117","#c6c8d1","#84a0c6","#6b7089","#272c42","rgba(255,255,255,.1)","#84a0c6","#fff","#c6c8d1","#84a0c6","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-hyper", "Hyper", "dark", ["#000000","#1a1a1a","#242424","#000000","#000000","#1a1a1a","#ffffff","#a0a0a0","#606060","#2a2a2a","rgba(255,255,255,.1)","#fe0095","#fff","#ffffff","#a0a0a0","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-firefly", "Firefly", "dark", ["#161A1F","#1c2027","#252a31","#161A1F","#161A1F","#1c2027","#d7d7d7","#888c93","#5c6066","#2c3038","rgba(255,255,255,.1)","#ffaa00","#fff","#d7d7d7","#888c93","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-bluloco", "Bluloco Dark", "dark", ["#282c34","#21252b","#3a3f4b","#282c34","#282c34","#21252b","#abb2bf","#7a829b","#5c6370","#3e4451","rgba(255,255,255,.1)","#10b1fe","#fff","#abb2bf","#7a829b","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-blueberry", "Blueberry", "dark", ["#100d23","#0a0820","#170f3d","#100d23","#100d23","#0a0820","#caf0f8","#8ccff8","#5c6f9c","#28265a","rgba(255,255,255,.1)","#ff66c4","#fff","#caf0f8","#8ccff8","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-blackmore", "Blackmore", "dark", ["#181818","#0d0d0d","#222222","#181818","#181818","#0d0d0d","#d0d0d0","#909090","#606060","#2a2a2a","rgba(255,255,255,.1)","#7e57c2","#fff","#d0d0d0","#909090","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-vscode", "VS Code Dark+", "dark", ["#1e1e1e","#252526","#2d2d30","#1e1e1e","#1e1e1e","#252526","#cccccc","#a0a0a0","#6a6a6a","#3c3c3c","rgba(255,255,255,.1)","#0098ff","#fff","#cccccc","#a0a0a0","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-github-dark", "GitHub Dark", "dark", ["#0d1117","#161b22","#21262d","#0d1117","#0d1117","#161b22","#c9d1d9","#8b949e","#6e7681","#30363d","rgba(255,255,255,.1)","#58a6ff","#fff","#c9d1d9","#8b949e","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-github-dimmed", "GitHub Dimmed", "dark", ["#22272e","#2d333b","#373e47","#22272e","#22272e","#2d333b","#adbac7","#768390","#545d68","#444c56","rgba(255,255,255,.1)","#539bf5","#fff","#adbac7","#768390","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-discord", "Discord", "dark", ["#36393f","#2f3136","#202225","#36393f","#36393f","#2f3136","#dcddde","#b9bbbe","#72767d","#40444b","rgba(255,255,255,.1)","#5865f2","#fff","#dcddde","#b9bbbe","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-twitter-dim", "Twitter Dim", "dark", ["#15202b","#192734","#22303c","#15202b","#15202b","#192734","#ffffff","#8899a6","#5b7083","#283340","rgba(255,255,255,.1)","#1da1f2","#fff","#ffffff","#8899a6","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-twitter-lights-out", "Twitter Lights Out", "dark", ["#000000","#16181c","#1d1f23","#000000","#000000","#16181c","#e7e9ea","#71767b","#5b7083","#2f3336","rgba(255,255,255,.1)","#1d9bf0","#fff","#e7e9ea","#71767b","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-spotify", "Spotify", "dark", ["#121212","#181818","#282828","#121212","#121212","#181818","#ffffff","#b3b3b3","#727272","#404040","rgba(255,255,255,.1)","#1db954","#fff","#ffffff","#b3b3b3","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-twitch", "Twitch", "dark", ["#0e0e10","#18181b","#1f1f23","#0e0e10","#0e0e10","#18181b","#efeff1","#adadb8","#53535f","#26262c","rgba(255,255,255,.1)","#9147ff","#fff","#efeff1","#adadb8","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-reddit", "Reddit Dark", "dark", ["#1a1a1b","#272729","#343536","#1a1a1b","#1a1a1b","#272729","#d7dadc","#a8aaab","#818384","#3a3a3c","rgba(255,255,255,.1)","#ff4500","#fff","#d7dadc","#a8aaab","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-stackoverflow", "Stack Overflow Dark", "dark", ["#0c0d0e","#1c2024","#272a32","#0c0d0e","#0c0d0e","#1c2024","#bcbbbb","#9199a1","#6a737c","#393939","rgba(255,255,255,.1)","#f48024","#fff","#bcbbbb","#9199a1","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-vampire", "Vampire", "dark", ["#1c0a1f","#280f2c","#3a163f","#1c0a1f","#1c0a1f","#280f2c","#f0c4f4","#c08ec6","#7d5483","#4a234f","rgba(255,255,255,.1)","#ff5555","#fff","#f0c4f4","#c08ec6","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-blood", "Blood Red", "dark", ["#1a0a0a","#221010","#2b1414","#1a0a0a","#1a0a0a","#221010","#ffe5e5","#cc9999","#805050","#3a1c1c","rgba(255,255,255,.1)","#dc143c","#fff","#ffe5e5","#cc9999","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-toxic", "Toxic Green", "dark", ["#0a1f0a","#102810","#143514","#0a1f0a","#0a1f0a","#102810","#c5f7c5","#80cc80","#508050","#1c4a1c","rgba(255,255,255,.1)","#39ff14","#fff","#c5f7c5","#80cc80","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-cyber", "Cyberpunk", "dark", ["#0a0e27","#10153d","#171c52","#0a0e27","#0a0e27","#10153d","#fcee0a","#ff00ff","#aaaaff","#1f2570","rgba(255,255,255,.1)","#00ffff","#fff","#fcee0a","#ff00ff","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-synthwave", "Synthwave '84", "dark", ["#241b30","#2a2139","#312844","#241b30","#241b30","#2a2139","#ffffff","#a47acb","#5d5a73","#3b2d51","rgba(255,255,255,.1)","#fe4cdf","#fff","#ffffff","#a47acb","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-outrun", "Outrun", "dark", ["#221b40","#1a1438","#2c2253","#221b40","#221b40","#1a1438","#fff7ec","#ffa724","#9989b8","#352a66","rgba(255,255,255,.1)","#ff0080","#fff","#fff7ec","#ffa724","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-vaporwave", "Vaporwave", "dark", ["#1d152e","#251a37","#2f2244","#1d152e","#1d152e","#251a37","#ffdbef","#ff71ce","#a583c7","#3a2856","rgba(255,255,255,.1)","#01cdfe","#fff","#ffdbef","#ff71ce","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-matrix", "Matrix", "dark", ["#000000","#001a00","#002800","#000000","#000000","#001a00","#00ff00","#00cc00","#008800","#003300","rgba(255,255,255,.1)","#00ff41","#fff","#00ff00","#00cc00","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-hacker", "Hacker Terminal", "dark", ["#0a0e0a","#0d150d","#101e10","#0a0e0a","#0a0e0a","#0d150d","#76e57b","#509b54","#356639","#173a1a","rgba(255,255,255,.1)","#34e848","#fff","#76e57b","#509b54","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-noir", "Noir", "dark", ["#0d0d0d","#141414","#1c1c1c","#0d0d0d","#0d0d0d","#141414","#e0e0e0","#a0a0a0","#606060","#2c2c2c","rgba(255,255,255,.1)","#ffd700","#fff","#e0e0e0","#a0a0a0","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-coffee", "Coffee", "dark", ["#2c1f17","#3a2a1f","#4a382b","#2c1f17","#2c1f17","#3a2a1f","#e8d8c4","#b09980","#7a6650","#5a4538","rgba(255,255,255,.1)","#d2691e","#fff","#e8d8c4","#b09980","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-burgundy", "Burgundy", "dark", ["#1a0f12","#22151a","#2c1c22","#1a0f12","#1a0f12","#22151a","#f0c8c8","#c08080","#805050","#3a2229","rgba(255,255,255,.1)","#800020","#fff","#f0c8c8","#c08080","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-arctic", "Arctic", "dark", ["#1c2e3f","#243a4f","#2c4660","#1c2e3f","#1c2e3f","#243a4f","#e0eaf4","#a0b8d0","#6080a0","#385470","rgba(255,255,255,.1)","#80d0ff","#fff","#e0eaf4","#a0b8d0","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-jungle", "Jungle", "dark", ["#0f1a0f","#172417","#1f301f","#0f1a0f","#0f1a0f","#172417","#d0e8d0","#80b080","#506850","#284028","rgba(255,255,255,.1)","#8bc34a","#fff","#d0e8d0","#80b080","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-mocha", "Mocha", "dark", ["#2b1f1c","#372a26","#453530","#2b1f1c","#2b1f1c","#372a26","#e8d4c4","#b89888","#7a5e50","#553f36","rgba(255,255,255,.1)","#a0522d","#fff","#e8d4c4","#b89888","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-blackcurrant", "Blackcurrant", "dark", ["#1a0a1f","#23102a","#2d1638","#1a0a1f","#1a0a1f","#23102a","#e8c8f0","#a880b8","#705080","#3a1d48","rgba(255,255,255,.1)","#9c27b0","#fff","#e8c8f0","#a880b8","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["d-deepforest", "Deep Forest", "dark", ["#0a1410","#101a14","#16241c","#0a1410","#0a1410","#101a14","#c8e0d0","#80a890","#506858","#1f342a","rgba(255,255,255,.1)","#388e3c","#fff","#c8e0d0","#80a890","rgba(255,255,255,.07)","rgba(0,0,0,.5)"]],
+    ["l-clean", "Clean White", "light", ["#ffffff","#f8f8f8","#ffffff","#ffffff","#ffffff","#f8f8f8","#111111","#606060","#aaaaaa","#eeeeee","rgba(0,0,0,.1)","#c00","#ffffff","#111111","#aaaaaa","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-warm", "Warm Cream", "light", ["#fdf6ec","#f8f0e0","#fdf6ec","#fdf6ec","#fdf6ec","#f8f0e0","#2c2416","#6e5e48","#b0a088","#ede4d0","rgba(0,0,0,.1)","#c06030","#ffffff","#2c2416","#b0a088","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-nord", "Nord Light", "light", ["#eceff4","#e5e9f0","#eceff4","#eceff4","#eceff4","#e5e9f0","#2e3440","#4c566a","#9aa0ac","#d8dee9","rgba(0,0,0,.1)","#5e81ac","#ffffff","#2e3440","#9aa0ac","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-solarized", "Solarized Light", "light", ["#fdf6e3","#eee8d5","#fdf6e3","#fdf6e3","#fdf6e3","#eee8d5","#073642","#586e75","#93a1a1","#e6dfcc","rgba(0,0,0,.1)","#268bd2","#ffffff","#073642","#93a1a1","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-catppuccin", "Catppuccin Latte", "light", ["#eff1f5","#e6e9ef","#eff1f5","#eff1f5","#eff1f5","#e6e9ef","#4c4f69","#6c6f85","#9ca0b0","#dce0e8","rgba(0,0,0,.1)","#8839ef","#ffffff","#4c4f69","#9ca0b0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-sky", "Sky Blue", "light", ["#f0f6ff","#e6eef8","#f0f6ff","#f0f6ff","#f0f6ff","#e6eef8","#1a2a40","#4a6080","#90a0b8","#d4e2f4","rgba(0,0,0,.1)","#1976d2","#ffffff","#1a2a40","#90a0b8","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-mint", "Mint Green", "light", ["#f0faf4","#e4f4ea","#f0faf4","#f0faf4","#f0faf4","#e4f4ea","#1a3024","#3a6848","#88b098","#d0ead8","rgba(0,0,0,.1)","#2e7d32","#ffffff","#1a3024","#88b098","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-lavender", "Lavender", "light", ["#f5f0fa","#ece4f4","#f5f0fa","#f5f0fa","#f5f0fa","#ece4f4","#261a3a","#5a4070","#a090b8","#ddd0ee","rgba(0,0,0,.1)","#7b1fa2","#ffffff","#261a3a","#a090b8","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-peach", "Peach", "light", ["#fff5f0","#fceee6","#fff5f0","#fff5f0","#fff5f0","#fceee6","#3a2018","#7a5040","#c0a090","#f0dcd0","rgba(0,0,0,.1)","#e64a19","#ffffff","#3a2018","#c0a090","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-rose", "Rose", "light", ["#fdf0f4","#f8e4ec","#fdf0f4","#fdf0f4","#fdf0f4","#f8e4ec","#3a1828","#804060","#c890a8","#eed0dc","rgba(0,0,0,.1)","#c2185b","#ffffff","#3a1828","#c890a8","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-paper", "Paper", "light", ["#f5f5f0","#eeeee8","#f5f5f0","#f5f5f0","#f5f5f0","#eeeee8","#222222","#555555","#aaaaaa","#e0e0d8","rgba(0,0,0,.1)","#555555","#ffffff","#222222","#aaaaaa","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-sand", "Sand", "light", ["#f8f4ee","#f0ebe2","#f8f4ee","#f8f4ee","#f8f4ee","#f0ebe2","#2e2a22","#6e6455","#b0a898","#e4ddd0","rgba(0,0,0,.1)","#8d6e00","#ffffff","#2e2a22","#b0a898","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-graphite", "Graphite Light", "light", ["#eef0f2","#e2e6ea","#eef0f2","#eef0f2","#eef0f2","#e2e6ea","#1a1e24","#4a5060","#8a90a0","#d4d8de","rgba(0,0,0,.1)","#455a64","#ffffff","#1a1e24","#8a90a0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-ocean", "Ocean Foam", "light", ["#eef6f6","#e2f0f0","#eef6f6","#eef6f6","#eef6f6","#e2f0f0","#1a3030","#406060","#88b0b0","#d0e6e6","rgba(0,0,0,.1)","#00897b","#ffffff","#1a3030","#88b0b0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-sunset", "Sunset Glow", "light", ["#fff8f0","#fdf0e4","#fff8f0","#fff8f0","#fff8f0","#fdf0e4","#3a2810","#7a5830","#c0a078","#f0dcc4","rgba(0,0,0,.1)","#e65100","#ffffff","#3a2810","#c0a078","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-github", "GitHub Light", "light", ["#ffffff","#f6f8fa","#ffffff","#ffffff","#ffffff","#f6f8fa","#24292e","#586069","#959da5","#eaecef","rgba(0,0,0,.1)","#0366d6","#ffffff","#24292e","#959da5","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-vscode", "VS Code Light", "light", ["#ffffff","#f3f3f3","#ffffff","#ffffff","#ffffff","#f3f3f3","#1e1e1e","#383838","#9d9d9d","#e7e7e7","rgba(0,0,0,.1)","#005fb8","#ffffff","#1e1e1e","#9d9d9d","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-atom", "Atom Light", "light", ["#ffffff","#fafafa","#ffffff","#ffffff","#ffffff","#fafafa","#383a42","#a0a1a7","#a0a1a7","#e5e5e6","rgba(0,0,0,.1)","#4078f2","#ffffff","#383a42","#a0a1a7","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-one-light", "One Light", "light", ["#fafafa","#f0f0f0","#fafafa","#fafafa","#fafafa","#f0f0f0","#383a42","#a0a1a7","#a0a1a7","#e5e5e6","rgba(0,0,0,.1)","#4078f2","#ffffff","#383a42","#a0a1a7","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-tomorrow", "Tomorrow", "light", ["#ffffff","#efefef","#ffffff","#ffffff","#ffffff","#efefef","#4d4d4c","#8e908c","#8e908c","#d6d6d6","rgba(0,0,0,.1)","#4271ae","#ffffff","#4d4d4c","#8e908c","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-pencil", "Base16 Pencil", "light", ["#f1f1f1","#e0e0e0","#f1f1f1","#f1f1f1","#f1f1f1","#e0e0e0","#202020","#505050","#808080","#b0b0b0","rgba(0,0,0,.1)","#5fb3b3","#ffffff","#202020","#808080","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-ayu-light", "Ayu Light", "light", ["#fafafa","#f3f4f5","#fafafa","#fafafa","#fafafa","#f3f4f5","#5c6773","#8a9199","#abb0b6","#e7eaed","rgba(0,0,0,.1)","#ff6a00","#ffffff","#5c6773","#abb0b6","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-iceberg", "Iceberg Light", "light", ["#e8e9ec","#dcdfe4","#e8e9ec","#e8e9ec","#e8e9ec","#dcdfe4","#33374c","#6b7089","#9fa6b8","#cad0de","rgba(0,0,0,.1)","#2d539e","#ffffff","#33374c","#9fa6b8","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-papercolor", "PaperColor Light", "light", ["#eeeeee","#e4e4e4","#eeeeee","#eeeeee","#eeeeee","#e4e4e4","#444444","#5f8787","#878787","#dadada","rgba(0,0,0,.1)","#005f87","#ffffff","#444444","#878787","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-vanilla", "Vanilla", "light", ["#fefee9","#f8f8e0","#fefee9","#fefee9","#fefee9","#f8f8e0","#3a3320","#6c6648","#a09880","#ebe4cc","rgba(0,0,0,.1)","#ff8c00","#ffffff","#3a3320","#a09880","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-honey", "Honey", "light", ["#fff8e1","#fff3c4","#fff8e1","#fff8e1","#fff8e1","#fff3c4","#3a2c08","#7a5e1c","#bda564","#f5e8a8","rgba(0,0,0,.1)","#ffa000","#ffffff","#3a2c08","#bda564","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-mint-fresh", "Mint Fresh", "light", ["#e8f5e9","#dcefdc","#e8f5e9","#e8f5e9","#e8f5e9","#dcefdc","#1b3320","#3e7048","#82af88","#c8e6c9","rgba(0,0,0,.1)","#43a047","#ffffff","#1b3320","#82af88","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-pink-petal", "Pink Petal", "light", ["#fce4ec","#f8d7e2","#fce4ec","#fce4ec","#fce4ec","#f8d7e2","#3a1a28","#74304a","#c08aa0","#f1c5d4","rgba(0,0,0,.1)","#d81b60","#ffffff","#3a1a28","#c08aa0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-blueprint", "Blueprint", "light", ["#e3f2fd","#cce7fb","#e3f2fd","#e3f2fd","#e3f2fd","#cce7fb","#0d2940","#1e5485","#76a9d8","#a0d0f5","rgba(0,0,0,.1)","#1565c0","#ffffff","#0d2940","#76a9d8","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-grape", "Grape", "light", ["#f3e5f5","#ead0ee","#f3e5f5","#f3e5f5","#f3e5f5","#ead0ee","#291a3a","#5d3c75","#9f80b4","#dec0e3","rgba(0,0,0,.1)","#6a1b9a","#ffffff","#291a3a","#9f80b4","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-marigold", "Marigold", "light", ["#fff3c4","#ffeb9c","#fff3c4","#fff3c4","#fff3c4","#ffeb9c","#3d2c00","#7c5e16","#bda06d","#ffe082","rgba(0,0,0,.1)","#f57f17","#ffffff","#3d2c00","#bda06d","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-spearmint", "Spearmint", "light", ["#e0f7fa","#c7eef2","#e0f7fa","#e0f7fa","#e0f7fa","#c7eef2","#0e2e34","#206d75","#73b1b8","#a4dfe5","rgba(0,0,0,.1)","#00838f","#ffffff","#0e2e34","#73b1b8","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-silver", "Silver", "light", ["#f5f5f5","#ededed","#f5f5f5","#f5f5f5","#f5f5f5","#ededed","#2c2c2c","#5e5e5e","#9b9b9b","#d6d6d6","rgba(0,0,0,.1)","#616161","#ffffff","#2c2c2c","#9b9b9b","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-pearl", "Pearl", "light", ["#fafafa","#f0f0f0","#fafafa","#fafafa","#fafafa","#f0f0f0","#212121","#616161","#9e9e9e","#e0e0e0","rgba(0,0,0,.1)","#37474f","#ffffff","#212121","#9e9e9e","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-pastel", "Pastel", "light", ["#fff5f7","#fde8ed","#fff5f7","#fff5f7","#fff5f7","#fde8ed","#3a2030","#704258","#b48aa3","#f5d0db","rgba(0,0,0,.1)","#e91e63","#ffffff","#3a2030","#b48aa3","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-lemon", "Lemon", "light", ["#fffde7","#fff9c4","#fffde7","#fffde7","#fffde7","#fff9c4","#3a3000","#705e00","#aa8f00","#f0e68c","rgba(0,0,0,.1)","#f9a825","#ffffff","#3a3000","#aa8f00","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-coral", "Coral", "light", ["#ffeae0","#ffd9c5","#ffeae0","#ffeae0","#ffeae0","#ffd9c5","#3a1a08","#7a3a16","#c0805a","#ffba9a","rgba(0,0,0,.1)","#f06292","#ffffff","#3a1a08","#c0805a","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-ice", "Arctic Ice", "light", ["#f0f8ff","#e0f0ff","#f0f8ff","#f0f8ff","#f0f8ff","#e0f0ff","#0a2a4a","#2860a0","#80a8d0","#c0d8f0","rgba(0,0,0,.1)","#039be5","#ffffff","#0a2a4a","#80a8d0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-cherry", "Cherry Blossom", "light", ["#fff0f5","#ffe0eb","#fff0f5","#fff0f5","#fff0f5","#ffe0eb","#3a1828","#80405e","#cc8aa8","#ffc8de","rgba(0,0,0,.1)","#ec407a","#ffffff","#3a1828","#cc8aa8","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-newspaper", "Newspaper", "light", ["#f8f5f0","#efece6","#f8f5f0","#f8f5f0","#f8f5f0","#efece6","#1a1a1a","#4a4a4a","#888888","#e0ddd6","rgba(0,0,0,.1)","#2a2a2a","#ffffff","#1a1a1a","#888888","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-cotton", "Cotton Candy", "light", ["#fef0fc","#fde0fa","#fef0fc","#fef0fc","#fef0fc","#fde0fa","#3a1638","#7a3878","#b888b6","#f4c4f0","rgba(0,0,0,.1)","#d500f9","#ffffff","#3a1638","#b888b6","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-aqua-light", "Aqua Light", "light", ["#e0f7f7","#ccefef","#e0f7f7","#e0f7f7","#e0f7f7","#ccefef","#0a3030","#206868","#70b0b0","#a0dede","rgba(0,0,0,.1)","#00acc1","#ffffff","#0a3030","#70b0b0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-melon", "Melon", "light", ["#fff5e1","#ffe9c4","#fff5e1","#fff5e1","#fff5e1","#ffe9c4","#3a2814","#7a522a","#b58a55","#fce0a8","rgba(0,0,0,.1)","#fb8c00","#ffffff","#3a2814","#b58a55","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-eggshell", "Eggshell", "light", ["#fcfcf0","#f5f5e0","#fcfcf0","#fcfcf0","#fcfcf0","#f5f5e0","#262616","#56564a","#9c9c8a","#e6e6cc","rgba(0,0,0,.1)","#827717","#ffffff","#262616","#9c9c8a","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-mist", "Morning Mist", "light", ["#f5f7f9","#e9ecef","#f5f7f9","#f5f7f9","#f5f7f9","#e9ecef","#1a2330","#4a5666","#8896a8","#d1d8e0","rgba(0,0,0,.1)","#5c7080","#ffffff","#1a2330","#8896a8","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-violet-light", "Soft Violet", "light", ["#f3e8ff","#e6d6ff","#f3e8ff","#f3e8ff","#f3e8ff","#e6d6ff","#28133a","#5a3072","#a080c4","#dac0f0","rgba(0,0,0,.1)","#7c4dff","#ffffff","#28133a","#a080c4","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-blush", "Blush", "light", ["#fde7e9","#fcd0d4","#fde7e9","#fde7e9","#fde7e9","#fcd0d4","#3a1620","#7a3848","#bb858f","#f5b5be","rgba(0,0,0,.1)","#e91e63","#ffffff","#3a1620","#bb858f","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-celeste", "Celeste", "light", ["#e8f4f8","#d4eaf0","#e8f4f8","#e8f4f8","#e8f4f8","#d4eaf0","#1a2e3a","#3a607a","#80a0b0","#b8d6e0","rgba(0,0,0,.1)","#0288d1","#ffffff","#1a2e3a","#80a0b0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-cream", "Vanilla Cream", "light", ["#fdf9f0","#f8f2e2","#fdf9f0","#fdf9f0","#fdf9f0","#f8f2e2","#3a3014","#75612b","#b3a06b","#e8ddc1","rgba(0,0,0,.1)","#bf8d30","#ffffff","#3a3014","#b3a06b","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-fawn", "Fawn", "light", ["#f4ebde","#ebdfca","#f4ebde","#f4ebde","#f4ebde","#ebdfca","#3a2814","#75522a","#b08a58","#dec5a3","rgba(0,0,0,.1)","#8d6e63","#ffffff","#3a2814","#b08a58","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-quartz", "Quartz", "light", ["#f7f4f8","#eee8f0","#f7f4f8","#f7f4f8","#f7f4f8","#eee8f0","#2a1f30","#5a4068","#9a80a8","#d8c8e0","rgba(0,0,0,.1)","#9c27b0","#ffffff","#2a1f30","#9a80a8","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-frost", "Frost", "light", ["#f5f9fc","#e8f0f7","#f5f9fc","#f5f9fc","#f5f9fc","#e8f0f7","#1c2530","#445566","#88a0b0","#c8d8e8","rgba(0,0,0,.1)","#1976d2","#ffffff","#1c2530","#88a0b0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-rose-gold", "Rose Gold", "light", ["#fce8e0","#fad4c8","#fce8e0","#fce8e0","#fce8e0","#fad4c8","#3a1c14","#7a4032","#c08070","#f5b8a4","rgba(0,0,0,.1)","#b76e79","#ffffff","#3a1c14","#c08070","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-champagne", "Champagne", "light", ["#fdf5e6","#fae9c8","#fdf5e6","#fdf5e6","#fdf5e6","#fae9c8","#3a2c14","#75582d","#b39568","#e8d3a0","rgba(0,0,0,.1)","#bf9b30","#ffffff","#3a2c14","#b39568","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-jade", "Jade", "light", ["#e0f2e9","#cce8d8","#e0f2e9","#e0f2e9","#e0f2e9","#cce8d8","#0a2818","#1c5436","#5e9078","#a0d0b8","rgba(0,0,0,.1)","#00897b","#ffffff","#0a2818","#5e9078","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-cornsilk", "Cornsilk", "light", ["#fff8dc","#fdedb8","#fff8dc","#fff8dc","#fff8dc","#fdedb8","#3a3414","#75692b","#b09e6c","#e8d894","rgba(0,0,0,.1)","#cba135","#ffffff","#3a3414","#b09e6c","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-blueberry-light", "Blueberry Light", "light", ["#e8eaf6","#d4d7ed","#e8eaf6","#e8eaf6","#e8eaf6","#d4d7ed","#0d1545","#1f3080","#7080c0","#b8c0e0","rgba(0,0,0,.1)","#3949ab","#ffffff","#0d1545","#7080c0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-mauve", "Mauve", "light", ["#ede6ec","#e0d4de","#ede6ec","#ede6ec","#ede6ec","#e0d4de","#2a1828","#583a55","#a080a0","#d4bcd0","rgba(0,0,0,.1)","#8e24aa","#ffffff","#2a1828","#a080a0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-sage", "Sage", "light", ["#eef4e8","#dfe8d3","#eef4e8","#eef4e8","#eef4e8","#dfe8d3","#1c3014","#46662a","#88a880","#c4d8b4","rgba(0,0,0,.1)","#558b2f","#ffffff","#1c3014","#88a880","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-zen", "Zen", "light", ["#f7f4ec","#ebe5d4","#f7f4ec","#f7f4ec","#f7f4ec","#ebe5d4","#2c2820","#5c5040","#a09480","#d8d0bc","rgba(0,0,0,.1)","#6d4c41","#ffffff","#2c2820","#a09480","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-arctic-snow", "Arctic Snow", "light", ["#ffffff","#f0f4f8","#ffffff","#ffffff","#ffffff","#f0f4f8","#0d1a30","#3a5670","#7090b0","#dde6ee","rgba(0,0,0,.1)","#1565c0","#ffffff","#0d1a30","#7090b0","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-meadow", "Meadow", "light", ["#f0f5e8","#e0ecd4","#f0f5e8","#f0f5e8","#f0f5e8","#e0ecd4","#1f2c14","#506830","#90a878","#c8d8b4","rgba(0,0,0,.1)","#689f38","#ffffff","#1f2c14","#90a878","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["d-obsidian", "Obsidian", "dark", ["#0b0c0f","#1a1b1d","#232427","#0b0c0f","#0b0c0f","#1a1b1d","#d3d3d4","#9d9e9f","#636365","#232427","rgba(255,255,255,.1)","#7f8ff9","#fff","#d3d3d4","#9d9e9f","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-night-crimson", "Night Crimson", "dark", ["#1c0b12","#2a1a20","#33232a","#1c0b12","#1c0b12","#2a1a20","#d6d3d4","#a49da0","#6e6367","#33232a","rgba(255,255,255,.1)","#ff7bb1","#fff","#d6d3d4","#a49da0","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-wine", "Wine", "dark", ["#2a0f16","#371d24","#3f272d","#2a0f16","#2a0f16","#371d24","#d9d4d5","#aa9fa2","#77656a","#3f272d","rgba(255,255,255,.1)","#ff7d5a","#fff","#d9d4d5","#aa9fa2","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-dusk", "Dusk", "dark", ["#1a1826","#282633","#312f3c","#1a1826","#1a1826","#282633","#d6d5d8","#a3a3a8","#6c6b74","#312f3c","rgba(255,255,255,.1)","#ff9e64","#fff","#d6d5d8","#a3a3a8","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-pine-grove", "Pine Grove", "dark", ["#0b1913","#1a2721","#23302b","#0b1913","#0b1913","#1a2721","#d3d6d5","#9da3a1","#636c68","#23302b","rgba(255,255,255,.1)","#9ece6a","#fff","#d3d6d5","#9da3a1","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-plum", "Plum", "dark", ["#231238","#302044","#392a4c","#231238","#231238","#302044","#d7d4db","#a7a0af","#726780","#392a4c","rgba(255,255,255,.1)","#c792ea","#fff","#d7d4db","#a7a0af","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-cyber-glow", "Cyber Glow", "dark", ["#0a0f2a","#191d37","#23273f","#0a0f2a","#0a0f2a","#191d37","#d3d4d9","#9d9faa","#626577","#23273f","rgba(255,255,255,.1)","#00e5ff","#fff","#d3d4d9","#9d9faa","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-electric-lime", "Electric Lime", "dark", ["#121405","#202214","#2a2c1e","#121405","#121405","#202214","#d4d5d2","#a0a19b","#67695f","#2a2c1e","rgba(255,255,255,.1)","#b6ff3b","#fff","#d4d5d2","#a0a19b","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-rose-quartz", "Rose Quartz", "dark", ["#221018","#2f1e26","#38282f","#221018","#221018","#2f1e26","#d7d4d5","#a79fa3","#72666b","#38282f","rgba(255,255,255,.1)","#ffb2d6","#fff","#d7d4d5","#a79fa3","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-night-navy", "Night Navy", "dark", ["#0d1730","#1c253c","#252e45","#0d1730","#0d1730","#1c253c","#d3d5da","#9ea2ac","#646b7b","#252e45","rgba(255,255,255,.1)","#6ea8ff","#fff","#d3d5da","#9ea2ac","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-teal-abyss", "Teal Abyss", "dark", ["#04140c","#13221b","#1d2c24","#04140c","#04140c","#13221b","#d2d5d3","#9ba19e","#5e6963","#1d2c24","rgba(255,255,255,.1)","#26e6a8","#fff","#d2d5d3","#9ba19e","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-amethyst-haze", "Amethyst Haze", "dark", ["#1c1633","#2a243f","#332d47","#1c1633","#1c1633","#2a243f","#d6d5da","#a4a2ad","#6e6a7c","#332d47","rgba(255,255,255,.1)","#a78bfa","#fff","#d6d5da","#a4a2ad","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-sapphire", "Sapphire", "dark", ["#06213a","#152e46","#1f374e","#06213a","#06213a","#152e46","#d2d7dc","#9ba6b0","#607181","#1f374e","rgba(255,255,255,.1)","#4fc3f7","#fff","#d2d7dc","#9ba6b0","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-garnet", "Garnet", "dark", ["#24070f","#31161d","#3a2027","#24070f","#24070f","#31161d","#d8d2d4","#a79c9f","#736065","#3a2027","rgba(255,255,255,.1)","#ff7f94","#fff","#d8d2d4","#a79c9f","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-periwinkle", "Periwinkle", "dark", ["#141d40","#222b4b","#2c3453","#141d40","#141d40","#222b4b","#d5d6dd","#a1a5b3","#696e85","#2c3453","rgba(255,255,255,.1)","#9aa5ff","#fff","#d5d6dd","#a1a5b3","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-sunbeam", "Sunbeam", "dark", ["#241c08","#312a17","#3a3321","#241c08","#241c08","#312a17","#d8d6d3","#a7a49c","#736e61","#3a3321","rgba(255,255,255,.1)","#ffd75e","#fff","#d8d6d3","#a7a49c","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-undersea", "Undersea", "dark", ["#0a1f1d","#192c2b","#233534","#0a1f1d","#0a1f1d","#192c2b","#d3d7d6","#9da5a5","#62706e","#233534","rgba(255,255,255,.1)","#26d0c6","#fff","#d3d7d6","#9da5a5","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-smoke", "Smoke", "dark", ["#17181a","#252628","#2e2f31","#17181a","#17181a","#252628","#d5d5d6","#a2a3a3","#6b6b6c","#2e2f31","rgba(255,255,255,.1)","#d0a24e","#fff","#d5d5d6","#a2a3a3","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-graphite", "Graphite", "dark", ["#141414","#222222","#2c2c2c","#141414","#141414","#222222","#d5d5d5","#a1a1a1","#696969","#2c2c2c","rgba(255,255,255,.1)","#8fb6ff","#fff","#d5d5d5","#a1a1a1","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-crimson-tide", "Crimson Tide", "dark", ["#2b0508","#381417","#401e21","#2b0508","#2b0508","#381417","#d9d2d3","#aa9b9c","#775f61","#401e21","rgba(255,255,255,.1)","#ff4d4d","#fff","#d9d2d3","#aa9b9c","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-lavender-night", "Lavender Night", "dark", ["#1a1530","#28233c","#312c45","#1a1530","#1a1530","#28233c","#d6d5da","#a3a1ac","#6c697b","#312c45","rgba(255,255,255,.1)","#d9c7ff","#fff","#d6d5da","#a3a1ac","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-rich-espresso", "Rich Espresso", "dark", ["#2c1609","#392418","#412d22","#2c1609","#2c1609","#392418","#d9d5d3","#aba29d","#786a62","#412d22","rgba(255,255,255,.1)","#dfa15c","#fff","#d9d5d3","#aba29d","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-boysenberry", "Boysenberry", "dark", ["#250b2e","#321a3b","#3b2343","#250b2e","#250b2e","#321a3b","#d8d3d9","#a89dab","#736379","#3b2343","rgba(255,255,255,.1)","#b18aff","#fff","#d8d3d9","#a89dab","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-rust", "Rust", "dark", ["#2b0f06","#381d15","#40271f","#2b0f06","#2b0f06","#381d15","#d9d4d2","#aa9f9b","#776560","#40271f","rgba(255,255,255,.1)","#ff8a5c","#fff","#d9d4d2","#aa9f9b","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-afterglow", "Afterglow", "dark", ["#17140a","#252219","#2e2c23","#17140a","#17140a","#252219","#d5d5d3","#a2a19d","#6b6962","#2e2c23","rgba(255,255,255,.1)","#c8d13b","#fff","#d5d5d3","#a2a19d","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-glacier", "Glacier", "dark", ["#0e1b22","#1c292f","#263238","#0e1b22","#0e1b22","#1c292f","#d4d6d7","#9fa4a7","#656d72","#263238","rgba(255,255,255,.1)","#6bd4ff","#fff","#d4d6d7","#9fa4a7","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-blackberry", "Blackberry", "dark", ["#1c0f26","#2a1d33","#33273c","#1c0f26","#1c0f26","#2a1d33","#d6d4d8","#a49fa8","#6e6574","#33273c","rgba(255,255,255,.1)","#c06fff","#fff","#d6d4d8","#a49fa8","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-orchid-night", "Orchid Night", "dark", ["#1f0f22","#2c1d2f","#352738","#1f0f22","#1f0f22","#2c1d2f","#d7d4d7","#a59fa7","#706572","#352738","rgba(255,255,255,.1)","#ff8ad2","#fff","#d7d4d7","#a59fa7","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-midnight-cobalt", "Midnight Cobalt", "dark", ["#0a1027","#191e34","#23283d","#0a1027","#0a1027","#191e34","#d3d4d8","#9d9fa9","#626675","#23283d","rgba(255,255,255,.1)","#4080ff","#fff","#d3d4d8","#9d9fa9","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-forest-floor", "Forest Floor", "dark", ["#0d1715","#1c2523","#252e2c","#0d1715","#0d1715","#1c2523","#d3d5d5","#9ea2a1","#646b69","#252e2c","rgba(255,255,255,.1)","#7fbf6f","#fff","#d3d5d5","#9ea2a1","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-indigo-ink", "Indigo Ink", "dark", ["#160f2e","#241d3b","#2d2743","#160f2e","#160f2e","#241d3b","#d5d4d9","#a29fab","#6a6579","#2d2743","rgba(255,255,255,.1)","#7f6cff","#fff","#d5d4d9","#a29fab","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-amber-sunset", "Amber Sunset", "dark", ["#2c1313","#392121","#412b2b","#2c1313","#2c1313","#392121","#d9d5d5","#aba1a1","#786868","#412b2b","rgba(255,255,255,.1)","#ff9f5a","#fff","#d9d5d5","#aba1a1","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-slate-storm", "Slate Storm", "dark", ["#1c2024","#2a2d31","#33363a","#1c2024","#1c2024","#2a2d31","#d6d7d8","#a4a6a7","#6e7073","#33363a","rgba(255,255,255,.1)","#a7c1e0","#fff","#d6d7d8","#a4a6a7","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-onyx", "Onyx", "dark", ["#0a0a0c","#19191b","#232324","#0a0a0c","#0a0a0c","#19191b","#d3d3d3","#9d9d9e","#626263","#232324","rgba(255,255,255,.1)","#e0e0e5","#fff","#d3d3d3","#9d9d9e","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-night-sky", "Night Sky", "dark", ["#02102a","#111e37","#1b283f","#02102a","#02102a","#111e37","#d1d4d9","#9a9faa","#5d6677","#1b283f","rgba(255,255,255,.1)","#7fd4ff","#fff","#d1d4d9","#9a9faa","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["d-copperberry", "Copperberry", "dark", ["#171426","#252233","#2e2c3c","#171426","#171426","#252233","#d5d5d8","#a2a1a8","#6b6974","#2e2c3c","rgba(255,255,255,.1)","#b3a3ff","#fff","#d5d5d8","#a2a1a8","rgba(255,255,255,.07)","rgba(0,0,0,.55)"]],
+    ["l-alabaster", "Alabaster", "light", ["#f7f4ea","#f2efe5","#ebe8de","#f7f4ea","#f7f4ea","#f2efe5","#31312f","#777570","#b2b0a8","#ebe8de","rgba(0,0,0,.1)","#3b82f6","#ffffff","#31312f","#777570","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-porcelain", "Porcelain", "light", ["#f2f5f8","#edf0f3","#e6e9ec","#f2f5f8","#f2f5f8","#edf0f3","#303132","#747677","#aeb0b3","#e6e9ec","rgba(0,0,0,.1)","#2563eb","#ffffff","#303132","#747677","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-cloud-white", "Cloud White", "light", ["#fbfbfd","#f6f6f8","#eeeef0","#fbfbfd","#fbfbfd","#f6f6f8","#323233","#787879","#b5b5b6","#eeeef0","rgba(0,0,0,.1)","#4f6ef7","#ffffff","#323233","#787879","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-ivory", "Ivory", "light", ["#fbf6e6","#f6f1e1","#eeeadb","#fbf6e6","#fbf6e6","#f6f1e1","#32312e","#78766e","#b5b1a6","#eeeadb","rgba(0,0,0,.1)","#c99a2e","#ffffff","#32312e","#78766e","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-pearl-gray", "Pearl Gray", "light", ["#f1f2f4","#ecedef","#e5e6e8","#f1f2f4","#f1f2f4","#ecedef","#303031","#747475","#aeaeb0","#e5e6e8","rgba(0,0,0,.1)","#5b6472","#ffffff","#303031","#747475","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-warm-light", "Warm Light", "light", ["#fff3e6","#faeee1","#f2e7db","#fff3e6","#fff3e6","#faeee1","#33312e","#7a756e","#b8afa6","#f2e7db","rgba(0,0,0,.1)","#ef6c00","#ffffff","#33312e","#7a756e","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-cloud-nine", "Cloud Nine", "light", ["#e7f0ee","#e2ebe9","#dbe4e2","#e7f0ee","#e7f0ee","#e2ebe9","#2e3030","#6f7372","#a6adab","#dbe4e2","rgba(0,0,0,.1)","#3f7d6b","#ffffff","#2e3030","#6f7372","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-petal", "Petal", "light", ["#fefcf7","#f9f7f2","#f1efeb","#fefcf7","#fefcf7","#f9f7f2","#333231","#7a7977","#b7b5b2","#f1efeb","rgba(0,0,0,.1)","#8a9a4a","#ffffff","#333231","#7a7977","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-pecan-linen", "Pecan Linen", "light", ["#faf6ef","#f5f1ea","#eeeae3","#faf6ef","#faf6ef","#f5f1ea","#323130","#787673","#b4b1ac","#eeeae3","rgba(0,0,0,.1)","#a16207","#ffffff","#323130","#787673","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-ice-frost", "Ice Frost", "light", ["#f0f7fc","#ebf2f7","#e4ebef","#f0f7fc","#f0f7fc","#ebf2f7","#303132","#737779","#adb2b5","#e4ebef","rgba(0,0,0,.1)","#38bdf8","#ffffff","#303132","#737779","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-beige-sand", "Beige Sand", "light", ["#f2ecdf","#ede7db","#e6e0d4","#f2ecdf","#f2ecdf","#ede7db","#302f2d","#74716b","#aeaaa1","#e6e0d4","rgba(0,0,0,.1)","#a67c52","#ffffff","#302f2d","#74716b","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-rose-water", "Rose Water", "light", ["#fcf1f3","#f7ecee","#efe5e7","#fcf1f3","#fcf1f3","#f7ecee","#323031","#797475","#b5aeaf","#efe5e7","rgba(0,0,0,.1)","#e6487c","#ffffff","#323031","#797475","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-daffodil", "Daffodil", "light", ["#fdf9e8","#f8f4e3","#f0eddc","#fdf9e8","#fdf9e8","#f8f4e3","#33322e","#79786f","#b6b3a7","#f0eddc","rgba(0,0,0,.1)","#d9a521","#ffffff","#33322e","#79786f","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-seafoam", "Seafoam", "light", ["#eefaf4","#e9f5ef","#e2eee8","#eefaf4","#eefaf4","#e9f5ef","#303231","#727875","#abb4b0","#e2eee8","rgba(0,0,0,.1)","#10b981","#ffffff","#303231","#727875","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-wisteria", "Wisteria", "light", ["#f6f2fc","#f1edf7","#eae6ef","#f6f2fc","#f6f2fc","#f1edf7","#313032","#767479","#b1aeb5","#eae6ef","rgba(0,0,0,.1)","#8b5cf6","#ffffff","#313032","#767479","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-salmon", "Salmon", "light", ["#fdeeec","#f8e9e7","#f0e2e0","#fdeeec","#fdeeec","#f8e9e7","#33302f","#797271","#b6abaa","#f0e2e0","rgba(0,0,0,.1)","#e4485a","#ffffff","#33302f","#797271","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-buttermilk", "Buttermilk", "light", ["#f8f3e0","#f3eedc","#ece7d5","#f8f3e0","#f8f3e0","#f3eedc","#32312d","#77756c","#b3afa1","#ece7d5","rgba(0,0,0,.1)","#d4a017","#ffffff","#32312d","#77756c","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-mint-julep", "Mint Julep", "light", ["#effaf3","#eaf5ee","#e3eee7","#effaf3","#effaf3","#eaf5ee","#303231","#737875","#acb4af","#e3eee7","rgba(0,0,0,.1)","#2f9e44","#ffffff","#303231","#737875","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-powder-blue", "Powder Blue", "light", ["#eef6fd","#e9f1f8","#e2eaf0","#eef6fd","#eef6fd","#e9f1f8","#303133","#727679","#abb1b6","#e2eaf0","rgba(0,0,0,.1)","#4b9cf5","#ffffff","#303133","#727679","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-camellia", "Camellia", "light", ["#fbeef0","#f6e9eb","#eee2e4","#fbeef0","#fbeef0","#f6e9eb","#323030","#787273","#b5abad","#eee2e4","rgba(0,0,0,.1)","#e05d7c","#ffffff","#323030","#787273","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-soft-mist", "Soft Mist", "light", ["#f2f4f6","#edeff1","#e6e8ea","#f2f4f6","#f2f4f6","#edeff1","#303131","#747576","#aeb0b1","#e6e8ea","rgba(0,0,0,.1)","#7d8996","#ffffff","#303131","#747576","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-champagne-glow", "Champagne Glow", "light", ["#f8ecd0","#f3e7cc","#ece0c6","#f8ecd0","#f8ecd0","#f3e7cc","#322f2a","#777164","#b3aa96","#ece0c6","rgba(0,0,0,.1)","#c9a227","#ffffff","#322f2a","#777164","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-peachy", "Peachy", "light", ["#fdeee4","#f8e9df","#f0e2d9","#fdeee4","#fdeee4","#f8e9df","#33302e","#79726d","#b6aba4","#f0e2d9","rgba(0,0,0,.1)","#fb923c","#ffffff","#33302e","#79726d","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-quiet-sage", "Quiet Sage", "light", ["#f1f7ee","#ecf2e9","#e5ebe2","#f1f7ee","#f1f7ee","#ecf2e9","#303130","#747772","#aeb2ab","#e5ebe2","rgba(0,0,0,.1)","#6f9e6b","#ffffff","#303130","#747772","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-snowdrop", "Snowdrop", "light", ["#fbfbfb","#f6f6f6","#eeeeee","#fbfbfb","#fbfbfb","#f6f6f6","#323232","#787878","#b5b5b5","#eeeeee","rgba(0,0,0,.1)","#334155","#ffffff","#323232","#787878","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-moonstone", "Moonstone", "light", ["#f0f4f8","#ebeff3","#e4e8ec","#f0f4f8","#f0f4f8","#ebeff3","#303132","#737577","#adb0b3","#e4e8ec","rgba(0,0,0,.1)","#5e7ea3","#ffffff","#303132","#737577","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-buttercream", "Buttercream", "light", ["#fbf0dc","#f6ebd8","#eee4d1","#fbf0dc","#fbf0dc","#f6ebd8","#32302c","#78736a","#b5ad9e","#eee4d1","rgba(0,0,0,.1)","#eab308","#ffffff","#32302c","#78736a","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-lilac", "Lilac", "light", ["#f2f3fb","#edeef6","#e6e7ee","#f2f3fb","#f2f3fb","#edeef6","#303132","#747578","#aeafb5","#e6e7ee","rgba(0,0,0,.1)","#a78bfa","#ffffff","#303132","#747578","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-mint-chip", "Mint Chip", "light", ["#eefaf2","#e9f5ed","#e2eee6","#eefaf2","#eefaf2","#e9f5ed","#303230","#727874","#abb4ae","#e2eee6","rgba(0,0,0,.1)","#00a86b","#ffffff","#303230","#727874","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-rosebud", "Rosebud", "light", ["#fef0f4","#f9ebef","#f1e4e8","#fef0f4","#fef0f4","#f9ebef","#333031","#7a7375","#b7adb0","#f1e4e8","rgba(0,0,0,.1)","#fb7185","#ffffff","#333031","#7a7375","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-driftwood", "Driftwood", "light", ["#f5efe4","#f0eadf","#e9e3d9","#f5efe4","#f5efe4","#f0eadf","#31302e","#76736d","#b0aca4","#e9e3d9","rgba(0,0,0,.1)","#b98a3e","#ffffff","#31302e","#76736d","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-clear-sky", "Clear Sky", "light", ["#eef7fd","#e9f2f8","#e2ebf0","#eef7fd","#eef7fd","#e9f2f8","#303133","#727779","#abb2b6","#e2ebf0","rgba(0,0,0,.1)","#2196f3","#ffffff","#303133","#727779","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-creme-brulee", "Creme Brulee", "light", ["#fdf4e0","#f8efdc","#f0e8d5","#fdf4e0","#fdf4e0","#f8efdc","#33312d","#79756c","#b6b0a1","#f0e8d5","rgba(0,0,0,.1)","#b8860b","#ffffff","#33312d","#79756c","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-blue-horizon", "Blue Horizon", "light", ["#eef2fb","#e9edf6","#e2e6ee","#eef2fb","#eef2fb","#e9edf6","#303032","#727478","#abaeb5","#e2e6ee","rgba(0,0,0,.1)","#4169e1","#ffffff","#303032","#727478","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-watermelon", "Watermelon", "light", ["#eefaf0","#e9f5eb","#e2eee4","#eefaf0","#eefaf0","#e9f5eb","#303230","#727873","#abb4ad","#e2eee4","rgba(0,0,0,.1)","#34c759","#ffffff","#303230","#727873","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-lavender-haze", "Lavender Haze", "light", ["#f6f2fa","#f1edf5","#eae6ee","#f6f2fa","#f6f2fa","#f1edf5","#313032","#767478","#b1aeb4","#eae6ee","rgba(0,0,0,.1)","#9c7de5","#ffffff","#313032","#767478","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-morning-glory", "Morning Glory", "light", ["#edf9fb","#e8f4f6","#e1edee","#edf9fb","#edf9fb","#e8f4f6","#2f3232","#727878","#abb3b5","#e1edee","rgba(0,0,0,.1)","#2fb4c4","#ffffff","#2f3232","#727878","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+    ["l-amber-mist", "Amber Mist", "light", ["#fbf2df","#f6eddb","#eee6d4","#fbf2df","#fbf2df","#f6eddb","#32302d","#78746b","#b5aea1","#eee6d4","rgba(0,0,0,.1)","#e07a2a","#ffffff","#32302d","#78746b","rgba(0,0,0,.05)","rgba(0,0,0,.1)"]],
+  ]).map((r) =>
+    r[3]
+      ? {
+          id: r[0],
+          name: r[1],
+          mode: r[2],
+          vars: Object.fromEntries(r[3].map((v, i) => [_THEME_VARS[i], v])),
+        }
+      : { id: r[0], name: r[1], mode: r[2], vars: null },
+  );
   function _r(e) {
     const t = [];
     for (let a = 0; a < e.length; a++) {
@@ -22101,7 +18121,8 @@ const Nr = [
   (xa.register({
     id: "theme-engine",
     name: "Theme Engine",
-    summary: "200+ themes, custom accents, focus rings.",
+    summary: "201 hand-tuned themes, custom accent colors, focus rings, compact mode.",
+      cat: "appearance",
     masterKey: "themeEngineOn",
     keys: [
       "themeEngineOn",
@@ -22391,6 +18412,12 @@ const Nr = [
               "--yt-spec-static-overlay-background-light:rgba(0,0,0,.1)",
               "--yt-spec-suggested-action:" + p,
               "--yt-spec-suggested-action-inverse:" + c,
+              // brand-button pair: signed-out surfaces (bot-check modal,
+              // guide sign-in) paint raw YouTube white pills whose text
+              // otherwise inherits the theme ink and washes out
+              "--yt-spec-brand-button-background:" + h,
+              "--yt-spec-brand-button-text:" + _ctaLabel,
+              "--yt-spec-brand-button-border-color:" + h,
               "--yt-spec-static-brand-red:#c00",
               "--yt-spec-brand-link-text:" + hInk,
               "--yt-spec-wordmark-text:" + c,
@@ -22440,12 +18467,12 @@ const Nr = [
               [
                 "html body",
                 "ytd-app",
-                "#content",
+                "#content.ytd-app",
                 "ytd-browse",
                 "ytd-two-column-browse-results-renderer",
                 "ytd-rich-grid-renderer",
                 "ytd-watch-flexy",
-                "#page-manager",
+                "#page-manager.ytd-app",
                 "ytd-search",
               ].join(",") +
                 "{background-color:" +
@@ -22453,6 +18480,15 @@ const Nr = [
                 "!important;color:" +
                 c +
                 "!important}",
+            ),
+            k.push(
+              "ytd-default-promo-panel-renderer #content{background-color:transparent!important}",
+            ),
+            k.push(
+              "ytd-default-promo-panel-renderer:has(ytd-player) #hero-title,ytd-default-promo-panel-renderer:has(ytd-player) #hero-title a{color:#fff!important;text-shadow:rgba(0,0,0,.75) 0 0 18px,rgba(0,0,0,.75) 0 2px 8px}",
+            ),
+            k.push(
+              "ytd-default-promo-panel-renderer:has(ytd-player) yt-formatted-string{color:#e8e8e8!important;text-shadow:rgba(0,0,0,.75) 0 0 14px,rgba(0,0,0,.75) 0 1px 6px}",
             ),
             k.push(
               "ytd-masthead,#masthead-container,#masthead.ytd-app{background:" +
@@ -23672,7 +19708,8 @@ const Nr = [
     (xa.register({
     id: "comment-search",
     name: "Comment Search",
-    summary: "Live search box for comments.",
+    summary: "Live text filter box above comments.",
+      cat: "comments",
     masterKey: "commentSearchOn",
     keys: ["commentSearchOn"],
     apply(e) {
@@ -23740,8 +19777,9 @@ const Nr = [
 
   xa.register({
       id: "block-yt-ai",
-      name: "Hide YouTube AI Features",
-      summary: "Hides YouTube's AI buttons and summaries.",
+      name: "Hide YouTube AI",
+      summary: "Removes YouTube's AI buttons and generated summaries.",
+      cat: "feed",
       masterKey: "blockYTAIOn",
       keys: ["blockYTAIOn"],
       apply(e) {
@@ -25928,8 +21966,9 @@ const Nr = [
   }
   (xa.register({
     id: "elements-control",
-    name: "Hide Page Elements & Declutter",
-    summary: "Hide any YouTube element you do not want.",
+    name: "Element Hider",
+    summary: "Hide any named YouTube element; per-element toggles with live matching.",
+      cat: "appearance",
     masterKey: "elementsControlOn",
     keys: ["elementsControlOn", "elementsControlHidden"],
     apply(e) {
@@ -26760,8 +22799,7 @@ const Nr = [
         (!(function () {
           if (document.getElementById("ytb-dash-style")) return;
           const e =
-            '\n.ytb-fp{position:relative;width:100%}\n.ytb-fp-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:7px 10px;background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:7px;font:inherit;font-size:12px;cursor:pointer;transition:background .15s,border-color .15s;text-align:left}\n.ytb-fp-btn:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.2)}\n.ytb-fp-btn:focus{outline:none;border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n.ytb-fp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.ytb-fp-arrow{color:#8b93a3;font-size:10px;flex-shrink:0}\n.ytb-fp-dd{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;max-height:260px;display:flex;flex-direction:column;background:rgba(18,20,26,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;box-shadow:0 18px 40px rgba(0,0,0,.6),0 4px 12px rgba(0,0,0,.4);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);overflow:hidden;animation:ytbFpFade .12s ease-out}\n.ytb-fp-search{margin:8px 8px 6px;padding:6px 10px;background:rgba(255,255,255,.06);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:6px;font:inherit;font-size:11.5px;outline:none;flex-shrink:0}\n.ytb-fp-search::placeholder{color:#7a8290}\n.ytb-fp-search:focus{border-color:rgba(255,61,127,.55)}\n.ytb-fp-list{overflow-y:auto;flex:1;padding:2px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n.ytb-fp-list::-webkit-scrollbar{width:6px}\n.ytb-fp-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n.ytb-fp-item{padding:6px 10px;border-radius:5px;cursor:pointer;color:#eef;font-size:12px;line-height:1.3;transition:background .1s}\n.ytb-fp-item:hover{background:rgba(255,61,127,.22);color:#fff}\n.ytb-fp-item.selected{background:rgba(255,61,127,.32);font-weight:600}@keyframes ytbFpFade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}\n#ytb-ivs{font-family:\"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif}\n#ytb-ivs .ytb-ivs-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0))}\n#ytb-ivs .ytb-ivs-title{font-size:13px;font-weight:700;letter-spacing:.02em}\n#ytb-ivs .ytb-ivs-close{appearance:none;border:0;background:rgba(255,255,255,.06);color:#dde;width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;font-weight:700;transition:background .12s}\n#ytb-ivs .ytb-ivs-close:hover{background:rgba(255,80,80,.25);color:#fff}\n#ytb-ivs .ytb-ivs-input{margin:10px 14px 4px;padding:8px 12px;background:rgba(255,255,255,.06);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:8px;font:inherit;font-size:13px;outline:none;flex-shrink:0}\n#ytb-ivs .ytb-ivs-input::placeholder{color:#7a8290}\n#ytb-ivs .ytb-ivs-input:focus{border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n#ytb-ivs .ytb-ivs-status{padding:0 14px 6px;font:11px ui-monospace,monospace;color:#8b93a3}\n#ytb-ivs .ytb-ivs-timeline{position:relative;height:8px;margin:0 14px 10px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden;flex-shrink:0}\n#ytb-ivs .ytb-ivs-results{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 10px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.15) transparent}\n#ytb-ivs .ytb-ivs-results::-webkit-scrollbar{width:6px}\n#ytb-ivs .ytb-ivs-results::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}\n#ytb-ivs .ytb-ivs-row{display:flex;align-items:flex-start;gap:10px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background .1s}\n#ytb-ivs .ytb-ivs-row:hover{background:rgba(255,61,127,.18)}\n#ytb-ivs .ytb-ivs-time{flex-shrink:0;font:11px ui-monospace,monospace;color:#ff8a96;background:rgba(255,61,127,.18);padding:2px 6px;border-radius:4px;cursor:pointer}\n#ytb-ivs .ytb-ivs-time:hover{background:rgba(255,61,127,.3);color:#fff}\n#ytb-ivs .ytb-ivs-text{flex:1;min-width:0;font-size:12px;color:#dde;line-height:1.45;word-wrap:break-word;overflow-wrap:break-word}\n#ytb-ivs .ytb-ivs-hl{background:rgba(255,61,127,.45);color:#fff;font-weight:600;padding:0 2px;border-radius:2px}\n#ytb-ivs .ytb-ivs-hint{padding:10px 12px;color:#7a8290;font-size:11.5px;font-style:italic}@keyframes ytbIvsIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}\n#ytb-resume-overlay > div,.ytb-resume-card-inner,.ytb-resume-card{max-width:520px;width:min(86%,520px);background:rgba(20,22,28,.6);border:1px solid rgba(255,255,255,.14);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.65),0 8px 24px rgba(0,0,0,.4);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);padding:24px 26px 22px;display:flex;flex-direction:column;gap:14px;transform:translateY(8px);transition:transform .25s ease-out}\n#ytb-resume-overlay .ytb-resume-head{display:flex;gap:14px;align-items:center}\n#ytb-resume-overlay .ytb-resume-thumb{width:120px;height:68px;border-radius:10px;flex-shrink:0;background:#000 center/cover no-repeat;box-shadow:0 4px 12px rgba(0,0,0,.5);position:relative;overflow:hidden}\n#ytb-resume-overlay .ytb-resume-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}\n#ytb-resume-overlay .ytb-resume-eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#ff8a96;font-weight:600}\n#ytb-resume-overlay .ytb-resume-title{font-size:15px;font-weight:600;color:#fff;line-height:1.3}\n#ytb-resume-overlay .ytb-resume-meta{font-size:12px;color:#aaa}\n#ytb-resume-overlay .ytb-resume-body{font-size:13.5px;color:#cdd;line-height:1.5}\n#ytb-resume-overlay .ytb-resume-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}\n#ytb-resume-overlay .ytb-resume-btn-primary{background:#fff!important;color:#0f0f0f!important;box-shadow:0 4px 16px rgba(255,255,255,.15)}\n#ytb-resume-overlay .ytb-resume-btn-primary:hover{box-shadow:0 6px 22px rgba(255,255,255,.3)}\n#ytb-resume-overlay .ytb-resume-btn-secondary{background:rgba(255,255,255,.1)!important;color:#fff!important;border:1px solid rgba(255,255,255,.14)!important}\n#ytb-resume-overlay .ytb-resume-btn-secondary:hover{background:rgba(255,255,255,.18)!important}\n#ytb-resume-overlay .ytb-resume-footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#777;margin-top:4px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)}\n#ytb-resume-overlay .ytb-resume-dismiss{background:none!important;border:0!important;color:#888!important;cursor:pointer;font:inherit;text-decoration:underline;padding:2px 4px}\n#ytb-resume-overlay .ytb-resume-dismiss:hover{color:#fff!important}\n#ytb-resume-overlay.ytb-resume-compact > div{max-width:380px;padding:18px 20px 16px;gap:12px;border-radius:18px}\n#ytb-resume-overlay.ytb-resume-detailed > div{max-width:560px;padding:32px 32px 24px;gap:20px}\n#ytb-resume-overlay.ytb-resume-cinema > div{background:rgba(10,10,14,.78);border:1px solid rgba(255,255,255,.16);box-shadow:0 40px 100px rgba(0,0,0,.8),0 8px 24px rgba(0,0,0,.5);backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%);max-width:560px;padding:32px}\n#ytb-resume-card{background:rgba(20,22,28,.7)!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:12px!important;box-shadow:0 18px 40px rgba(0,0,0,.55),0 4px 12px rgba(0,0,0,.4)!important;backdrop-filter:blur(20px) saturate(160%)!important;-webkit-backdrop-filter:blur(20px) saturate(160%)!important;color:#fff!important;}\n#ytb-resume-card .ytb-resume-card-row{align-items:center}\n#ytb-resume-card .ytb-resume-thumb{background-size:cover!important}\n#ytb-resume-card .ytb-resume-info{min-width:0}\n#ytb-resume-card .ytb-resume-cta{font-weight:600;font-size:12px;color:#fff}\n#ytb-resume-card .ytb-resume-title{font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-resume-card .ytb-resume-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}\n#ytb-resume-card .ytb-resume-btn-primary:hover{background:#ff1a4a!important}\n#ytb-resume-card .ytb-resume-btn-secondary:hover{background:rgba(255,255,255,.18)!important}\n#ytb-resume-card .ytb-resume-close{padding:7px 10px!important;min-width:30px;line-height:1}\n.ytb-cp{display:flex;align-items:center;gap:8px;width:100%}\n.ytb-cp-text{flex:1;min-width:0}\n.ytb-cp-native{width:36px;height:32px;border:1px solid rgba(255,255,255,.15);border-radius:7px;background:transparent;cursor:pointer;padding:2px;flex-shrink:0}\n.ytb-cp-swatch{width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,.18);flex-shrink:0;background:#000}\n.ytb-cp-native::-webkit-color-swatch-wrapper{padding:0}\n.ytb-cp-native::-webkit-color-swatch{border:none;border-radius:5px}\n.ytb-cp-native::-moz-color-swatch{border:none;border-radius:5px}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-card{max-width:380px;padding:18px 20px 16px;gap:10px;border-radius:18px;background:rgba(20,22,28,.78)}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-head{gap:10px}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-thumb{width:80px;height:45px;border-radius:8px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-card{max-width:560px;padding:32px 32px 24px;gap:20px;background:rgba(20,22,28,.78)}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-thumb{width:160px;height:90px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-title{font-size:18px;line-height:1.4;-webkit-line-clamp:3}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-meta{font-size:13px;line-height:1.5}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-body{font-size:15px;line-height:1.55}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-card{background:rgba(10,10,14,.72);border:1px solid rgba(255,255,255,.14);box-shadow:0 40px 100px rgba(0,0,0,.8),0 8px 24px rgba(0,0,0,.5);backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%);max-width:560px;padding:32px}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-thumb{width:140px;height:80px;border-radius:12px}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-title{font-size:18px;line-height:1.4}\n.ytb-dash{position:fixed;top:24px;right:24px;width:480px;height:auto;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);z-index:2147483641;color:#f5f7fb;background:rgba(14,16,22,.95);border:1px solid rgba(255,255,255,.14);border-radius:18px;box-shadow:0 28px 80px rgba(0,0,0,.7),0 6px 20px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.1),inset 0 -1px 0 rgba(0,0,0,.4);font:13.5px/1.5 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;font-style:normal;font-variant:normal;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;display:flex;flex-direction:column;opacity:0;transform:translate3d(0,0,0);will-change:transform,opacity;contain:layout style paint;backface-visibility:hidden;text-shadow:0 1px 1px rgba(0,0,0,.4);transition:opacity .12s linear;overflow:hidden;resize:none}\n.ytb-dash.open{opacity:1;transform:translate3d(0,0,0) scale(1);animation:ytbDashIn .25s cubic-bezier(.16,1,.3,1) backwards}.ytb-dash:not(.open){transform:translate3d(0,8px,0) scale(.98)}\n.ytb-dash::before{content:"";position:absolute;inset:0;border-radius:18px;pointer-events:none;background:linear-gradient(135deg,rgba(255,255,255,.04) 0%,rgba(255,255,255,0) 40%,rgba(255,61,127,.04) 100%);opacity:.6}\n@keyframes ytbDashIn{from{opacity:0;transform:translate3d(0,-8px,0) scale(.96)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}\n.ytb-dash.dragging{transition:none!important;cursor:grabbing!important;user-select:none;-webkit-user-select:none;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}.ytb-dash.dragging::before{display:none!important}.ytb-dash.dragging *{pointer-events:none!important}\n.ytb-dash.dragging *{cursor:grabbing!important}\n.ytb-dash.resizing{transition:none;user-select:none}\n.ytb-dhandle{cursor:grab;user-select:none;-webkit-user-select:none}\n.ytb-dhandle:active{cursor:grabbing}\n.ytb-dgrip{display:inline-block;background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:800;margin-right:8px;font-size:15px;filter:drop-shadow(0 1px 2px rgba(255,0,51,.5))}\n.ytb-dhbtns{display:flex;gap:6px;flex-shrink:0}\n.ytb-dresize{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 0,transparent 45%,rgba(255,255,255,.18) 45%,rgba(255,255,255,.18) 55%,transparent 55%,transparent 70%,rgba(255,255,255,.18) 70%,rgba(255,255,255,.18) 80%,transparent 80%);z-index:2;border-bottom-right-radius:18px}\n.ytb-dresize:hover{background:linear-gradient(135deg,transparent 0,transparent 45%,rgba(255,61,127,.45) 45%,rgba(255,61,127,.45) 55%,transparent 55%,transparent 70%,rgba(255,61,127,.45) 70%,rgba(255,61,127,.45) 80%,transparent 80%)}\n.ytb-dash,.ytb-dash *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-extra-notes,#ytb-extra-notes *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-toast,#ytb-toast *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-resume-card,#ytb-resume-card *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-resume-overlay,#ytb-resume-overlay *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-sb-hud,#ytb-sb-hud *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-sb-ov,#ytb-sb-ov *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-stats,#ytb-stats *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-diag,#ytb-diag *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-chapter-panel,#ytb-chapter-panel *{font-style:normal;font-variant:normal;box-sizing:border-box}\n.ytb-dhdr{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,0));text-shadow:0 1px 2px rgba(0,0,0,.5)}\n.ytb-dtitle{font-size:15.5px;font-weight:700;letter-spacing:.2px;display:flex;align-items:center;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6)}\n.ytb-dver{font-size:10.5px;color:#dde;font-weight:600;margin-left:8px;padding:2px 7px;border-radius:99px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);text-shadow:0 1px 1px rgba(0,0,0,.4)}\n.ytb-btn{appearance:none;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:7px 13px;background:rgba(255,255,255,.08);color:#f5f7fb;cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;transition:background .15s,color .15s,border-color .15s,transform .1s,box-shadow .15s;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-btn:hover{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.24);box-shadow:0 2px 8px rgba(0,0,0,.3)}\n.ytb-btn:active{transform:translateY(1px)}\n.ytb-btn.primary{background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%);color:#fff;border-color:rgba(255,255,255,.18);box-shadow:0 2px 8px rgba(255,0,51,.4)}\n.ytb-btn.primary:hover{filter:brightness(1.1);box-shadow:0 4px 14px rgba(255,0,51,.55)}\n.ytb-btn.danger,.ytb-btn.ytb-danger{background:rgba(255,80,80,.1);color:#ff8a96;border-color:rgba(255,80,80,.25)}\n.ytb-btn.danger:hover,.ytb-btn.ytb-danger:hover{background:rgba(255,80,80,.2);color:#fff}\n.ytb-btn.ytb-close{width:30px;height:30px;padding:0;border-radius:50%;font-size:12px;display:inline-flex;align-items:center;justify-content:center}\n.ytb-btn.ytb-sb{font-size:10px;padding:4px 8px}\n.ytb-search{margin:10px 14px 6px;padding:9px 13px;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.14);border-radius:10px;font:inherit;font-size:13px;outline:none;backdrop-filter:blur(8px);text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-search::placeholder{color:#7a8290}\n.ytb-search:focus{border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n.ytb-body{flex:1 1 0;min-height:0;overflow-y:auto;padding:6px 0 12px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.15) transparent}\n.ytb-body::-webkit-scrollbar{width:6px}\n.ytb-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}\n.ytb-core{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:6px}\n.ytb-corecell{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:4px 9px;transition:background .15s,border-color .15s,box-shadow .15s}\n.ytb-corecell:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.12)}\n.ytb-corelbl{font-size:11.5px;font-weight:600;color:#f0f2f7;text-shadow:0 1px 1px rgba(0,0,0,.35)}\n.ytb-card{margin:6px 10px;padding:13px 15px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;transition:background .15s,border-color .15s,box-shadow .2s,transform .15s;position:relative;overflow:hidden}\n.ytb-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#ff0033,#ff3d7f);opacity:0;transition:opacity .15s}\n.ytb-card:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.18);box-shadow:0 8px 24px rgba(0,0,0,.4);transform:translateY(-1px)}\n.ytb-card:hover::before{opacity:1}\n.ytb-head{display:flex;align-items:center;justify-content:space-between;gap:10px}\n.ytb-name{font-size:14px;font-weight:600;color:#fff;flex:1;min-width:0;text-shadow:0 1px 2px rgba(0,0,0,.4)}\n.ytb-sum{font-size:12px;color:#b8c0d0;margin-top:5px;line-height:1.5;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytp-settings{margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.08);display:flex;flex-direction:column;gap:8px}\n.ytb-sub{display:flex;flex-direction:column;gap:5px;margin-top:5px}\n.ytb-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:30px}\n.ytb-col{display:flex;flex-direction:column;gap:6px}\n.ytb-rowb{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}\n.ytb-rowb .ytb-btn{flex:1;min-width:80px}\n.ytb-lbl{font-size:12px;color:#e5e7ed;flex:1;min-width:0;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-sw{position:relative;width:40px;height:22px;flex-shrink:0;cursor:pointer}\n.ytb-sw input{position:absolute;opacity:0;width:0;height:0}\n.ytb-track{position:absolute;inset:0;border-radius:999px;background:rgba(255,255,255,.1);transition:background .2s;border:1px solid rgba(255,255,255,.08)}\n.ytb-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:linear-gradient(180deg,#f0f0f5,#c4c8d2);transition:transform .2s cubic-bezier(.4,0,.2,1),background .2s;box-shadow:0 2px 5px rgba(0,0,0,.5)}\n.ytb-sw input:checked~.ytb-track{background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%);border-color:rgba(255,255,255,.2);box-shadow:0 0 10px rgba(255,61,127,.4)}\n.ytb-sw input:checked~.ytb-knob{transform:translateX(18px);background:#fff}\n.ytb-sel{background:rgba(255,255,255,.06);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;font:inherit;font-size:11.5px;padding:4px 8px;outline:none;max-width:160px;transition:border-color .15s}\n.ytb-sel:focus{border-color:rgba(255,61,127,.55)}\n.ytb-sel option{background:#181a20;color:#eef}\n.ytb-fp{position:relative;width:100%}\n.ytb-fp-btn{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%;background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:7px 10px;font:12px system-ui;cursor:pointer;text-align:left;transition:background .12s,border-color .12s}\n.ytb-fp-btn:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.18)}\n.ytb-fp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.ytb-fp-arrow{color:#9aa;font-size:10px}\n.ytb-fp-dd{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:2147483646;max-height:320px;display:flex;flex-direction:column;background:rgba(20,22,28,.97);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;box-shadow:0 18px 50px rgba(0,0,0,.5),0 4px 16px rgba(0,0,0,.35);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);overflow:hidden}\n.ytb-fp-search{margin:6px 8px 0;padding:6px 10px;background:rgba(255,255,255,.06);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:6px;font:11.5px system-ui;outline:none;width:calc(100% - 16px)}\n.ytb-fp-search:focus{border-color:rgba(255,61,127,.55)}\n.ytb-fp-list{flex:1;overflow-y:auto;max-height:260px;padding:4px 4px 6px;scrollbar-width:thin}\n.ytb-fp-item{padding:6px 10px;font-size:13px;color:#eef;cursor:pointer;border-radius:5px;transition:background .1s;line-height:1.3}\n.ytb-fp-item:hover{background:rgba(255,61,127,.18)}\n.ytb-rng{display:flex;align-items:center;gap:8px;flex:1;max-width:60%}\n.ytb-rng input[type=range]{flex:1;min-width:80px;accent-color:#ff3d7f;height:3px;cursor:pointer}\n.ytb-rngv{min-width:54px;text-align:right;color:#9aa;font-size:11px;font-variant-numeric:tabular-nums}\n.ytb-inp{background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:7px 10px;font:inherit;font-size:12px;outline:none;width:100%;transition:border-color .15s,box-shadow .15s}\n.ytb-inp:focus{border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n.ytb-ta{background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:7px 10px;font:11.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;outline:none;width:100%;min-height:70px;resize:vertical;transition:border-color .15s}\n.ytb-ta:focus{border-color:rgba(255,61,127,.55)}\n.ytb-cat-dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-right:6px;box-shadow:0 0 6px currentColor}\n.ytb-foot{display:flex;gap:8px;padding:13px 14px;border-top:1px solid rgba(255,255,255,.1);flex-wrap:wrap;background:linear-gradient(0deg,rgba(0,0,0,.25),rgba(0,0,0,0))}\n.ytb-foot .ytb-btn{flex:1;min-width:90px}\n.ytb-hcard{display:flex;gap:10px;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.05);border-radius:10px;margin-top:6px;transition:background .15s}\n.ytb-hcard:hover{background:rgba(255,255,255,.07)}\n.ytb-hcard.done{opacity:.6}\n.ytb-hthumb{width:88px;height:50px;min-width:88px;border-radius:7px;background:#1a1c22 center/cover no-repeat;position:relative;flex-shrink:0;overflow:hidden;border:1px solid rgba(255,255,255,.06)}\n.ytb-hbadge{position:absolute;bottom:3px;right:3px;background:rgba(0,0,0,.85);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px}\n.ytb-hbadge.done{background:rgba(0,160,50,.85)}\n.ytb-hbadge.res{background:rgba(255,61,127,.85)}\n.ytb-hinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}\n.ytb-htitle{font-size:11.5px;font-weight:600;color:#e5e7ed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hchan{font-size:10px;color:#7a8290;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hmeta{font-size:10px;color:#5b6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hpt{height:3px;background:rgba(255,255,255,.08);border-radius:3px;margin:3px 0;overflow:hidden}\n.ytb-hpf{height:100%;background:linear-gradient(90deg,#ff0033,#ff3d7f);border-radius:3px}\n.ytb-hpf.done{background:linear-gradient(90deg,#0a6,#4caf50)}\n.ytb-hacts{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}\n.ytb-hist-loading,.ytb-hist-empty{padding:20px;text-align:center;color:#5b6270;font-size:11.5px}\n.ytb-hist-panel{display:flex;flex-direction:column;gap:8px;margin-top:6px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:12px}\n.ytb-hist-toolbar{display:flex;gap:6px;flex-wrap:wrap}\n.ytb-hist-search{flex:1;min-width:120px;background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:6px 10px;font:inherit;font-size:12px;outline:none}\n.ytb-hist-search:focus{border-color:rgba(255,61,127,.55)}\n.ytb-hist-list{display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;scrollbar-width:thin;padding-right:2px}\n.ytb-hist-loadmore{margin-top:0!important;background:rgba(255,255,255,.04)!important}\n#ytb-extra-topbar{position:fixed;left:0;top:0;height:3px;width:0;background:linear-gradient(90deg,#ff0033,#ff3d7f);z-index:2147483642;box-shadow:0 1px 10px rgba(255,61,127,.6);pointer-events:none}\n#ytb-extra-remain,#ytb-extra-clock,#ytb-extra-endwarn{position:fixed;right:12px;bottom:58px;z-index:2147483636;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:5px 10px;font:11px/1.2 ui-monospace,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);pointer-events:none;}\n#ytb-extra-clock{bottom:84px;color:#8ee}\n#ytb-extra-endwarn{left:50%;right:auto;bottom:120px;transform:translateX(-50%);opacity:0;transition:opacity .2s;color:#ffd166}\n#ytb-extra-endwarn.show{opacity:1}\n.ytb-extra-num{position:absolute;left:5px;top:5px;z-index:5;background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border-radius:99px;min-width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 11px system-ui;box-shadow:0 2px 6px rgba(255,0,51,.4)}\n.ytb-extra-long{box-shadow:inset 3px 0 0 #8b5cf6!important}\n.ytb-extra-short{box-shadow:inset 3px 0 0 #22c55e!important}\n.ytb-extra-watched-dim{opacity:.45!important;filter:saturate(.6)!important}\n.ytb-extra-watched-hide,.ytb-extra-live,.ytb-extra-premiere{display:none!important}\n#ytb-extra-notes{position:fixed;right:18px;bottom:18px;z-index:2147483646;width:min(360px,calc(100vw - 36px));background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:12px;font:12px system-ui;}\n.ytb-extra-notes-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n.ytb-extra-notes-head button{background:none;border:0;color:#aaa;font-size:18px;cursor:pointer}\n#ytb-extra-notes textarea{width:100%;min-height:140px;background:rgba(255,255,255,.06);color:#eee;border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:6px;font:inherit;resize:vertical}\n.ytb-extra-notes-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font:10.5px ui-monospace,monospace;color:#777}\n.ytb-extra-notes-foot button{background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border:0;border-radius:5px;padding:4px 10px;cursor:pointer;font:600 11px system-ui}\n.ytb-toast,.ytb-t-info,.ytb-t-success,.ytb-t-error{position:fixed;left:50%;top:12px;transform:translateX(-50%) translateY(-10px);z-index:2147483647;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:10px 18px;font:12px/1.4 system-ui;font-style:normal;opacity:0;transition:opacity .2s,transform .2s;max-width:min(420px,calc(100vw - 32px));}\n.ytb-toast.show,.ytb-t-info.show,.ytb-t-success.show,.ytb-t-error.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.ytb-toast.success,.ytb-t-success{border-color:rgba(76,175,80,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(76,175,80,.22))}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-card{max-width:380px;padding:18px 20px 16px;gap:10px;border-radius:18px;background:rgba(20,22,28,.78)}\n#ytb-resume-overlay.ytb-resume-compact .ytb-fcw-bar{height:3px;margin-top:8px}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-head{gap:10px}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-thumb{width:80px;height:45px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-card{max-width:560px;padding:32px 32px 24px;gap:20px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-thumb{width:160px;height:90px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-title{font-size:18px;line-height:1.4;margin-top:6px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-meta{font-size:13px;margin-top:8px;line-height:1.5}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-body{font-size:15px;line-height:1.5;margin-top:2px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-btn-primary,#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-btn-secondary{padding:14px 22px;border-radius:99px;font-size:14px;gap:4px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-fcw-bar{height:5px;margin-top:10px;border-radius:99px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-actions{gap:12px;margin-top:6px}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-card{background:rgba(10,10,12,.7);border:1px solid rgba(255,255,255,.15);box-shadow:0 40px 100px rgba(0,0,0,.8),0 8px 24px rgba(0,0,0,.5);backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%)}\n.ytb-toast.error,.ytb-t-error{border-color:rgba(255,80,80,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(255,80,80,.22))}\n.ytb-toast.info,.ytb-t-info{border-color:rgba(255,61,127,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(255,61,127,.22))}\n.ytb-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.07);background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,0))}\n.ytb-tab{flex:1;padding:10px 6px;background:transparent;border:0;color:#a8b0c0;font:600 11.5px/1 system-ui;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-tab:hover{color:#e8eaf0}\n.ytb-tab.active{color:#ff3d7f;border-bottom-color:#ff3d7f;text-shadow:0 0 8px rgba(255,61,127,.5)}\n.ytb-tabpanel{display:none;flex-direction:column;gap:6px;padding:4px 0 8px}\n.ytb-tabpanel.active{display:flex}\n.ytb-section-hdr{font:700 10.5px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;color:#9aa4b6;padding:14px 16px 6px;display:flex;align-items:center;gap:8px;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-section-hdr::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,0))}\n.ytb-meter{height:8px;background:rgba(255,255,255,.06);border-radius:99px;overflow:hidden;position:relative}\n.ytb-meter-fill{height:100%;background:linear-gradient(90deg,#ff0033,#ff3d7f);border-radius:99px;transition:width .3s}\n.ytb-meter-fill.ok{background:linear-gradient(90deg,#4caf50,#8bc34a)}\n.ytb-meter-fill.warn{background:linear-gradient(90deg,#ffc107,#ff9800)}\n.ytb-meter-fill.crit{background:linear-gradient(90deg,#ff5722,#e91e63)}\n.ytp-kbd{font:10px ui-monospace,monospace;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-bottom-width:2px;border-radius:4px;padding:2px 6px;color:#dde;display:inline-block}\n.ytb-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:99px;background:rgba(255,61,127,.12);color:#ff8aa5;font:600 10.5px/1 system-ui;border:1px solid rgba(255,61,127,.25)}\n.ytb-chip.neutral{background:rgba(255,255,255,.05);color:#9aa;border-color:rgba(255,255,255,.1)}\n.ytb-divider{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);margin:8px 0}\n#ytb-resume-overlay{position:absolute;inset:0;z-index:2147483640;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(20,22,28,.6) 0%,rgba(20,22,28,.85) 50%,rgba(20,22,28,.6) 100%);backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);font:14px/1.45 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;color:#fff;opacity:0;transition:opacity .22s ease-out;}\n#ytb-fcw-overlay{position:fixed;right:18px;top:80px;z-index:2147483638;width:min(320px,calc(100vw - 36px));background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.5);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);padding:12px 16px;font:12px/1.4 system-ui;}\n#ytb-comment-search{display:flex;gap:6px;align-items:center;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:6px 10px;margin:8px 0;backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);box-shadow:0 4px 14px rgba(0,0,0,.35);}\n#ytb-comment-search .ytb-cs-input{flex:1;min-width:0;background:rgba(0,0,0,.25);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:5px 8px;font:11.5px system-ui;outline:none;}\n#ytb-comment-search .ytb-cs-count{font-size:11px;color:#9aa;font-variant-numeric:tabular-nums;white-space:nowrap;}\n#ytb-comment-search .ytb-cs-clear{background:rgba(255,255,255,.07);border:0;color:#aaa;width:24px;height:24px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1;}\n#ytb-comment-search .ytb-cs-clear:hover{background:rgba(255,255,255,.13);color:#fff}\n#ytb-chapter-panel .ytb-ch-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,.04);font-size:11.5px;font-weight:600;color:#cdd;}\n#ytb-chapter-panel .ytb-ch-toggle{background:none;border:0;color:#888;cursor:pointer;font-size:11px;padding:0 4px}\n#ytb-chapter-panel .ytb-ch-toggle:hover{color:#fff}\n#ytb-chapter-panel .ytb-ch-list{max-height:340px;overflow-y:auto;scrollbar-width:thin}\n#ytb-chapter-panel .ytb-ch-row{display:flex;gap:10px;padding:6px 12px;cursor:pointer;border-top:1px solid rgba(255,255,255,.03);transition:background .1s}\n#ytb-chapter-panel .ytb-ch-row:hover{background:rgba(255,255,255,.05)}\n#ytb-chapter-panel .ytb-ch-t{flex:0 0 auto;color:#5fc;font-variant-numeric:tabular-nums;font-size:11.5px;min-width:54px}\n#ytb-chapter-panel .ytb-ch-title{flex:1;min-width:0;font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-chapter-panel .ytb-ch-row.current{background:rgba(255,61,127,.14)}\n#ytb-chapter-panel .ytb-ch-row.current .ytb-ch-t{color:#ff3d7f;font-weight:600}\n#ytb-chapter-panel .ytb-ch-row.current .ytb-ch-title{color:#fff;font-weight:600}\n#ytb-extra-notes .ytb-extra-notes-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n#ytb-extra-notes .ytb-extra-notes-head button{background:none;border:0;color:#aaa;font-size:18px;cursor:pointer}\n#ytb-extra-notes textarea{width:100%;min-height:140px;background:rgba(0,0,0,.25);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:8px;font:12px ui-monospace,SFMono-Regular,Consolas,monospace;resize:vertical}\n#ytb-extra-notes .ytb-extra-notes-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font:10.5px ui-monospace,monospace;color:#9aa}\n#ytb-extra-notes .ytb-extra-notes-foot button{background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%);color:#fff;border:0;border-radius:5px;padding:4px 10px;cursor:pointer;font:600 11px system-ui}\n#ytb-fcw-overlay .ytb-fcw-title{flex:1;font-weight:600;color:#fff;font-size:13px}\n#ytb-fcw-overlay .ytb-fcw-sub{font-size:11px;color:#9aa;margin-top:4px}\n#ytb-fcw-overlay .ytb-fcw-bar{height:4px;background:rgba(255,255,255,.08);border-radius:3px;margin-top:6px;overflow:hidden}\n#ytb-fcw-overlay .ytb-fcw-stats{font-size:11px;color:#aaa;margin-top:4px}\n#ytb-fcw-overlay .ytb-fcw-btn{background:rgba(255,255,255,.07);border:0;border-radius:5px;color:#ddd;padding:6px 12px;cursor:pointer;font:600 11px system-ui}\n@media (max-width:540px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;max-height:calc(100vh - 16px)}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n@media (prefers-reduced-motion:reduce){.ytb-dash,.ytb-card,.ytb-btn,.ytb-knob{transition:none!important}}\n\n\n#ytb-extra-endwarn{left:50%;right:auto;bottom:120px;transform:translateX(-50%);opacity:0;transition:opacity .15s;color:#ffd166}\n\n\n.ytb-extra-comment-clamp{max-height:150px;overflow:hidden;display:block}\n.ytb-extra-expand-comment{margin-top:4px;border:0;border-radius:999px;background:rgba(62,166,255,.14);color:#3ea6ff;padding:3px 8px;font:700 11px system-ui;cursor:pointer}\n#ytb-sb-hud{position:fixed;left:10px;bottom:36px;z-index:2147483635;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:5px 12px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);}\n#ytb-sb-ov{position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483639;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:8px 18px;font:12px system-ui;backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);box-shadow:0 10px 30px rgba(0,0,0,.5);}\n#ytb-stats{position:fixed;top:60px;right:8px;z-index:2147483637;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;padding:6px 10px;line-height:1.5;max-width:380px;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);}\n#ytb-diag{position:fixed;bottom:0;left:0;width:380px;max-height:200px;overflow:auto;z-index:2147483647;background:rgba(20,22,28,.55);color:#cdd;border:1px solid rgba(255,255,255,.12);border-radius:14px 14px 0 0;border-bottom:none;border-left:none;border-right:none;font:11px ui-monospace,SFMono-Regular,Consolas,monospace;padding:8px;backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);box-shadow:0 -8px 24px rgba(0,0,0,.4);}\n.ytb-sb-mark{pointer-events:none}\nbody.ytb-silent #ytb-toast,body.ytb-silent #ytb-sb-hud,body.ytb-silent #ytb-sb-ov,body.ytb-silent #ytb-stats,body.ytb-silent #ytb-diag,body.ytb-silent #ytb-cinema,body.ytb-silent #ytp-ambient,body.ytb-silent .ytb-sb-mark{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}\n#ytb-resume-card{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:2147483647;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:14px 18px;font:13px/1.45 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;min-width:300px;max-width:min(92%,520px);opacity:0;transform:translateX(-50%) translateY(8px);transition:opacity .2s ease-out,transform .2s ease-out;}\n@keyframes ytbResIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}\nbody.ytb-silent #ytb-resume-card{display:none!important}\n#ytb-chapter-panel{margin:8px 0 12px;background:rgba(20,22,28,.45);color:#e8e8e8;border:1px solid rgba(255,255,255,.1);border-radius:12px;overflow:hidden;font:13px/1.45 system-ui;backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);box-shadow:0 4px 16px rgba(0,0,0,.3);}\n.ytb-ch-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,.03);font-size:11.5px;font-weight:600;color:#bbb;text-transform:uppercase;letter-spacing:.05em}\n.ytb-ch-toggle{background:none;border:0;color:#888;cursor:pointer;font-size:11px;padding:0 4px}\n.ytb-ch-toggle:hover{color:#fff}\n.ytb-ch-list{max-height:340px;overflow-y:auto;scrollbar-width:thin}\n.ytb-ch-row{display:flex;gap:10px;padding:6px 12px;cursor:pointer;border-top:1px solid rgba(255,255,255,.03);transition:background .1s}\n.ytb-ch-row:hover{background:rgba(255,255,255,.05)}\n.ytb-ch-t{flex:0 0 auto;color:#5fc;font-variant-numeric:tabular-nums;font-size:11.5px;min-width:54px}\n.ytb-ch-title{flex:1;min-width:0;font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-comment-search{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;margin:0 0 12px;font:13px system-ui}\n.ytb-cs-input{flex:1;min-width:0;background:rgba(0,0,0,.4);color:#e8e8e8;border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:6px 10px;font:inherit;font-size:13px;outline:none}\n.ytb-cs-input:focus{border-color:#3ea6ff}\n.ytb-cs-count{font-size:11px;color:#888;font-variant-numeric:tabular-nums;white-space:nowrap}\n.ytb-cs-clear{background:rgba(255,255,255,.07);border:0;color:#aaa;width:24px;height:24px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center}\n.ytb-cs-clear:hover{background:rgba(255,255,255,.13);color:#fff}\n.ytb-elem-sec-title{font-size:10.5px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.07em;margin:10px 0 4px;padding-top:6px;border-top:1px solid rgba(255,255,255,.06)}\n.ytb-net-panel{display:flex;flex-direction:column;gap:8px;margin-top:6px}\n.ytb-net-cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}\n.ytb-net-card{background:rgba(159,255,255,.05);border:1px solid rgba(159,255,255,.12);border-radius:7px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}\n.ytb-net-card-label{font-size:10px;color:#9ff;text-transform:uppercase;letter-spacing:.08em;font-weight:700}\n.ytb-net-card-value{font-size:15px;color:#eee;font-weight:700;font-variant-numeric:tabular-nums}\n.ytb-net-card-sub{font-size:10px;color:#888}\n.ytb-net-session{font:11px ui-monospace,monospace;color:#9ff;background:rgba(255,255,255,.03);border-radius:5px;padding:5px 8px}\n.ytb-net-legend{display:flex;gap:14px;justify-content:flex-end;padding:0 4px;margin-top:2px}\n.ytb-net-legend-item{display:inline-flex;align-items:center;gap:5px;font:11px/1.2 system-ui;color:#cfcfcf}\n.ytb-net-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}\n.ytb-net-swatch-dn{background:linear-gradient(180deg,#4dd0e1 0%,#0288d1 100%)}\n.ytb-net-swatch-up{background:linear-gradient(180deg,#ff8a65 0%,#c62828 100%)}\n.ytb-net-chart{display:flex;align-items:flex-end;gap:2px;height:120px;padding:6px 4px;background:rgba(0,0,0,.35);border-radius:6px;border:1px solid rgba(255,255,255,.06);position:relative;overflow:hidden}\n.ytb-net-chart::before{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(255,255,255,.06);pointer-events:none}\n.ytb-net-bar{flex:1;min-width:2px;display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative;cursor:default;transition:opacity .12s}\n.ytb-net-bar:hover{opacity:.85}\n.ytb-net-bar-dn{background:linear-gradient(180deg,#4dd0e1 0%,#0288d1 100%);border-bottom-left-radius:2px;border-bottom-right-radius:2px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18);transition:filter .12s}\n.ytb-net-bar-up{background:linear-gradient(180deg,#ff8a65 0%,#c62828 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.22);border-top-left-radius:2px;border-top-right-radius:2px;transition:filter .12s}\n.ytb-net-bar:hover .ytb-net-bar-dn,.ytb-net-bar:hover .ytb-net-bar-up{filter:brightness(1.25) saturate(1.2)}\n.ytb-net-card:nth-child(1){background:rgba(159,255,255,.06);border-color:rgba(159,255,255,.18)}\n.ytb-net-card:nth-child(1) .ytb-net-card-label{color:#9ff}\n.ytb-net-card:nth-child(2){background:rgba(2,136,209,.10);border-color:rgba(77,208,225,.28)}\n.ytb-net-card:nth-child(2) .ytb-net-card-label,.ytb-net-card:nth-child(2) .ytb-net-card-value{color:#4dd0e1}\n.ytb-net-card:nth-child(3){background:rgba(198,40,40,.10);border-color:rgba(255,138,101,.28)}\n.ytb-net-card:nth-child(3) .ytb-net-card-label,.ytb-net-card:nth-child(3) .ytb-net-card-value{color:#ff8a65}\n.ytb-net-axis{display:flex;justify-content:space-between;font:10px ui-monospace,monospace;color:#666;padding:0 4px}\n.ytb-net-hosts{display:flex;flex-direction:column;gap:2px;background:rgba(255,255,255,.025);border-radius:6px;padding:6px 8px}\n.ytb-net-host-row{display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}\n.ytb-net-host-row:last-child{border-bottom:0}\n.ytb-net-host-name{color:#ddd;font-family:ui-monospace,monospace;font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}\n.ytb-net-host-bytes{color:#9ff;font-variant-numeric:tabular-nums;flex-shrink:0;margin-left:8px}\n.ytb-net-budget{background:rgba(255,255,255,.025);border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:5px}\n.ytb-net-budget-bar{height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}\n.ytb-net-budget-fill{height:100%;background:linear-gradient(90deg,#4caf50,#8bc34a);border-radius:4px;transition:width .3s}\n.ytb-net-budget-fill.warn{background:linear-gradient(90deg,#ffc107,#ff9800)}\n.ytb-net-budget-fill.crit{background:linear-gradient(90deg,#ff5722,#e91e63)}\n.ytb-net-budget-fill.over{background:linear-gradient(90deg,#e53935,#b71c1c);animation:ytbBudgetPulse 1.4s ease-in-out infinite}\n@keyframes ytbBudgetPulse{0%,100%{opacity:1}50%{opacity:.55}}\n.ytb-net-budget-detail{font:11px ui-monospace,monospace;color:#ddd;font-variant-numeric:tabular-nums}\n.ytb-net-qualities{background:rgba(255,255,255,.025);border-radius:6px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}\n.ytb-net-q-row{display:grid;grid-template-columns:64px 1fr 110px;gap:8px;align-items:center}\n.ytb-net-q-lbl{color:#fff;font:700 10px/1 system-ui;text-align:center;padding:3px 4px;border-radius:3px;letter-spacing:.04em}\n.ytb-net-q-track{height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}\n.ytb-net-q-fill{height:100%;border-radius:4px;transition:width .25s}\n.ytb-net-q-bytes{font:10.5px ui-monospace,monospace;color:#ccc;text-align:right;font-variant-numeric:tabular-nums}\n.ytb-perf-panel{display:flex;flex-direction:column;gap:6px;margin-top:6px}\n.ytb-perf-mem{font:11px ui-monospace,monospace;color:#9ff;background:rgba(255,255,255,.03);border-radius:5px;padding:5px 8px}\n.ytb-perf-membar{height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden}\n.ytb-perf-memfill{height:100%;background:#4caf50;border-radius:3px;transition:width .3s,background .3s}\n.ytb-perf-state{font:10.5px ui-monospace,monospace;color:#aaa;padding:3px 0}\n.ytb-perf-table{display:flex;flex-direction:column;background:rgba(255,255,255,.02);border-radius:5px;overflow:hidden;font:10.5px ui-monospace,monospace}\n.ytb-perf-row{display:grid;grid-template-columns:1.4fr .5fr .7fr .7fr .7fr;padding:3px 8px;gap:6px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center}\n.ytb-perf-hdr{font-weight:700;color:#9ff;background:rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.1)}\n.ytb-perf-row .ytb-perf-c1{color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-perf-row .ytb-perf-c2,.ytb-perf-row .ytb-perf-c3,.ytb-perf-row .ytb-perf-c4,.ytb-perf-row .ytb-perf-c5{text-align:right;font-variant-numeric:tabular-nums;color:#ccc}\n.ytb-sbsub-panel{display:flex;flex-direction:column;gap:6px}\n.ytb-sbsub-status{font:11px ui-monospace,monospace;background:rgba(255,255,255,.03);border-radius:5px;padding:6px 8px;color:#888}\n.ytb-hk-row{display:grid;grid-template-columns:1fr 160px 30px;gap:6px;align-items:center;padding:3px 0}\n.ytb-hk-lbl{font-size:12px;color:#ddd}\n.ytb-hk-key{font:11px ui-monospace,monospace;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:5px 8px;color:#9ff;cursor:pointer;text-align:center}\n.ytb-hk-key.listening{background:rgba(200,0,0,.2);border-color:#c00;color:#fff;animation:ytbHkBlink 1s linear infinite}\n.ytb-hk-key.empty{color:#666;font-style:italic}\n@keyframes ytbHkBlink{50%{opacity:.5}}\n.ytb-hk-clr{background:rgba(255,255,255,.05);border:0;border-radius:4px;color:#888;cursor:pointer;font-size:14px;line-height:1;padding:0}\n.ytb-hk-clr:hover{background:rgba(200,0,0,.2);color:#fff}\n.ytb-stop-btn{color:#fff!important;opacity:.9!important;display:inline-flex!important;align-items:center!important;justify-content:center!important}\n.ytb-stop-btn:hover{opacity:1!important;color:#ff5252!important}.ytb-drop-box{position:fixed;z-index:2147483635;padding:4px 8px;background:rgba(20,22,28,.78);color:#ff8a96;border:1px solid rgba(255,138,150,.28);border-radius:6px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:80px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.35);transition:color .2s}\n.ytb-drop-box:hover{opacity:.85}\n.ytb-vstats-box{position:fixed;z-index:2147483635;padding:6px 10px;background:rgba(20,22,28,.82);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:10.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:200px;box-shadow:0 6px 20px rgba(0,0,0,.45)}\n.ytb-vstats-box canvas{display:block;margin-top:4px;width:100%;height:24px;background:rgba(0,0,0,.35);border-radius:3px}\n.ytb-stop-btn svg{width:22px;height:22px;pointer-events:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.55))}.ytb-fps-box{position:fixed;z-index:2147483635;padding:3px 7px;background:rgba(20,22,28,.78);color:#9ff;border:1px solid rgba(159,255,255,.28);border-radius:6px;font:11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:54px;text-align:center;transition:opacity .2s;box-shadow:0 4px 12px rgba(0,0,0,.35)}\n.ytb-fps-box:hover{opacity:.85}\n.ytb-buf-box{position:fixed;z-index:2147483635;left:8px;bottom:48px;padding:6px 10px;background:rgba(20,22,28,.78);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);min-width:160px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.4)}\n.ytb-buf-bar{height:4px;background:rgba(255,255,255,.12);border-radius:3px;margin-top:4px;overflow:hidden}\n.ytb-buf-fill{height:100%;width:0;background:#4caf50;border-radius:3px;transition:width .3s,background .3s}\n@media (max-width:500px){.ytb-net-cards{grid-template-columns:1fr 1fr}}\n.ytb-elem-status{font-size:11px;color:#888;padding:2px 0 6px;font-variant-numeric:tabular-nums}\n.ytb-preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}\n.ytb-preset-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:7px;padding:8px 10px;cursor:pointer;transition:background .12s,border-color .12s}\n.ytb-preset-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}\n.ytb-preset-card.active{background:rgba(200,0,0,.12);border-color:rgba(200,0,0,.35)}\n.ytb-preset-name{font-size:12px;font-weight:600;color:#e0e0e0;margin-bottom:2px}\n.ytb-preset-desc{font-size:10px;color:#888;line-height:1.35}\n.ytb-elem-list{display:flex;flex-direction:column;gap:1px;max-height:380px;overflow-y:auto;background:rgba(255,255,255,.015);border-radius:6px;padding:3px;scrollbar-width:thin}\n.ytb-elem-group-hdr{font:600 10px/1 system-ui;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:8px 8px 3px;margin-top:3px;border-top:1px solid rgba(255,255,255,.04)}\n.ytb-elem-group-hdr:first-child{border-top:0;margin-top:0}\n.ytb-elem-row{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:4px;cursor:default;transition:background .1s}\n.ytb-elem-row:hover{background:rgba(62,166,255,.1)}\n.ytb-elem-row.on{background:rgba(255,80,80,.07)}\n.ytb-elem-row.nomatch{opacity:.4}\n.ytb-elem-cb{margin:0;cursor:pointer;width:14px;height:14px;accent-color:#c00;flex-shrink:0}\n.ytb-elem-name{flex:1;min-width:0;font-size:11.5px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-elem-match{font:10px ui-monospace,monospace;color:#555;flex-shrink:0;font-variant-numeric:tabular-nums}\n#ytb-elem-hover{animation:ytbElemFade .1s ease-out}\n@keyframes ytbElemFade{from{opacity:0}to{opacity:1}}\n.ytb-hist-note{font-size:10px;color:#666;line-height:1.5;margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.02);border-radius:4px}\n.ytb-geo-sel{position:relative;width:100%}\n.ytb-geo-input{width:100%}\n.ytb-geo-dd{position:absolute;top:100%;left:0;right:0;z-index:2147483646;max-height:260px;overflow-y:auto;background:rgba(18,20,26,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;margin-top:4px;box-shadow:0 18px 40px rgba(0,0,0,.6),0 4px 12px rgba(0,0,0,.4);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);scrollbar-width:thin}\n.ytb-geo-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:11.5px;color:#ddd;cursor:pointer;user-select:none}\n.ytb-geo-row:hover,.ytb-geo-row.hot{background:rgba(200,0,0,.18);color:#fff}\n.ytb-geo-row.selected{background:rgba(200,0,0,.32);color:#fff;font-weight:600}\n.ytb-geo-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-geo-code{flex-shrink:0;font-size:10px;color:#888;font-variant:tabular-nums;text-transform:uppercase}\n.ytb-geo-empty{padding:10px;text-align:center;color:#666;font-size:11px}\n.ytb-geo-status{background:rgba(255,255,255,.04);border-radius:5px;padding:6px 9px;font:11px ui-monospace,monospace;color:#5fc;margin:6px 0}\n.ytb-theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:5px;margin:4px 0}\n.ytb-theme-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:7px;padding:5px;cursor:pointer;text-align:center;transition:border-color .12s,background .12s;contain:content;content-visibility:auto;contain-intrinsic-size:53px}\n.ytb-theme-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}\n.ytb-theme-card.active{border-color:#c00;background:rgba(200,0,0,.1)}\n.ytb-theme-card.reset{padding:10px;margin-top:6px}\n.ytb-theme-swatch{width:100%;height:28px;border-radius:4px;border:1px solid rgba(255,255,255,.1);margin-bottom:4px;display:flex;align-items:flex-end;justify-content:flex-end;padding:3px}\n.ytb-theme-accent{width:9px;height:9px;border-radius:50%}\n.ytb-theme-name{font-size:9.5px;color:#ccc;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-toggle-pill{font:700 10px system-ui;padding:3px 8px;border-radius:999px;letter-spacing:.02em;text-transform:uppercase;display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:18px;transition:background .15s,color .15s}\n.ytb-ivs-mark:hover{background:rgba(255,61,127,1)!important;z-index:2}\n@media (max-width:500px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;max-height:calc(100vh - 16px)}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n#ytb-palette{display:none;flex-direction:column}\n#ytb-palette .ytb-palette-input{appearance:none;background:transparent;color:#fff;border:0;border-bottom:1px solid rgba(255,255,255,.12);padding:14px 18px;font:600 15px/1.2 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;outline:none;letter-spacing:.01em}\n#ytb-palette .ytb-palette-input::placeholder{color:#7a8290;font-weight:400}\n#ytb-palette .ytb-palette-results{flex:1;min-height:0;overflow-y:auto;padding:4px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n#ytb-palette .ytb-palette-results::-webkit-scrollbar{width:6px}\n#ytb-palette .ytb-palette-results::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n#ytb-palette .ytb-palette-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:background .1s}\n#ytb-palette .ytb-palette-row.active,#ytb-palette .ytb-palette-row:hover{background:rgba(255,61,127,.18)}\n#ytb-palette .ytb-palette-lbl{font-size:13.5px;color:#f0f2f7;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-palette .ytb-palette-hint{font-size:11px;color:#9aa;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap}\n#ytb-palette .ytb-palette-empty{padding:24px 18px;color:#7a8290;font-size:12.5px;text-align:center;font-style:italic}\n#ytb-palette .ytb-palette-foot{padding:8px 14px;border-top:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.2);color:#9aa;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}\n#ytb-cheat{display:none;flex-direction:column}\n#ytb-cheat .ytb-cheat-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0))}\n#ytb-cheat .ytb-cheat-title{font:700 15px/1 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;color:#fff;letter-spacing:.02em}\n#ytb-cheat .ytb-cheat-filter{appearance:none;background:rgba(255,255,255,.05);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;margin:10px 14px 4px;font:inherit;font-size:13px;outline:none;flex-shrink:0}\n#ytb-cheat .ytb-cheat-filter::placeholder{color:#7a8290}\n#ytb-cheat .ytb-cheat-filter:focus{border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n#ytb-cheat .ytb-cheat-body{flex:1;min-height:0;overflow-y:auto;padding:6px 14px 10px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n#ytb-cheat .ytb-cheat-body::-webkit-scrollbar{width:6px}\n#ytb-cheat .ytb-cheat-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n#ytb-cheat .ytb-cheat-cat{font:700 10.5px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;color:#9aa4b6;padding:10px 0 4px;display:flex;align-items:center;gap:8px}\n#ytb-cheat .ytb-cheat-cat::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,0))}\n#ytb-cheat .ytb-cheat-row{display:grid;grid-template-columns:1fr 110px 1fr;align-items:center;gap:10px;padding:5px 0;font-size:12.5px}\n#ytb-cheat .ytb-cheat-lbl{color:#e5e7ed;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-cheat .ytb-cheat-key{text-align:right}\n#ytb-cheat .ytb-cheat-hint{color:#7a8290;font-size:11px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-cheat .ytb-cheat-foot{padding:8px 14px;border-top:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.2);color:#9aa;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}\n@media (max-width:500px){#ytb-palette,#ytb-cheat{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;transform:translateX(0)!important;max-height:80vh!important}#ytb-cheat .ytb-cheat-row{grid-template-columns:1fr 90px}}\n';
-          try {
+            '\n.ytb-fp{position:relative;width:100%}\n.ytb-fp-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:7px 10px;background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:7px;font:inherit;font-size:12px;cursor:pointer;transition:background .15s,border-color .15s;text-align:left}\n.ytb-fp-btn:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.2)}\n.ytb-fp-btn:focus{outline:none;border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n.ytb-fp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.ytb-fp-arrow{color:#8b93a3;font-size:10px;flex-shrink:0}\n.ytb-fp-dd{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;max-height:260px;display:flex;flex-direction:column;background:rgba(18,20,26,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;box-shadow:0 18px 40px rgba(0,0,0,.6),0 4px 12px rgba(0,0,0,.4);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);overflow:hidden;animation:ytbFpFade .12s ease-out}\n.ytb-fp-search{margin:8px 8px 6px;padding:6px 10px;background:rgba(255,255,255,.06);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:6px;font:inherit;font-size:11.5px;outline:none;flex-shrink:0}\n.ytb-fp-search::placeholder{color:#7a8290}\n.ytb-fp-search:focus{border-color:rgba(255,61,127,.55)}\n.ytb-fp-list{overflow-y:auto;flex:1;padding:2px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n.ytb-fp-list::-webkit-scrollbar{width:6px}\n.ytb-fp-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n.ytb-fp-item{padding:6px 10px;border-radius:5px;cursor:pointer;color:#eef;font-size:12px;line-height:1.3;transition:background .1s}\n.ytb-fp-item:hover{background:rgba(255,61,127,.22);color:#fff}\n.ytb-fp-item.selected{background:rgba(255,61,127,.32);font-weight:600}@keyframes ytbFpFade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}\n#ytb-ivs{font-family:\"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif}\n#ytb-ivs .ytb-ivs-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0))}\n#ytb-ivs .ytb-ivs-title{font-size:13px;font-weight:700;letter-spacing:.02em}\n#ytb-ivs .ytb-ivs-close{appearance:none;border:0;background:rgba(255,255,255,.06);color:#dde;width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;font-weight:700;transition:background .12s}\n#ytb-ivs .ytb-ivs-close:hover{background:rgba(255,80,80,.25);color:#fff}\n#ytb-ivs .ytb-ivs-input{margin:10px 14px 4px;padding:8px 12px;background:rgba(255,255,255,.06);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:8px;font:inherit;font-size:13px;outline:none;flex-shrink:0}\n#ytb-ivs .ytb-ivs-input::placeholder{color:#7a8290}\n#ytb-ivs .ytb-ivs-input:focus{border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n#ytb-ivs .ytb-ivs-status{padding:0 14px 6px;font:11px ui-monospace,monospace;color:#8b93a3}\n#ytb-ivs .ytb-ivs-timeline{position:relative;height:8px;margin:0 14px 10px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden;flex-shrink:0}\n#ytb-ivs .ytb-ivs-results{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 10px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.15) transparent}\n#ytb-ivs .ytb-ivs-results::-webkit-scrollbar{width:6px}\n#ytb-ivs .ytb-ivs-results::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}\n#ytb-ivs .ytb-ivs-row{display:flex;align-items:flex-start;gap:10px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background .1s}\n#ytb-ivs .ytb-ivs-row:hover{background:rgba(255,61,127,.18)}\n#ytb-ivs .ytb-ivs-time{flex-shrink:0;font:11px ui-monospace,monospace;color:#ff8a96;background:rgba(255,61,127,.18);padding:2px 6px;border-radius:4px;cursor:pointer}\n#ytb-ivs .ytb-ivs-time:hover{background:rgba(255,61,127,.3);color:#fff}\n#ytb-ivs .ytb-ivs-text{flex:1;min-width:0;font-size:12px;color:#dde;line-height:1.45;word-wrap:break-word;overflow-wrap:break-word}\n#ytb-ivs .ytb-ivs-hl{background:rgba(255,61,127,.45);color:#fff;font-weight:600;padding:0 2px;border-radius:2px}\n#ytb-ivs .ytb-ivs-hint{padding:10px 12px;color:#7a8290;font-size:11.5px;font-style:italic}@keyframes ytbIvsIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}\n#ytb-resume-overlay > div,.ytb-resume-card-inner,.ytb-resume-card{max-width:520px;width:min(86%,520px);background:rgba(20,22,28,.6);border:1px solid rgba(255,255,255,.14);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.65),0 8px 24px rgba(0,0,0,.4);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);padding:24px 26px 22px;display:flex;flex-direction:column;gap:14px;transform:translateY(8px);transition:transform .25s ease-out}\n#ytb-resume-overlay .ytb-resume-head{display:flex;gap:14px;align-items:center}\n#ytb-resume-overlay .ytb-resume-thumb{width:120px;height:68px;border-radius:10px;flex-shrink:0;background:#000 center/cover no-repeat;box-shadow:0 4px 12px rgba(0,0,0,.5);position:relative;overflow:hidden}\n#ytb-resume-overlay .ytb-resume-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}\n#ytb-resume-overlay .ytb-resume-eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#ff8a96;font-weight:600}\n#ytb-resume-overlay .ytb-resume-title{font-size:15px;font-weight:600;color:#fff;line-height:1.3}\n#ytb-resume-overlay .ytb-resume-meta{font-size:12px;color:#aaa}\n#ytb-resume-overlay .ytb-resume-body{font-size:13.5px;color:#cdd;line-height:1.5}\n#ytb-resume-overlay .ytb-resume-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}\n#ytb-resume-overlay .ytb-resume-btn-primary{background:#fff!important;color:#0f0f0f!important;box-shadow:0 4px 16px rgba(255,255,255,.15)}\n#ytb-resume-overlay .ytb-resume-btn-primary:hover{box-shadow:0 6px 22px rgba(255,255,255,.3)}\n#ytb-resume-overlay .ytb-resume-btn-secondary{background:rgba(255,255,255,.1)!important;color:#fff!important;border:1px solid rgba(255,255,255,.14)!important}\n#ytb-resume-overlay .ytb-resume-btn-secondary:hover{background:rgba(255,255,255,.18)!important}\n#ytb-resume-overlay .ytb-resume-footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#777;margin-top:4px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)}\n#ytb-resume-overlay .ytb-resume-dismiss{background:none!important;border:0!important;color:#888!important;cursor:pointer;font:inherit;text-decoration:underline;padding:2px 4px}\n#ytb-resume-overlay .ytb-resume-dismiss:hover{color:#fff!important}\n#ytb-resume-overlay.ytb-resume-compact > div{max-width:380px;padding:18px 20px 16px;gap:12px;border-radius:18px}\n#ytb-resume-overlay.ytb-resume-detailed > div{max-width:560px;padding:32px 32px 24px;gap:20px}\n#ytb-resume-overlay.ytb-resume-cinema > div{background:rgba(10,10,14,.78);border:1px solid rgba(255,255,255,.16);box-shadow:0 40px 100px rgba(0,0,0,.8),0 8px 24px rgba(0,0,0,.5);backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%);max-width:560px;padding:32px}\n#ytb-resume-card{background:rgba(20,22,28,.7)!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:12px!important;box-shadow:0 18px 40px rgba(0,0,0,.55),0 4px 12px rgba(0,0,0,.4)!important;backdrop-filter:blur(20px) saturate(160%)!important;-webkit-backdrop-filter:blur(20px) saturate(160%)!important;color:#fff!important;}\n#ytb-resume-card .ytb-resume-card-row{align-items:center}\n#ytb-resume-card .ytb-resume-thumb{background-size:cover!important}\n#ytb-resume-card .ytb-resume-info{min-width:0}\n#ytb-resume-card .ytb-resume-cta{font-weight:600;font-size:12px;color:#fff}\n#ytb-resume-card .ytb-resume-title{font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-resume-card .ytb-resume-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}\n#ytb-resume-card .ytb-resume-btn-primary:hover{background:#ff1a4a!important}\n#ytb-resume-card .ytb-resume-btn-secondary:hover{background:rgba(255,255,255,.18)!important}\n#ytb-resume-card .ytb-resume-close{padding:7px 10px!important;min-width:30px;line-height:1}\n.ytb-cp{display:flex;align-items:center;gap:8px;width:100%}\n.ytb-cp-text{flex:1;min-width:0}\n.ytb-cp-native{width:36px;height:32px;border:1px solid rgba(255,255,255,.15);border-radius:7px;background:transparent;cursor:pointer;padding:2px;flex-shrink:0}\n.ytb-cp-swatch{width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,.18);flex-shrink:0;background:#000}\n.ytb-cp-native::-webkit-color-swatch-wrapper{padding:0}\n.ytb-cp-native::-webkit-color-swatch{border:none;border-radius:5px}\n.ytb-cp-native::-moz-color-swatch{border:none;border-radius:5px}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-card{max-width:380px;padding:18px 20px 16px;gap:10px;border-radius:18px;background:rgba(20,22,28,.78)}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-head{gap:10px}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-thumb{width:80px;height:45px;border-radius:8px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-card{max-width:560px;padding:32px 32px 24px;gap:20px;background:rgba(20,22,28,.78)}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-thumb{width:160px;height:90px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-title{font-size:18px;line-height:1.4;-webkit-line-clamp:3}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-meta{font-size:13px;line-height:1.5}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-body{font-size:15px;line-height:1.55}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-card{background:rgba(10,10,14,.72);border:1px solid rgba(255,255,255,.14);box-shadow:0 40px 100px rgba(0,0,0,.8),0 8px 24px rgba(0,0,0,.5);backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%);max-width:560px;padding:32px}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-thumb{width:140px;height:80px;border-radius:12px}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-title{font-size:18px;line-height:1.4}\n\n.ytb-dash,.ytb-dash *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-extra-notes,#ytb-extra-notes *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-toast,#ytb-toast *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-resume-card,#ytb-resume-card *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-resume-overlay,#ytb-resume-overlay *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-sb-hud,#ytb-sb-hud *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-sb-ov,#ytb-sb-ov *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-stats,#ytb-stats *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-diag,#ytb-diag *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-chapter-panel,#ytb-chapter-panel *{font-style:normal;font-variant:normal;box-sizing:border-box}\n.ytb-dash{position:fixed;top:24px;right:24px;width:830px;height:auto;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);z-index:2147483641;--acc:#ff3d5a;--panel:#0d0f14;--panel2:#12151b;--line:#21252d;--line2:#2b313b;--ink:#e8ebf1;--ink2:#a3aab8;--ink3:#697180;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.72),0 4px 16px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);font:13px/1.45 "Inter","Roboto",system-ui,-apple-system,sans-serif;font-style:normal;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;opacity:0;transition:opacity .12s ease-out;overflow:hidden;resize:none;contain:layout style paint}\n.ytb-dash.open{opacity:1}\n.ytb-dash.dragging{transition:none!important;cursor:grabbing!important;user-select:none;-webkit-user-select:none}\n.ytb-dash.dragging *{pointer-events:none!important;cursor:grabbing!important}\n.ytb-dash.resizing{transition:none;user-select:none}\n.ytb-dhandle{cursor:grab;user-select:none;-webkit-user-select:none}\n.ytb-dhandle:active{cursor:grabbing}\n.ytb-dgrip{display:inline-block;color:var(--acc);font-weight:700;margin-right:8px;font-family:var(--mono);font-size:13px}\n.ytb-dhbtns{display:flex;gap:6px;flex-shrink:0}\n.ytb-dresize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 0,transparent 50%,var(--line2) 50%,var(--line2) 55%,transparent 55%,transparent 65%,var(--line2) 65%,var(--line2) 70%,transparent 70%,transparent 80%,var(--line2) 80%,var(--line2) 85%,transparent 85%);z-index:2;border-bottom-right-radius:14px}\n.ytb-dresize:hover{background:linear-gradient(135deg,transparent 0,transparent 50%,var(--acc) 50%,var(--acc) 55%,transparent 55%,transparent 65%,var(--acc) 65%,var(--acc) 70%,transparent 70%,transparent 80%,var(--acc) 80%,var(--acc) 85%,transparent 85%)}\n.ytb-dhdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel2)}\n.ytb-dtitle{font:600 13.5px/1.2 "Inter","Roboto",system-ui,sans-serif;letter-spacing:.04em;display:flex;align-items:center;color:var(--ink)}\n.ytb-dver{font:10px/1 var(--mono);color:var(--ink2);margin-left:9px;padding:3px 7px;border-radius:4px;background:var(--panel3);border:1px solid var(--line)}\n.ytb-btn{appearance:none;border:1px solid var(--line2);border-radius:6px;padding:6px 12px;background:var(--panel3);color:var(--ink);cursor:pointer;font:inherit;font-size:12px;font-weight:550;transition:background .12s,border-color .12s,color .12s}\n.ytb-btn:hover{background:#1d222b;border-color:#39414e;color:#fff}\n.ytb-btn:active{transform:translateY(1px)}\n.ytb-btn.primary{background:var(--acc);color:#fff;border-color:var(--acc)}\n.ytb-btn.primary:hover{background:#ff4f6a;border-color:#ff4f6a;color:#fff}\n.ytb-btn.danger,.ytb-btn.ytb-danger{background:transparent;color:#ff7d8c;border-color:rgba(255,80,100,.35)}\n.ytb-btn.danger:hover,.ytb-btn.ytb-danger:hover{background:rgba(255,80,100,.12);color:#ffb3bc}\n.ytb-btn.ytb-close{width:28px;height:28px;padding:0;border-radius:6px;font:11px/1 var(--mono);display:inline-flex;align-items:center;justify-content:center}\n.ytb-btn.ytb-sb{font-size:10px;padding:4px 8px}\n.ytb-search{margin:10px 12px 8px;padding:9px 12px;background:var(--panel2);color:var(--ink);border:1px solid var(--line2);border-radius:8px;font:inherit;font-size:12.5px;outline:none}\n.ytb-search::placeholder{color:var(--ink3);font-family:var(--mono);font-size:11.5px}\n.ytb-search:focus{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc-dim)}\n.ytb-main{flex:1 1 0;min-height:0;display:flex;overflow:hidden}\n.ytb-nav{width:176px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;padding:8px 6px;border-right:1px solid var(--line);background:var(--panel2);overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2c313b transparent}\n.ytb-nav-item{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 9px;border:0;border-left:2px solid transparent;border-radius:6px;background:transparent;color:var(--ink2);font:550 11.5px/1.2 "Inter","Roboto",system-ui,sans-serif;cursor:pointer;text-align:left;transition:background .1s,color .1s}\n.ytb-nav-item:hover{color:var(--ink);background:rgba(255,255,255,.03)}\n.ytb-nav-item.active{color:#fff;background:var(--acc-dim);border-left-color:var(--acc)}\n.ytb-nav-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.ytb-nav-count{font:10px/1.4 var(--mono);color:var(--ink3);font-variant-numeric:tabular-nums}\n.ytb-nav-item.active .ytb-nav-count{color:#ffd0d8}\n.ytb-nav-sep{height:1px;background:var(--line);margin:6px 4px}\n.ytb-body{flex:1 1 0;min-height:0;min-width:0;overflow-y:auto;padding:8px 0 10px;scrollbar-width:thin;scrollbar-color:#2c313b transparent}\n.ytb-body::-webkit-scrollbar{width:8px}\n.ytb-body::-webkit-scrollbar-thumb{background:#2c313b;border-radius:4px}\n.ytb-core{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px 12px 10px;margin-bottom:4px;border-bottom:1px solid var(--line)}\n.ytb-corecell{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px}\n.ytb-corecell:hover{border-color:var(--line2)}\n.ytb-corelbl{font:550 11.5px/1.2 "Inter","Roboto",system-ui,sans-serif;color:var(--ink)}\n.ytb-cat-page{display:flex;flex-direction:column;gap:3px;padding:2px 10px 2px}\n.ytb-card{margin:0;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-left:2px solid transparent;border-radius:8px;transition:border-color .12s,background .12s;position:relative}\n.ytb-card:hover{border-color:var(--line2);background:var(--panel3)}\n.ytb-card.on{border-left-color:var(--acc)}\n.ytb-head{display:flex;align-items:center;justify-content:space-between;gap:10px}\n.ytb-name{font-size:13px;font-weight:600;color:var(--ink);flex:0 1 auto;min-width:0}\n.ytb-key{flex:1;min-width:0;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font:10px/1.4 var(--mono);color:var(--ink3);background:transparent;border:0;padding:1px 2px;cursor:pointer;border-radius:3px}\n.ytb-key:hover{color:var(--acc);background:rgba(255,255,255,.03)}\n.ytb-sum{font-size:11.5px;color:var(--ink2);margin-top:3px;line-height:1.4}\n.ytp-settings{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:7px}\n.ytb-sub{display:flex;flex-direction:column;gap:4px;margin-top:4px}\n.ytb-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:28px}\n.ytb-col{display:flex;flex-direction:column;gap:5px}\n.ytb-rowb{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}\n.ytb-rowb .ytb-btn{flex:1;min-width:80px}\n.ytb-lbl{font-size:12px;color:var(--ink);flex:1;min-width:0}\n.ytb-sw{position:relative;width:34px;height:18px;flex-shrink:0;cursor:pointer}\n.ytb-sw input{position:absolute;opacity:0;width:0;height:0}\n.ytb-track{position:absolute;inset:0;border-radius:5px;background:#22262e;transition:background .15s;border:1px solid #2b313b}\n.ytb-knob{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:3px;background:#7d8590;transition:transform .15s cubic-bezier(.4,0,.2,1),background .15s}\n.ytb-sw input:checked~.ytb-track{background:var(--acc);border-color:var(--acc)}\n.ytb-sw input:checked~.ytb-knob{transform:translateX(16px);background:#fff}\n.ytb-sel{background:var(--panel3);color:var(--ink);border:1px solid var(--line2);border-radius:5px;font:11px var(--mono);padding:4px 7px;outline:none;max-width:150px;transition:border-color .12s}\n.ytb-sel:focus{border-color:var(--acc)}\n.ytb-sel option{background:#12151b;color:var(--ink)}\n.ytb-rng{display:flex;align-items:center;gap:8px;flex:1;max-width:60%}\n.ytb-rng input[type=range]{flex:1;min-width:70px;accent-color:var(--acc);height:2px;cursor:pointer}\n.ytb-rngv{min-width:48px;text-align:right;color:var(--ink2);font:10px var(--mono);font-variant-numeric:tabular-nums}\n.ytb-inp{background:var(--panel3);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:6px 9px;font:inherit;font-size:11.5px;outline:none;width:100%;transition:border-color .12s}\n.ytb-inp:focus{border-color:var(--acc)}\n.ytb-ta{background:var(--panel3);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:7px 9px;font:10.5px/1.5 var(--mono);outline:none;width:100%;min-height:64px;resize:vertical;transition:border-color .12s}\n.ytb-ta:focus{border-color:var(--acc)}\n.ytb-foot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--line);background:var(--panel2);flex-wrap:wrap}\n.ytb-foot .ytb-btn{flex:1;min-width:90px}\n.ytb-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--panel2)}\n.ytb-tab{flex:1;padding:8px 6px;background:transparent;border:0;color:var(--ink2);font:600 10.5px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:color .12s,border-color .12s}\n.ytb-tab:hover{color:var(--ink)}\n.ytb-tab.active{color:var(--acc);border-bottom-color:var(--acc)}\n.ytb-tabpanel{display:none;flex-direction:column;gap:6px;padding:4px 0 8px}\n.ytb-tabpanel.active{display:flex}\n.ytb-section-hdr{font:600 10px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);padding:12px 12px 5px;display:flex;align-items:center;gap:8px}\n.ytb-section-hdr::after{content:"";flex:1;height:1px;background:var(--line)}\n.ytb-meter{height:6px;background:var(--panel3);border-radius:3px;overflow:hidden;position:relative}\n.ytb-meter-fill{height:100%;background:var(--acc);border-radius:3px;transition:width .3s}\n.ytb-meter-fill.ok{background:#37c26b}\n.ytb-meter-fill.warn{background:#f2b134}\n.ytb-meter-fill.crit{background:#ff3d5a}\n.ytp-kbd{font:9.5px var(--mono);background:var(--panel3);border:1px solid var(--line2);border-bottom-width:2px;border-radius:3px;padding:2px 5px;color:var(--ink);display:inline-block}\n.ytb-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;background:var(--acc-dim);color:#ff8fa1;font:600 10px/1 var(--mono);border:1px solid rgba(255,61,90,.3)}\n.ytb-chip.neutral{background:var(--panel3);color:var(--ink2);border-color:var(--line2)}\n.ytb-divider{height:1px;background:var(--line);margin:7px 0}\n.ytb-cat-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-right:6px}\n@media (max-width:640px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;max-height:calc(100vh - 16px)}.ytb-main{flex-direction:column}.ytb-nav{width:100%;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid var(--line);padding:6px}.ytb-nav-item{white-space:nowrap}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n@media (prefers-reduced-motion:reduce){.ytb-dash,.ytb-card,.ytb-btn,.ytb-knob{transition:none!important}}\n\n.ytb-hcard{display:flex;gap:10px;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.05);border-radius:10px;margin-top:6px;transition:background .15s}\n.ytb-hcard:hover{background:rgba(255,255,255,.07)}\n.ytb-hcard.done{opacity:.6}\n.ytb-hthumb{width:88px;height:50px;min-width:88px;border-radius:7px;background:#1a1c22 center/cover no-repeat;position:relative;flex-shrink:0;overflow:hidden;border:1px solid rgba(255,255,255,.06)}\n.ytb-hbadge{position:absolute;bottom:3px;right:3px;background:rgba(0,0,0,.85);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px}\n.ytb-hbadge.done{background:rgba(0,160,50,.85)}\n.ytb-hbadge.res{background:rgba(255,61,127,.85)}\n.ytb-hinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}\n.ytb-htitle{font-size:11.5px;font-weight:600;color:#e5e7ed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hchan{font-size:10px;color:#7a8290;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hmeta{font-size:10px;color:#5b6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hpt{height:3px;background:rgba(255,255,255,.08);border-radius:3px;margin:3px 0;overflow:hidden}\n.ytb-hpf{height:100%;background:linear-gradient(90deg,#ff0033,#ff3d7f);border-radius:3px}\n.ytb-hpf.done{background:linear-gradient(90deg,#0a6,#4caf50)}\n.ytb-hacts{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}\n.ytb-hist-loading,.ytb-hist-empty{padding:20px;text-align:center;color:#5b6270;font-size:11.5px}\n.ytb-hist-panel{display:flex;flex-direction:column;gap:8px;margin-top:6px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:12px}\n.ytb-hist-toolbar{display:flex;gap:6px;flex-wrap:wrap}\n.ytb-hist-search{flex:1;min-width:120px;background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:6px 10px;font:inherit;font-size:12px;outline:none}\n.ytb-hist-search:focus{border-color:rgba(255,61,127,.55)}\n.ytb-hist-list{display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;scrollbar-width:thin;padding-right:2px}\n.ytb-hist-loadmore{margin-top:0!important;background:rgba(255,255,255,.04)!important}\n#ytb-extra-topbar{position:fixed;left:0;top:0;height:3px;width:0;background:linear-gradient(90deg,#ff0033,#ff3d7f);z-index:2147483642;box-shadow:0 1px 10px rgba(255,61,127,.6);pointer-events:none}\n#ytb-extra-remain,#ytb-extra-clock,#ytb-extra-endwarn{position:fixed;right:12px;bottom:58px;z-index:2147483636;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:5px 10px;font:11px/1.2 ui-monospace,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);pointer-events:none;}\n#ytb-extra-clock{bottom:84px;color:#8ee}\n#ytb-extra-endwarn{left:50%;right:auto;bottom:120px;transform:translateX(-50%);opacity:0;transition:opacity .2s;color:#ffd166}\n#ytb-extra-endwarn.show{opacity:1}\n.ytb-extra-num{position:absolute;left:5px;top:5px;z-index:5;background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border-radius:99px;min-width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 11px system-ui;box-shadow:0 2px 6px rgba(255,0,51,.4)}\n.ytb-extra-long{box-shadow:inset 3px 0 0 #8b5cf6!important}\n.ytb-extra-short{box-shadow:inset 3px 0 0 #22c55e!important}\n.ytb-extra-watched-dim{opacity:.45!important;filter:saturate(.6)!important}\n.ytb-extra-watched-hide,.ytb-extra-live,.ytb-extra-premiere{display:none!important}\n#ytb-extra-notes{position:fixed;right:18px;bottom:18px;z-index:2147483646;width:min(360px,calc(100vw - 36px));background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:12px;font:12px system-ui;}\n.ytb-extra-notes-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n.ytb-extra-notes-head button{background:none;border:0;color:#aaa;font-size:18px;cursor:pointer}\n#ytb-extra-notes textarea{width:100%;min-height:140px;background:rgba(255,255,255,.06);color:#eee;border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:6px;font:inherit;resize:vertical}\n.ytb-extra-notes-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font:10.5px ui-monospace,monospace;color:#777}\n.ytb-extra-notes-foot button{background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border:0;border-radius:5px;padding:4px 10px;cursor:pointer;font:600 11px system-ui}\n.ytb-toast,.ytb-t-info,.ytb-t-success,.ytb-t-error{position:fixed;left:50%;top:12px;transform:translateX(-50%) translateY(-10px);z-index:2147483647;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:10px 18px;font:12px/1.4 system-ui;font-style:normal;opacity:0;transition:opacity .2s,transform .2s;max-width:min(420px,calc(100vw - 32px));}\n.ytb-toast.show,.ytb-t-info.show,.ytb-t-success.show,.ytb-t-error.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.ytb-toast.success,.ytb-t-success{border-color:rgba(76,175,80,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(76,175,80,.22))}\n\n#ytb-resume-overlay.ytb-resume-compact .ytb-fcw-bar{height:3px;margin-top:8px}\n\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-thumb{width:80px;height:45px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-card{max-width:560px;padding:32px 32px 24px;gap:20px}\n\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-title{font-size:18px;line-height:1.4;margin-top:6px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-meta{font-size:13px;margin-top:8px;line-height:1.5}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-body{font-size:15px;line-height:1.5;margin-top:2px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-btn-primary,#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-btn-secondary{padding:14px 22px;border-radius:99px;font-size:14px;gap:4px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-fcw-bar{height:5px;margin-top:10px;border-radius:99px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-actions{gap:12px;margin-top:6px}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-card{background:rgba(10,10,12,.7);border:1px solid rgba(255,255,255,.15);box-shadow:0 40px 100px rgba(0,0,0,.8),0 8px 24px rgba(0,0,0,.5);backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%)}\n.ytb-toast.error,.ytb-t-error{border-color:rgba(255,80,80,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(255,80,80,.22))}\n.ytb-toast.info,.ytb-t-info{border-color:rgba(255,61,127,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(255,61,127,.22))}\n.ytb-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.07);background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,0))}\n.ytb-tab{flex:1;padding:10px 6px;background:transparent;border:0;color:#a8b0c0;font:600 11.5px/1 system-ui;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-tab:hover{color:#e8eaf0}\n.ytb-tab.active{color:#ff3d7f;border-bottom-color:#ff3d7f;text-shadow:0 0 8px rgba(255,61,127,.5)}\n\n\n.ytb-section-hdr{font:700 10.5px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;color:#9aa4b6;padding:14px 16px 6px;display:flex;align-items:center;gap:8px;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-section-hdr::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,0))}\n.ytb-meter{height:8px;background:rgba(255,255,255,.06);border-radius:99px;overflow:hidden;position:relative}\n.ytb-meter-fill{height:100%;background:linear-gradient(90deg,#ff0033,#ff3d7f);border-radius:99px;transition:width .3s}\n.ytb-meter-fill.ok{background:linear-gradient(90deg,#4caf50,#8bc34a)}\n.ytb-meter-fill.warn{background:linear-gradient(90deg,#ffc107,#ff9800)}\n.ytb-meter-fill.crit{background:linear-gradient(90deg,#ff5722,#e91e63)}\n.ytp-kbd{font:10px ui-monospace,monospace;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-bottom-width:2px;border-radius:4px;padding:2px 6px;color:#dde;display:inline-block}\n.ytb-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:99px;background:rgba(255,61,127,.12);color:#ff8aa5;font:600 10.5px/1 system-ui;border:1px solid rgba(255,61,127,.25)}\n.ytb-chip.neutral{background:rgba(255,255,255,.05);color:#9aa;border-color:rgba(255,255,255,.1)}\n.ytb-divider{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);margin:8px 0}\n#ytb-resume-overlay{position:absolute;inset:0;z-index:2147483640;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(20,22,28,.6) 0%,rgba(20,22,28,.85) 50%,rgba(20,22,28,.6) 100%);backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);font:14px/1.45 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;color:#fff;opacity:0;transition:opacity .22s ease-out;}\n#ytb-fcw-overlay{position:fixed;right:18px;top:80px;z-index:2147483638;width:min(320px,calc(100vw - 36px));background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.5);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);padding:12px 16px;font:12px/1.4 system-ui;}\n#ytb-comment-search{display:flex;gap:6px;align-items:center;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:6px 10px;margin:8px 0;backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);box-shadow:0 4px 14px rgba(0,0,0,.35);}\n#ytb-comment-search .ytb-cs-input{flex:1;min-width:0;background:rgba(0,0,0,.25);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:5px 8px;font:11.5px system-ui;outline:none;}\n#ytb-comment-search .ytb-cs-count{font-size:11px;color:#9aa;font-variant-numeric:tabular-nums;white-space:nowrap;}\n#ytb-comment-search .ytb-cs-clear{background:rgba(255,255,255,.07);border:0;color:#aaa;width:24px;height:24px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1;}\n#ytb-comment-search .ytb-cs-clear:hover{background:rgba(255,255,255,.13);color:#fff}\n#ytb-chapter-panel .ytb-ch-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,.04);font-size:11.5px;font-weight:600;color:#cdd;}\n#ytb-chapter-panel .ytb-ch-toggle{background:none;border:0;color:#888;cursor:pointer;font-size:11px;padding:0 4px}\n#ytb-chapter-panel .ytb-ch-toggle:hover{color:#fff}\n#ytb-chapter-panel .ytb-ch-list{max-height:340px;overflow-y:auto;scrollbar-width:thin}\n#ytb-chapter-panel .ytb-ch-row{display:flex;gap:10px;padding:6px 12px;cursor:pointer;border-top:1px solid rgba(255,255,255,.03);transition:background .1s}\n#ytb-chapter-panel .ytb-ch-row:hover{background:rgba(255,255,255,.05)}\n#ytb-chapter-panel .ytb-ch-t{flex:0 0 auto;color:#5fc;font-variant-numeric:tabular-nums;font-size:11.5px;min-width:54px}\n#ytb-chapter-panel .ytb-ch-title{flex:1;min-width:0;font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-chapter-panel .ytb-ch-row.current{background:rgba(255,61,127,.14)}\n#ytb-chapter-panel .ytb-ch-row.current .ytb-ch-t{color:#ff3d7f;font-weight:600}\n#ytb-chapter-panel .ytb-ch-row.current .ytb-ch-title{color:#fff;font-weight:600}\n#ytb-extra-notes .ytb-extra-notes-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n#ytb-extra-notes .ytb-extra-notes-head button{background:none;border:0;color:#aaa;font-size:18px;cursor:pointer}\n#ytb-extra-notes textarea{width:100%;min-height:140px;background:rgba(0,0,0,.25);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:8px;font:12px ui-monospace,SFMono-Regular,Consolas,monospace;resize:vertical}\n#ytb-extra-notes .ytb-extra-notes-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font:10.5px ui-monospace,monospace;color:#9aa}\n#ytb-extra-notes .ytb-extra-notes-foot button{background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%);color:#fff;border:0;border-radius:5px;padding:4px 10px;cursor:pointer;font:600 11px system-ui}\n#ytb-fcw-overlay .ytb-fcw-title{flex:1;font-weight:600;color:#fff;font-size:13px}\n#ytb-fcw-overlay .ytb-fcw-sub{font-size:11px;color:#9aa;margin-top:4px}\n#ytb-fcw-overlay .ytb-fcw-bar{height:4px;background:rgba(255,255,255,.08);border-radius:3px;margin-top:6px;overflow:hidden}\n#ytb-fcw-overlay .ytb-fcw-stats{font-size:11px;color:#aaa;margin-top:4px}\n#ytb-fcw-overlay .ytb-fcw-btn{background:rgba(255,255,255,.07);border:0;border-radius:5px;color:#ddd;padding:6px 12px;cursor:pointer;font:600 11px system-ui}\n@media (max-width:540px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;max-height:calc(100vh - 16px)}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n@media (prefers-reduced-motion:reduce){.ytb-dash,.ytb-card,.ytb-btn,.ytb-knob{transition:none!important}}\n\n\n#ytb-extra-endwarn{left:50%;right:auto;bottom:120px;transform:translateX(-50%);opacity:0;transition:opacity .15s;color:#ffd166}\n\n\n.ytb-extra-comment-clamp{max-height:150px;overflow:hidden;display:block}\n.ytb-extra-expand-comment{margin-top:4px;border:0;border-radius:999px;background:rgba(62,166,255,.14);color:#3ea6ff;padding:3px 8px;font:700 11px system-ui;cursor:pointer}\n#ytb-sb-hud{position:fixed;left:10px;bottom:36px;z-index:2147483635;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:5px 12px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);}\n#ytb-sb-ov{position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483639;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:8px 18px;font:12px system-ui;backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);box-shadow:0 10px 30px rgba(0,0,0,.5);}\n#ytb-stats{position:fixed;top:60px;right:8px;z-index:2147483637;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;padding:6px 10px;line-height:1.5;max-width:380px;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);}\n#ytb-diag{position:fixed;bottom:0;left:0;width:380px;max-height:200px;overflow:auto;z-index:2147483647;background:rgba(20,22,28,.55);color:#cdd;border:1px solid rgba(255,255,255,.12);border-radius:14px 14px 0 0;border-bottom:none;border-left:none;border-right:none;font:11px ui-monospace,SFMono-Regular,Consolas,monospace;padding:8px;backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);box-shadow:0 -8px 24px rgba(0,0,0,.4);}\n.ytb-sb-mark{pointer-events:none}\nbody.ytb-silent #ytb-toast,body.ytb-silent #ytb-sb-hud,body.ytb-silent #ytb-sb-ov,body.ytb-silent #ytb-stats,body.ytb-silent #ytb-diag,body.ytb-silent #ytb-cinema,body.ytb-silent #ytp-ambient,body.ytb-silent .ytb-sb-mark{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}\n#ytb-resume-card{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:2147483647;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:14px 18px;font:13px/1.45 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;min-width:300px;max-width:min(92%,520px);opacity:0;transform:translateX(-50%) translateY(8px);transition:opacity .2s ease-out,transform .2s ease-out;}\n@keyframes ytbResIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}\nbody.ytb-silent #ytb-resume-card{display:none!important}\n#ytb-chapter-panel{margin:8px 0 12px;background:rgba(20,22,28,.45);color:#e8e8e8;border:1px solid rgba(255,255,255,.1);border-radius:12px;overflow:hidden;font:13px/1.45 system-ui;backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);box-shadow:0 4px 16px rgba(0,0,0,.3);}\n.ytb-ch-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,.03);font-size:11.5px;font-weight:600;color:#bbb;text-transform:uppercase;letter-spacing:.05em}\n.ytb-ch-toggle{background:none;border:0;color:#888;cursor:pointer;font-size:11px;padding:0 4px}\n.ytb-ch-toggle:hover{color:#fff}\n.ytb-ch-list{max-height:340px;overflow-y:auto;scrollbar-width:thin}\n.ytb-ch-row{display:flex;gap:10px;padding:6px 12px;cursor:pointer;border-top:1px solid rgba(255,255,255,.03);transition:background .1s}\n.ytb-ch-row:hover{background:rgba(255,255,255,.05)}\n.ytb-ch-t{flex:0 0 auto;color:#5fc;font-variant-numeric:tabular-nums;font-size:11.5px;min-width:54px}\n.ytb-ch-title{flex:1;min-width:0;font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-comment-search{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;margin:0 0 12px;font:13px system-ui}\n.ytb-cs-input{flex:1;min-width:0;background:rgba(0,0,0,.4);color:#e8e8e8;border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:6px 10px;font:inherit;font-size:13px;outline:none}\n.ytb-cs-input:focus{border-color:#3ea6ff}\n.ytb-cs-count{font-size:11px;color:#888;font-variant-numeric:tabular-nums;white-space:nowrap}\n.ytb-cs-clear{background:rgba(255,255,255,.07);border:0;color:#aaa;width:24px;height:24px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center}\n.ytb-cs-clear:hover{background:rgba(255,255,255,.13);color:#fff}\n.ytb-elem-sec-title{font-size:10.5px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.07em;margin:10px 0 4px;padding-top:6px;border-top:1px solid rgba(255,255,255,.06)}\n.ytb-net-panel{display:flex;flex-direction:column;gap:8px;margin-top:6px}\n.ytb-net-cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}\n.ytb-net-card{background:rgba(159,255,255,.05);border:1px solid rgba(159,255,255,.12);border-radius:7px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}\n.ytb-net-card-label{font-size:10px;color:#9ff;text-transform:uppercase;letter-spacing:.08em;font-weight:700}\n.ytb-net-card-value{font-size:15px;color:#eee;font-weight:700;font-variant-numeric:tabular-nums}\n.ytb-net-card-sub{font-size:10px;color:#888}\n.ytb-net-session{font:11px ui-monospace,monospace;color:#9ff;background:rgba(255,255,255,.03);border-radius:5px;padding:5px 8px}\n.ytb-net-legend{display:flex;gap:14px;justify-content:flex-end;padding:0 4px;margin-top:2px}\n.ytb-net-legend-item{display:inline-flex;align-items:center;gap:5px;font:11px/1.2 system-ui;color:#cfcfcf}\n.ytb-net-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}\n.ytb-net-swatch-dn{background:linear-gradient(180deg,#4dd0e1 0%,#0288d1 100%)}\n.ytb-net-swatch-up{background:linear-gradient(180deg,#ff8a65 0%,#c62828 100%)}\n.ytb-net-chart{display:flex;align-items:flex-end;gap:2px;height:120px;padding:6px 4px;background:rgba(0,0,0,.35);border-radius:6px;border:1px solid rgba(255,255,255,.06);position:relative;overflow:hidden}\n.ytb-net-chart::before{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(255,255,255,.06);pointer-events:none}\n.ytb-net-bar{flex:1;min-width:2px;display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative;cursor:default;transition:opacity .12s}\n.ytb-net-bar:hover{opacity:.85}\n.ytb-net-bar-dn{background:linear-gradient(180deg,#4dd0e1 0%,#0288d1 100%);border-bottom-left-radius:2px;border-bottom-right-radius:2px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18);transition:filter .12s}\n.ytb-net-bar-up{background:linear-gradient(180deg,#ff8a65 0%,#c62828 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.22);border-top-left-radius:2px;border-top-right-radius:2px;transition:filter .12s}\n.ytb-net-bar:hover .ytb-net-bar-dn,.ytb-net-bar:hover .ytb-net-bar-up{filter:brightness(1.25) saturate(1.2)}\n.ytb-net-card:nth-child(1){background:rgba(159,255,255,.06);border-color:rgba(159,255,255,.18)}\n.ytb-net-card:nth-child(1) .ytb-net-card-label{color:#9ff}\n.ytb-net-card:nth-child(2){background:rgba(2,136,209,.10);border-color:rgba(77,208,225,.28)}\n.ytb-net-card:nth-child(2) .ytb-net-card-label,.ytb-net-card:nth-child(2) .ytb-net-card-value{color:#4dd0e1}\n.ytb-net-card:nth-child(3){background:rgba(198,40,40,.10);border-color:rgba(255,138,101,.28)}\n.ytb-net-card:nth-child(3) .ytb-net-card-label,.ytb-net-card:nth-child(3) .ytb-net-card-value{color:#ff8a65}\n.ytb-net-axis{display:flex;justify-content:space-between;font:10px ui-monospace,monospace;color:#666;padding:0 4px}\n.ytb-net-hosts{display:flex;flex-direction:column;gap:2px;background:rgba(255,255,255,.025);border-radius:6px;padding:6px 8px}\n.ytb-net-host-row{display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}\n.ytb-net-host-row:last-child{border-bottom:0}\n.ytb-net-host-name{color:#ddd;font-family:ui-monospace,monospace;font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}\n.ytb-net-host-bytes{color:#9ff;font-variant-numeric:tabular-nums;flex-shrink:0;margin-left:8px}\n.ytb-net-budget{background:rgba(255,255,255,.025);border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:5px}\n.ytb-net-budget-bar{height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}\n.ytb-net-budget-fill{height:100%;background:linear-gradient(90deg,#4caf50,#8bc34a);border-radius:4px;transition:width .3s}\n.ytb-net-budget-fill.warn{background:linear-gradient(90deg,#ffc107,#ff9800)}\n.ytb-net-budget-fill.crit{background:linear-gradient(90deg,#ff5722,#e91e63)}\n.ytb-net-budget-fill.over{background:linear-gradient(90deg,#e53935,#b71c1c);animation:ytbBudgetPulse 1.4s ease-in-out infinite}\n@keyframes ytbBudgetPulse{0%,100%{opacity:1}50%{opacity:.55}}\n.ytb-net-budget-detail{font:11px ui-monospace,monospace;color:#ddd;font-variant-numeric:tabular-nums}\n.ytb-net-qualities{background:rgba(255,255,255,.025);border-radius:6px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}\n.ytb-net-q-row{display:grid;grid-template-columns:64px 1fr 110px;gap:8px;align-items:center}\n.ytb-net-q-lbl{color:#fff;font:700 10px/1 system-ui;text-align:center;padding:3px 4px;border-radius:3px;letter-spacing:.04em}\n.ytb-net-q-track{height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}\n.ytb-net-q-fill{height:100%;border-radius:4px;transition:width .25s}\n.ytb-net-q-bytes{font:10.5px ui-monospace,monospace;color:#ccc;text-align:right;font-variant-numeric:tabular-nums}\n.ytb-perf-panel{display:flex;flex-direction:column;gap:6px;margin-top:6px}\n.ytb-perf-mem{font:11px ui-monospace,monospace;color:#9ff;background:rgba(255,255,255,.03);border-radius:5px;padding:5px 8px}\n.ytb-perf-membar{height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden}\n.ytb-perf-memfill{height:100%;background:#4caf50;border-radius:3px;transition:width .3s,background .3s}\n.ytb-perf-state{font:10.5px ui-monospace,monospace;color:#aaa;padding:3px 0}\n.ytb-perf-table{display:flex;flex-direction:column;background:rgba(255,255,255,.02);border-radius:5px;overflow:hidden;font:10.5px ui-monospace,monospace}\n.ytb-perf-row{display:grid;grid-template-columns:1.4fr .5fr .7fr .7fr .7fr;padding:3px 8px;gap:6px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center}\n.ytb-perf-hdr{font-weight:700;color:#9ff;background:rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.1)}\n.ytb-perf-row .ytb-perf-c1{color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-perf-row .ytb-perf-c2,.ytb-perf-row .ytb-perf-c3,.ytb-perf-row .ytb-perf-c4,.ytb-perf-row .ytb-perf-c5{text-align:right;font-variant-numeric:tabular-nums;color:#ccc}\n.ytb-sbsub-panel{display:flex;flex-direction:column;gap:6px}\n.ytb-sbsub-status{font:11px ui-monospace,monospace;background:rgba(255,255,255,.03);border-radius:5px;padding:6px 8px;color:#888}\n.ytb-hk-row{display:grid;grid-template-columns:1fr 160px 30px;gap:6px;align-items:center;padding:3px 0}\n.ytb-hk-lbl{font-size:12px;color:#ddd}\n.ytb-hk-key{font:11px ui-monospace,monospace;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:5px 8px;color:#9ff;cursor:pointer;text-align:center}\n.ytb-hk-key.listening{background:rgba(200,0,0,.2);border-color:#c00;color:#fff;animation:ytbHkBlink 1s linear infinite}\n.ytb-hk-key.empty{color:#666;font-style:italic}\n@keyframes ytbHkBlink{50%{opacity:.5}}\n.ytb-hk-clr{background:rgba(255,255,255,.05);border:0;border-radius:4px;color:#888;cursor:pointer;font-size:14px;line-height:1;padding:0}\n.ytb-hk-clr:hover{background:rgba(200,0,0,.2);color:#fff}\n.ytb-stop-btn{color:#fff!important;opacity:.9!important;display:inline-flex!important;align-items:center!important;justify-content:center!important}\n.ytb-stop-btn:hover{opacity:1!important;color:#ff5252!important}.ytb-drop-box{position:fixed;z-index:2147483635;padding:4px 8px;background:rgba(20,22,28,.78);color:#ff8a96;border:1px solid rgba(255,138,150,.28);border-radius:6px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:80px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.35);transition:color .2s}\n.ytb-drop-box:hover{opacity:.85}\n.ytb-vstats-box{position:fixed;z-index:2147483635;padding:6px 10px;background:rgba(20,22,28,.82);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:10.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:200px;box-shadow:0 6px 20px rgba(0,0,0,.45)}\n.ytb-vstats-box canvas{display:block;margin-top:4px;width:100%;height:24px;background:rgba(0,0,0,.35);border-radius:3px}\n.ytb-stop-btn svg{width:22px;height:22px;pointer-events:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.55))}.ytb-fps-box{position:fixed;z-index:2147483635;padding:3px 7px;background:rgba(20,22,28,.78);color:#9ff;border:1px solid rgba(159,255,255,.28);border-radius:6px;font:11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:54px;text-align:center;transition:opacity .2s;box-shadow:0 4px 12px rgba(0,0,0,.35)}\n.ytb-fps-box:hover{opacity:.85}\n.ytb-buf-box{position:fixed;z-index:2147483635;left:8px;bottom:48px;padding:6px 10px;background:rgba(20,22,28,.78);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);min-width:160px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.4)}\n.ytb-buf-bar{height:4px;background:rgba(255,255,255,.12);border-radius:3px;margin-top:4px;overflow:hidden}\n.ytb-buf-fill{height:100%;width:0;background:#4caf50;border-radius:3px;transition:width .3s,background .3s}\n@media (max-width:500px){.ytb-net-cards{grid-template-columns:1fr 1fr}}\n.ytb-elem-status{font-size:11px;color:#888;padding:2px 0 6px;font-variant-numeric:tabular-nums}\n.ytb-preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}\n.ytb-preset-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:7px;padding:8px 10px;cursor:pointer;transition:background .12s,border-color .12s}\n.ytb-preset-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}\n.ytb-preset-card.active{background:rgba(200,0,0,.12);border-color:rgba(200,0,0,.35)}\n.ytb-preset-name{font-size:12px;font-weight:600;color:#e0e0e0;margin-bottom:2px}\n.ytb-preset-desc{font-size:10px;color:#888;line-height:1.35}\n.ytb-elem-list{display:flex;flex-direction:column;gap:1px;max-height:380px;overflow-y:auto;background:rgba(255,255,255,.015);border-radius:6px;padding:3px;scrollbar-width:thin}\n.ytb-elem-group-hdr{font:600 10px/1 system-ui;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:8px 8px 3px;margin-top:3px;border-top:1px solid rgba(255,255,255,.04)}\n.ytb-elem-group-hdr:first-child{border-top:0;margin-top:0}\n.ytb-elem-row{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:4px;cursor:default;transition:background .1s}\n.ytb-elem-row:hover{background:rgba(62,166,255,.1)}\n.ytb-elem-row.on{background:rgba(255,80,80,.07)}\n.ytb-elem-row.nomatch{opacity:.4}\n.ytb-elem-cb{margin:0;cursor:pointer;width:14px;height:14px;accent-color:#c00;flex-shrink:0}\n.ytb-elem-name{flex:1;min-width:0;font-size:11.5px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-elem-match{font:10px ui-monospace,monospace;color:#555;flex-shrink:0;font-variant-numeric:tabular-nums}\n#ytb-elem-hover{animation:ytbElemFade .1s ease-out}\n@keyframes ytbElemFade{from{opacity:0}to{opacity:1}}\n.ytb-hist-note{font-size:10px;color:#666;line-height:1.5;margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.02);border-radius:4px}\n.ytb-geo-sel{position:relative;width:100%}\n.ytb-geo-input{width:100%}\n.ytb-geo-dd{position:absolute;top:100%;left:0;right:0;z-index:2147483646;max-height:260px;overflow-y:auto;background:rgba(18,20,26,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;margin-top:4px;box-shadow:0 18px 40px rgba(0,0,0,.6),0 4px 12px rgba(0,0,0,.4);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);scrollbar-width:thin}\n.ytb-geo-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:11.5px;color:#ddd;cursor:pointer;user-select:none}\n.ytb-geo-row:hover,.ytb-geo-row.hot{background:rgba(200,0,0,.18);color:#fff}\n.ytb-geo-row.selected{background:rgba(200,0,0,.32);color:#fff;font-weight:600}\n.ytb-geo-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-geo-code{flex-shrink:0;font-size:10px;color:#888;font-variant:tabular-nums;text-transform:uppercase}\n.ytb-geo-empty{padding:10px;text-align:center;color:#666;font-size:11px}\n.ytb-geo-status{background:rgba(255,255,255,.04);border-radius:5px;padding:6px 9px;font:11px ui-monospace,monospace;color:#5fc;margin:6px 0}\n.ytb-theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:5px;margin:4px 0}\n.ytb-theme-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:7px;padding:5px;cursor:pointer;text-align:center;transition:border-color .12s,background .12s;contain:content;content-visibility:auto;contain-intrinsic-size:53px}\n.ytb-theme-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}\n.ytb-theme-card.active{border-color:#c00;background:rgba(200,0,0,.1)}\n.ytb-theme-card.reset{padding:10px;margin-top:6px}\n.ytb-theme-swatch{width:100%;height:28px;border-radius:4px;border:1px solid rgba(255,255,255,.1);margin-bottom:4px;display:flex;align-items:flex-end;justify-content:flex-end;padding:3px}\n.ytb-theme-accent{width:9px;height:9px;border-radius:50%}\n.ytb-theme-name{font-size:9.5px;color:#ccc;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-toggle-pill{font:700 10px system-ui;padding:3px 8px;border-radius:999px;letter-spacing:.02em;text-transform:uppercase;display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:18px;transition:background .15s,color .15s}\n.ytb-ivs-mark:hover{background:rgba(255,61,127,1)!important;z-index:2}\n@media (max-width:500px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;max-height:calc(100vh - 16px)}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n#ytb-palette{display:none;flex-direction:column}\n#ytb-palette .ytb-palette-input{appearance:none;background:transparent;color:#fff;border:0;border-bottom:1px solid rgba(255,255,255,.12);padding:14px 18px;font:600 15px/1.2 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;outline:none;letter-spacing:.01em}\n#ytb-palette .ytb-palette-input::placeholder{color:#7a8290;font-weight:400}\n#ytb-palette .ytb-palette-results{flex:1;min-height:0;overflow-y:auto;padding:4px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n#ytb-palette .ytb-palette-results::-webkit-scrollbar{width:6px}\n#ytb-palette .ytb-palette-results::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n#ytb-palette .ytb-palette-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:background .1s}\n#ytb-palette .ytb-palette-row.active,#ytb-palette .ytb-palette-row:hover{background:rgba(255,61,127,.18)}\n#ytb-palette .ytb-palette-lbl{font-size:13.5px;color:#f0f2f7;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-palette .ytb-palette-hint{font-size:11px;color:#9aa;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap}\n#ytb-palette .ytb-palette-empty{padding:24px 18px;color:#7a8290;font-size:12.5px;text-align:center;font-style:italic}\n#ytb-palette .ytb-palette-foot{padding:8px 14px;border-top:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.2);color:#9aa;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}\n#ytb-cheat{display:none;flex-direction:column}\n#ytb-cheat .ytb-cheat-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0))}\n#ytb-cheat .ytb-cheat-title{font:700 15px/1 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;color:#fff;letter-spacing:.02em}\n#ytb-cheat .ytb-cheat-filter{appearance:none;background:rgba(255,255,255,.05);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;margin:10px 14px 4px;font:inherit;font-size:13px;outline:none;flex-shrink:0}\n#ytb-cheat .ytb-cheat-filter::placeholder{color:#7a8290}\n#ytb-cheat .ytb-cheat-filter:focus{border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n#ytb-cheat .ytb-cheat-body{flex:1;min-height:0;overflow-y:auto;padding:6px 14px 10px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n#ytb-cheat .ytb-cheat-body::-webkit-scrollbar{width:6px}\n#ytb-cheat .ytb-cheat-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n#ytb-cheat .ytb-cheat-cat{font:700 10.5px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;color:#9aa4b6;padding:10px 0 4px;display:flex;align-items:center;gap:8px}\n#ytb-cheat .ytb-cheat-cat::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,0))}\n#ytb-cheat .ytb-cheat-row{display:grid;grid-template-columns:1fr 110px 1fr;align-items:center;gap:10px;padding:5px 0;font-size:12.5px}\n#ytb-cheat .ytb-cheat-lbl{color:#e5e7ed;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-cheat .ytb-cheat-key{text-align:right}\n#ytb-cheat .ytb-cheat-hint{color:#7a8290;font-size:11px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-cheat .ytb-cheat-foot{padding:8px 14px;border-top:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.2);color:#9aa;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}\n@media (max-width:500px){#ytb-palette,#ytb-cheat{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;transform:translateX(0)!important;max-height:80vh!important}#ytb-cheat .ytb-cheat-row{grid-template-columns:1fr 90px}}\n\n\n/* --- Calm dashboard theme (v1.5.0): light paper, serif accents, hairlines --- */\n.ytb-dash{--card:#fffdf8;--card-hi:#f5f1e8;--card-lo:#efece7;--ok:#4a7d5d;--crit:#b91c1c;--accink:180,83,9;--shadowink:28,25,23;--critink:185,28,28;--acc:#b45309;--acc-dim:rgba(180,83,9,.07);--panel:#faf7f0;--panel2:#fcf9f3;--panel3:#fffdf8;--line:#e7e5e4;--line2:#d6d3d1;--ink:#1c1917;--ink2:#57534e;--ink3:#a8a29e;color:var(--ink);background:var(--panel);border:1px solid var(--line2);border-radius:12px;box-shadow:0 18px 50px rgba(28,25,23,.18),0 2px 8px rgba(28,25,23,.08);font:13px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}\n.ytb-dash .ytb-dhdr{align-items:flex-end;gap:12px;padding:15px 18px 9px;border-bottom:2px solid var(--ink);background:transparent;flex-wrap:wrap}\n.ytb-dash .ytb-dgrip{color:var(--ink3);margin-right:2px;font-size:11px}\n.ytb-dash .ytb-dtitle{font:700 21px/1.1 Georgia,"Times New Roman",serif;letter-spacing:-.01em;color:var(--ink);white-space:nowrap}\n.ytb-dash .ytb-dver{font:italic 11px/1 Georgia,"Times New Roman",serif;color:var(--ink3);background:transparent;border:0;padding:0 0 3px 4px;margin-left:2px;white-space:nowrap;font-style:italic}\n.ytb-dash .ytb-search{flex:1;min-width:150px;margin:0;padding:4px 2px 5px;background:transparent;border:0;border-bottom:1px solid var(--line2);border-radius:0;font:italic 13px Georgia,"Times New Roman",serif;color:var(--ink2)}\n.ytb-dash .ytb-search:focus{border-color:var(--ink);box-shadow:none}\n.ytb-dash .ytb-search::placeholder{color:var(--ink3);font:italic 13px Georgia,"Times New Roman",serif}\n.ytb-dash .ytb-dhbtns{gap:10px;padding-bottom:4px}\n.ytb-dash .ytb-btn{background:none;border:0;border-bottom:1px dotted var(--ink3);border-radius:0;padding:1px 0 2px;color:var(--ink2);font:12px "Segoe UI",system-ui,sans-serif}\n.ytb-dash .ytb-btn:hover{background:none;color:var(--ink);border-bottom:1px solid var(--ink)}\n.ytb-dash .ytb-btn:active{transform:none}\n.ytb-dash .ytb-btn.primary{color:var(--acc);border-bottom-color:var(--acc);font-weight:600}\n.ytb-dash .ytb-btn.primary:hover{background:none;color:var(--acc);border-bottom:1px solid var(--acc)}\n.ytb-dash .ytb-btn.danger,.ytb-dash .ytb-btn.ytb-danger{color:var(--crit);border-bottom-color:rgba(var(--critink),.45)}\n.ytb-dash .ytb-btn.danger:hover,.ytb-dash .ytb-btn.ytb-danger:hover{background:none;color:var(--crit);border-bottom-color:var(--crit)}\n.ytb-dash .ytb-btn.ytb-close{width:auto;height:auto;padding:1px 3px;border-bottom-color:transparent;font:12px/1 ui-monospace,SFMono-Regular,Consolas,monospace}\n.ytb-dash .ytb-btn.ytb-close:hover{background:none;color:var(--ink);border-bottom:1px solid var(--ink)}\n.ytb-dash .ytb-btn.ytb-sb{font-size:10px;padding:0 0 1px}\n.ytb-dash .ytb-main{flex-direction:column}\n.ytb-dash .ytb-nav{width:auto;flex-direction:row;flex-wrap:wrap;gap:5px 14px;padding:10px 18px 9px;border-right:0;border-bottom:1px solid var(--line);background:transparent;overflow:visible}\n.ytb-dash .ytb-nav-item{display:inline-flex;width:auto;gap:5px;align-items:baseline;padding:2px 0;border:0;border-bottom:1px solid transparent;border-radius:0;background:none;color:var(--ink2);font:11px "Segoe UI",system-ui,sans-serif}\n.ytb-dash .ytb-nav-item:hover{background:none;color:var(--ink)}\n.ytb-dash .ytb-nav-item.active{background:none;color:var(--ink);font-weight:700;border-bottom:1px solid var(--ink)}\n.ytb-dash .ytb-nav-count{font:9px "Segoe UI",system-ui,sans-serif;color:var(--acc);font-variant-numeric:tabular-nums}\n.ytb-dash .ytb-nav-item.active .ytb-nav-count{color:var(--acc)}\n.ytb-dash .ytb-nav-sep{display:none}\n.ytb-dash .ytb-body{padding:2px 18px 6px;scrollbar-color:var(--line2) transparent}\n.ytb-dash .ytb-body::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}\n.ytb-dash .ytb-core{display:flex;flex-wrap:wrap;gap:8px 22px;padding:8px 0 10px;margin:0;border-bottom:1px solid var(--line)}\n.ytb-dash .ytb-corecell{background:none;border:0;border-radius:0;padding:0;gap:10px}\n.ytb-dash .ytb-corecell:hover{border-color:transparent}\n.ytb-dash .ytb-corelbl{font:550 12px/1.3 "Segoe UI",system-ui,sans-serif;color:var(--ink2)}\n.ytb-dash .ytb-cat-page{gap:0;padding:0}\n.ytb-dash .ytb-card{padding:7px 2px;margin:0;background:none;border:0;border-bottom:1px solid var(--card-lo);border-radius:0}\n.ytb-dash .ytb-card:hover{background:var(--card-hi);border-color:transparent;border-bottom-color:var(--card-lo)}\n.ytb-dash .ytb-card.on{border-left-color:transparent}\n.ytb-dash .ytb-head{gap:12px}\n.ytb-dash .ytb-name{font:600 12.5px "Segoe UI",system-ui,sans-serif;color:var(--ink)}\n.ytb-dash .ytb-key{margin:0;padding:1px 0;background:none;border:0;border-bottom:1px solid transparent;border-radius:0;font:10.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--acc)}\n.ytb-dash .ytb-key:hover{background:none;color:var(--acc);border-bottom:1px solid var(--acc)}\n.ytb-dash .ytb-sum{font:italic 12px/1.45 Georgia,"Times New Roman",serif;color:var(--ink2);margin-top:2px}\n.ytb-dash .ytp-settings{border-top:1px solid var(--card-lo);padding-top:8px;margin-top:8px}\n.ytb-dash .ytb-lbl{font-size:12px;color:var(--ink);font-family:"Segoe UI",system-ui,sans-serif}\n.ytb-dash .ytb-rowb .ytb-btn{border:1px solid var(--line2);border-radius:6px;padding:4px 8px;background:var(--card);font-size:11px;flex:1}\n.ytb-dash .ytb-rowb .ytb-btn:hover{border-color:var(--ink3);background:var(--card-hi)}\n.ytb-dash .ytb-sw{width:30px;height:17px}\n.ytb-dash .ytb-track{border-radius:999px;background:transparent;border:1px solid var(--line2)}\n.ytb-dash .ytb-knob{top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--ink3)}\n.ytb-dash .ytb-sw input:checked~.ytb-track{background:var(--ink);border-color:var(--ink)}\n.ytb-dash .ytb-sw input:checked~.ytb-knob{transform:translateX(13px);background:var(--panel)}\n.ytb-dash .ytb-sel{background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:6px;font:11px ui-monospace,SFMono-Regular,Consolas,monospace}\n.ytb-dash .ytb-sel:focus{border-color:var(--acc)}\n.ytb-dash .ytb-sel option{background:var(--card);color:var(--ink)}\n.ytb-dash .ytb-inp{background:var(--card);border:1px solid var(--line2);border-radius:6px;color:var(--ink)}\n.ytb-dash .ytb-inp:focus{border-color:var(--acc);box-shadow:none}\n.ytb-dash .ytb-ta{background:var(--card);border:1px solid var(--line2);border-radius:6px;color:var(--ink)}\n.ytb-dash .ytb-ta:focus{border-color:var(--acc)}\n.ytb-dash .ytb-rng input[type=range]{accent-color:var(--ink)}\n.ytb-dash .ytb-rngv{color:var(--ink2)}\n.ytb-dash .ytb-foot{justify-content:flex-end;gap:16px;padding:10px 18px 12px;border-top:1px solid var(--line);background:transparent}\n.ytb-dash .ytb-foot .ytb-btn{flex:0 0 auto;min-width:0}\n.ytb-dash .ytb-tabs{padding:0 18px;border-bottom:1px solid var(--line);background:transparent;gap:12px}\n.ytb-dash .ytb-tab{color:var(--ink3);font:11px "Segoe UI",system-ui,sans-serif;text-transform:none;letter-spacing:.02em;border-bottom:1px solid transparent;text-shadow:none;padding:7px 2px 6px}\n.ytb-dash .ytb-tab:hover{color:var(--ink)}\n.ytb-dash .ytb-tab.active{color:var(--ink);border-bottom-color:var(--ink);text-shadow:none;font-weight:600}\n.ytb-dash .ytb-tabpanel{padding:8px 0}\n.ytb-dash .ytb-section-hdr{font:600 10px/1 "Segoe UI",system-ui,sans-serif;letter-spacing:.08em;color:var(--ink3);text-shadow:none;padding:12px 0 4px}\n.ytb-dash .ytb-section-hdr::after{background:var(--line)}\n.ytb-dash .ytb-meter{height:5px;background:var(--card-lo);border-radius:3px}\n.ytb-dash .ytb-meter-fill{background:var(--ink);border-radius:3px}\n.ytb-dash .ytb-meter-fill.ok{background:var(--ok)}\n.ytb-dash .ytb-meter-fill.warn{background:var(--acc)}\n.ytb-dash .ytb-meter-fill.crit{background:var(--crit)}\n.ytb-dash .ytp-kbd{background:var(--card);border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;color:var(--ink2);font:9.5px ui-monospace,monospace;padding:1px 5px}\n.ytb-dash .ytb-chip{background:rgba(var(--accink),.07);color:var(--acc);border:1px solid rgba(var(--accink),.35);border-radius:999px;font:600 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace}\n.ytb-dash .ytb-chip.neutral{background:var(--card-hi);color:var(--ink2);border:1px solid var(--line2)}\n.ytb-dash .ytb-divider{height:1px;background:var(--line);margin:7px 0}\n.ytb-dash .ytb-cat-dot{border:1px solid var(--line2)}\n.ytb-dash .ytb-dresize{background:linear-gradient(135deg,transparent 0,transparent 50%,var(--line2) 50%,var(--line2) 55%,transparent 55%,transparent 65%,var(--line2) 65%,var(--line2) 70%,transparent 70%,transparent 80%,var(--line2) 80%,var(--line2) 85%,transparent 85%)}\n.ytb-dash .ytb-fp-btn{background:var(--card);border:1px solid var(--line2);color:var(--ink)}\n.ytb-dash .ytb-fp-btn:hover{background:var(--card-hi);border-color:var(--ink3)}\n.ytb-dash .ytb-fp-btn:focus{outline:none;border-color:var(--acc);box-shadow:none}\n.ytb-dash .ytb-fp-arrow{color:var(--ink3)}\n.ytb-dash .ytb-fp-dd{background:var(--card);border:1px solid var(--line2);border-radius:8px;box-shadow:0 14px 30px rgba(var(--shadowink),.16),0 2px 8px rgba(var(--shadowink),.08);backdrop-filter:none;-webkit-backdrop-filter:none}\n.ytb-dash .ytb-fp-search{background:var(--card);border:1px solid var(--line2);color:var(--ink)}\n.ytb-dash .ytb-fp-search::placeholder{color:var(--ink3)}\n.ytb-dash .ytb-fp-search:focus{border-color:var(--acc)}\n.ytb-dash .ytb-fp-item{color:var(--ink)}\n.ytb-dash .ytb-fp-item:hover{background:rgba(var(--accink),.08);color:var(--ink)}\n.ytb-dash .ytb-fp-item.selected{background:rgba(var(--accink),.12);color:var(--ink);font-weight:600}\n.ytb-dash .ytb-cp-native{border:1px solid var(--line2);background:transparent}\n.ytb-dash .ytb-cp-swatch{border:1px solid var(--line2)}\n.ytb-dash .ytb-preset-card{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-preset-card:hover{background:var(--card-hi);border-color:var(--line2)}\n.ytb-dash .ytb-preset-card.active{background:rgba(var(--accink),.08);border-color:rgba(var(--accink),.45)}\n.ytb-dash .ytb-preset-name{color:var(--ink)}\n.ytb-dash .ytb-preset-desc{color:var(--ink3)}\n.ytb-dash .ytb-theme-card{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-theme-card:hover{background:var(--card-hi);border-color:var(--line2)}\n.ytb-dash .ytb-theme-card.active{border-color:var(--acc);background:rgba(var(--accink),.07)}\n.ytb-dash .ytb-theme-swatch{border:1px solid rgba(0,0,0,.08)}\n.ytb-dash .ytb-theme-name{color:var(--ink2)}\n.ytb-dash .ytb-hcard{background:var(--card);border:1px solid var(--line);border-radius:8px}\n.ytb-dash .ytb-hcard:hover{background:var(--card-hi)}\n.ytb-dash .ytb-hthumb{border:1px solid var(--line);background:var(--card-lo) center/cover no-repeat}\n.ytb-dash .ytb-hbadge{background:rgba(var(--shadowink),.82)}\n.ytb-dash .ytb-hbadge.res{background:rgba(var(--accink),.9)}\n.ytb-dash .ytb-htitle{color:var(--ink)}\n.ytb-dash .ytb-hchan{color:var(--ink2)}\n.ytb-dash .ytb-hmeta{color:var(--ink3)}\n.ytb-dash .ytb-hpt{background:var(--card-lo)}\n.ytb-dash .ytb-hpf{background:var(--ink)}\n.ytb-dash .ytb-hpf.done{background:var(--ok)}\n.ytb-dash .ytb-hist-panel{background:transparent;border:1px solid var(--line);border-radius:8px}\n.ytb-dash .ytb-hist-search{background:var(--card);color:var(--ink);border:1px solid var(--line2)}\n.ytb-dash .ytb-hist-search:focus{border-color:var(--acc)}\n.ytb-dash .ytb-hist-loading,.ytb-dash .ytb-hist-empty{color:var(--ink3)}\n.ytb-dash .ytb-hist-list{scrollbar-color:var(--line2) transparent}\n.ytb-dash .ytb-hist-loadmore{background:none!important}\n.ytb-dash .ytb-hist-note{color:var(--ink3);background:var(--card-hi)}\n.ytb-dash .ytb-elem-list{background:transparent;border:1px solid var(--line)}\n.ytb-dash .ytb-elem-group-hdr{color:var(--ink3);border-top:1px solid var(--line)}\n.ytb-dash .ytb-elem-row:hover{background:rgba(var(--accink),.06)}\n.ytb-dash .ytb-elem-row.on{background:rgba(var(--accink),.08)}\n.ytb-dash .ytb-elem-cb{accent-color:var(--ink)}\n.ytb-dash .ytb-elem-name{color:var(--ink2)}\n.ytb-dash .ytb-elem-match{color:var(--ink3)}\n.ytb-dash .ytb-elem-sec-title{color:var(--ink3);border-top:1px solid var(--line)}\n.ytb-dash .ytb-geo-dd{background:var(--card);border:1px solid var(--line2);border-radius:8px;box-shadow:0 14px 30px rgba(var(--shadowink),.16),0 2px 8px rgba(var(--shadowink),.08);backdrop-filter:none;-webkit-backdrop-filter:none}\n.ytb-dash .ytb-geo-row{color:var(--ink2)}\n.ytb-dash .ytb-geo-row:hover,.ytb-dash .ytb-geo-row.hot{background:rgba(var(--accink),.08);color:var(--ink)}\n.ytb-dash .ytb-geo-row.selected{background:rgba(var(--accink),.12);color:var(--ink);font-weight:600}\n.ytb-dash .ytb-geo-code{color:var(--ink3)}\n.ytb-dash .ytb-geo-empty{color:var(--ink3)}\n.ytb-dash .ytb-geo-status{background:var(--card-hi);color:var(--acc)}\n.ytb-dash .ytb-net-card{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-card-label{color:var(--ink3)}\n.ytb-dash .ytb-net-card-value{color:var(--ink)}\n.ytb-dash .ytb-net-card-sub{color:var(--ink3)}\n.ytb-dash .ytb-net-session{background:var(--card-hi);color:var(--acc)}\n.ytb-dash .ytb-net-legend-item{color:var(--ink2)}\n.ytb-dash .ytb-net-chart{background:var(--card-lo);border:1px solid var(--line)}\n.ytb-dash .ytb-net-chart::before{background:rgba(var(--shadowink),.08)}\n.ytb-dash .ytb-net-axis{color:var(--ink3)}\n.ytb-dash .ytb-net-hosts{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-host-row{border-bottom:1px solid var(--card-lo)}\n.ytb-dash .ytb-net-host-name{color:var(--ink2)}\n.ytb-dash .ytb-net-host-bytes{color:var(--acc)}\n.ytb-dash .ytb-net-budget{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-budget-bar{background:var(--card-lo)}\n.ytb-dash .ytb-net-budget-fill{background:var(--ok)}\n.ytb-dash .ytb-net-budget-fill.warn{background:var(--acc)}\n.ytb-dash .ytb-net-budget-fill.crit{background:var(--crit)}\n.ytb-dash .ytb-net-budget-detail{color:var(--ink2)}\n.ytb-dash .ytb-net-qualities{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-q-track{background:var(--card-lo)}\n.ytb-dash .ytb-net-q-bytes{color:var(--ink2)}\n.ytb-dash .ytb-perf-mem{background:var(--card-hi);color:var(--acc)}\n.ytb-dash .ytb-perf-membar{background:var(--card-lo)}\n.ytb-dash .ytb-perf-memfill{background:var(--ok)}\n.ytb-dash .ytb-perf-state{color:var(--ink2)}\n.ytb-dash .ytb-perf-table{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-perf-row{border-bottom:1px solid var(--card-lo)}\n.ytb-dash .ytb-perf-hdr{color:var(--acc);background:var(--card-hi);border-bottom:1px solid var(--line)}\n.ytb-dash .ytb-perf-row .ytb-perf-c1{color:var(--ink2)}\n.ytb-dash .ytb-perf-row .ytb-perf-c2,.ytb-dash .ytb-perf-row .ytb-perf-c3,.ytb-dash .ytb-perf-row .ytb-perf-c4,.ytb-dash .ytb-perf-row .ytb-perf-c5{color:var(--ink2)}\n.ytb-dash .ytb-sbsub-status{background:var(--card-hi);color:var(--ink2)}\n.ytb-dash .ytb-hk-lbl{color:var(--ink2)}\n.ytb-dash .ytb-hk-key{background:var(--card);border:1px solid var(--line2);color:var(--acc)}\n.ytb-dash .ytb-hk-key.listening{background:rgba(var(--critink),.08);border-color:var(--crit);color:var(--crit)}\n.ytb-dash .ytb-hk-key.empty{color:var(--ink3)}\n.ytb-dash .ytb-hk-clr{background:none;color:var(--ink3)}\n.ytb-dash .ytb-hk-clr:hover{background:rgba(var(--critink),.1);color:var(--crit)}\n.ytb-dash .ytb-toggle-pill{background:var(--card-hi);color:var(--ink2)}\n/* --- Dashboard dark mode (v1.8.0): var-driven overrides only --- */\n.ytb-dash.ytb-dark{--acc:#f59e0b;--acc-dim:rgba(245,158,11,.12);--panel:#17181c;--panel2:#1b1d22;--panel3:#212428;--line:#2b2e35;--line2:#3a3e47;--ink:#e8e6e3;--ink2:#b3aaa0;--ink3:#7a7268;--card:#212428;--card-hi:#2a2d34;--card-lo:#30343c;--ok:#4ade80;--crit:#f87171;--accink:245,158,11;--shadowink:0,0,0;--critink:248,113,113;color:var(--ink);background:var(--panel);box-shadow:0 24px 70px rgba(0,0,0,.72),0 4px 16px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);color-scheme:dark}\n.ytb-dash.ytb-dark .ytb-theme-swatch{border:1px solid rgba(255,255,255,.12)}\n.ytb-dash.ytb-dark .ytb-hthumb{background:#101114 center/cover no-repeat}\n.ytb-dash.ytb-dark .ytb-hist-list{scrollbar-color:#3a3e47 transparent}\n';  try {
 
             if (typeof GM_addStyle !== "function") throw new Error("GM_addStyle unavailable");
             GM_addStyle(e);
@@ -26779,6 +22817,11 @@ const Nr = [
           (wo = To("aside", "ytb-dash")),
           wo.setAttribute("role", "dialog"),
           wo.setAttribute("aria-label", "YourTube dashboard"));
+        wo.classList.toggle("ytb-dark", String(S.dashMode || "light") === "dark");
+        const _unsubDashMode = g.on("cfg.changed", ({ key }) => {
+          if (key === "dashMode" && wo) wo.classList.toggle("ytb-dark", String(S.dashMode || "light") === "dark");
+        });
+        "function" == typeof _unsubDashMode && typeof Co !== "undefined" && Co.push(() => { try { _unsubDashMode(); } catch (_) {} });
         const t = To("div", "ytb-dhdr");
         t.classList.add("ytb-dhandle");
         const r = To("div", "ytb-dtitle");
@@ -26787,21 +22830,32 @@ const Nr = [
         _grip.className = "ytb-dgrip";
         _grip.setAttribute("aria-hidden", "true");
         _grip.textContent = "[=]";
-        const _name = document.createTextNode(" YourTube ");
+        const _name = document.createTextNode("YourTube, plainly.");
         const _ver = document.createElement("span");
         _ver.className = "ytb-dver";
         _ver.textContent = "v" + n;
         r.appendChild(_grip);
         r.appendChild(_name);
         r.appendChild(_ver);
-        const o = To("div", "ytb-dhbtns"),
-          i = Oo(
+        const o = To("div", "ytb-dhbtns");
+        const _darkBtn = Oo(
+          String(S.dashMode || "light") === "dark" ? "☀" : "☾",
+          () => {
+            const next = String(S.dashMode || "light") === "dark" ? "light" : "dark";
+            try { Ta("dashMode", next); } catch (_) {}
+            if (wo) wo.classList.toggle("ytb-dark", next === "dark");
+            _darkBtn.textContent = next === "dark" ? "☀" : "☾";
+          },
+          "ytb-close",
+        );
+        ((_darkBtn.title = "Toggle dashboard dark mode"), _darkBtn.classList.add("ytb-no-drag"), o.appendChild(_darkBtn));
+        const i = Oo(
             "⧉",
             () => {
               const e = window.innerWidth,
                 t = window.innerHeight,
-                a = Math.min(460, e - 16),
-                n = Math.min(t - 24, 760);
+                a = Math.min(830, e - 16),
+                n = Math.min(t - 24, 780);
               (zo({ x: e - a - 16, y: 56, w: a, h: n }),
                 jo(e - a - 16, 56, a, n));
             },
@@ -26818,111 +22872,245 @@ const Nr = [
         const c = document.createElement("input");
         ((c.type = "search"),
           (c.className = "ytb-search ytb-no-drag"),
-          (c.placeholder = "Find a setting…"));
-        const l = To("div", "ytb-body"),
-          p = To("div", "ytb-core");
-        (p.appendChild(
+          (c.placeholder = "Looking for something?")),
+        t.appendChild(c);
+        const _main = To("div", "ytb-main"),
+          _nav = To("nav", "ytb-nav"),
+          l = To("div", "ytb-body");
+        (_nav.setAttribute("aria-label", "Feature categories"),
+          _main.appendChild(_nav),
+          _main.appendChild(l));
+        (
           (function () {
-            const a = To("div", "ytb-corecell");
-            (a.appendChild(To("span", "ytb-corelbl", "Experience preset")),
-              a.appendChild(
-                Po("privacyPreset", {
-                  everyday: "Everyday (Recommended)",
-                  stealth: "Stealth (no traffic monitoring)",
-                  maximum: "Maximum privacy (no monitoring, no network calls)",
-                }),
-              ));
-            return a;
-          })(),
-        ),
-          p.appendChild(
-            (function () {
-              const a = To("div", "ytb-corecell");
-              return (
-                a.appendChild(To("span", "ytb-corelbl", "Quiet on-screen messages")),
-                a.appendChild(Bo("silentToasts")),
-                a
-              );
-            })(),
-          ),
-          l.appendChild(p));
-        const u = Array.from(va.values())
-            
-            .sort((e, t) =>
-              String(e.name || e.id).localeCompare(
-                String(t.name || t.id),
-                void 0,
-                { sensitivity: "base" },
-              ),
-            ),
-          h = Math.min(u.length, 40),
-          m = document.createDocumentFragment();
-        for (let e = 0; e < h; e++) m.appendChild(Do(u[e]));
-        (l.appendChild(m),
-          u.length > h &&
-            (async () => {
-              for (let e = h; e < u.length; e += 12) {
-                if ((await ne(), !wo)) return;
-                const t = document.createDocumentFragment(),
-                  a = Math.min(e + 12, u.length);
-                for (let n = e; n < a; n++) t.appendChild(Do(u[n]));
-                l.appendChild(t);
+            const _CAT_LABEL = {
+              bundles: "Bundles",
+              playback: "Playback & Player",
+              audio: "Audio",
+              feed: "Feed & Search",
+              comments: "Comments & Chat",
+              appearance: "Appearance",
+              channels: "Channels & Playlists",
+              privacy: "Privacy",
+              integrations: "Integrations",
+              data: "Data & Notes",
+              insights: "Discovery & Insights",
+              wellness: "Watch-Time",
+              tools: "Tools & Diagnostics",
+            };
+            const _CAT_ORDER = Object.keys(_CAT_LABEL);
+            const _catOf = (card) =>
+              card && card.cat && _CAT_LABEL[card.cat] ? card.cat : "tools";
+            const _isOn = (card) => {
+              try {
+                if (typeof card.isOn === "function") return !!card.isOn();
+                const v = S[card.masterKey];
+                return "string" === typeof v ? (!!v && "off" !== v) : !!v;
+              } catch (_) {
+                return !1;
               }
-            })());
-        const y = To("div", "ytb-foot");
-        (y.appendChild(Oo("Save my settings", () => Go())),
-          y.appendChild(Oo("Mark this video as watched", Ut, "primary")),
-          y.appendChild(Oo("Load settings from file", () => Xo())),
-          y.appendChild(
-            Oo(
-              "Start over",
-              () =>
+            };
+            const u = Array.from(va.values()).sort((e, t) =>
+              String(e.name || e.id).localeCompare(String(t.name || t.id), void 0, {
+                sensitivity: "base",
+              }),
+            );
+            _ver.textContent = u.length + " modules \u00b7 v" + n;
+            // Per-category pages. A card lives in exactly one page; the "all"
+            // nav item simply unhides every page at once, so the "all" view
+            // costs zero extra DOM. _pages/cat -> div.ytb-cat-page.
+            const _pages = new Map();
+            for (const cat of _CAT_ORDER) _pages.set(cat, To("div", "ytb-cat-page"));
+            for (const page of _pages.values()) l.appendChild(page);
+            const p = To("div", "ytb-core");
+            (p.appendChild(
+              (function () {
+                const a = To("div", "ytb-corecell");
+                (a.appendChild(To("span", "ytb-corelbl", "Experience preset")),
+                  a.appendChild(
+                    Po("privacyPreset", {
+                      everyday: "Everyday",
+                      stealth: "Stealth (no traffic monitoring)",
+                      maximum: "Maximum (no monitoring, no network calls)",
+                    }),
+                  ));
+                return a;
+              })(),
+            ),
+              p.appendChild(
                 (function () {
-                  if (
-                    "function" == typeof e.confirm &&
-                    !e.confirm(
-                      "Start over with the default settings? Your saved notes and history will stay.",
-                    )
-                  )
-                    return;
-                  const t = Object.assign({}, S);
-                  ((S = Object.assign({}, s)), Y(), ue(), xa.applyAll());
-                  for (const e of Object.keys(S))
-                    t[e] !== S[e] &&
-                      g.emit("cfg.changed", { key: e, val: S[e] });
-                  pe(
-                    "Everything’s been reset to its starting state.",
-                    2e3,
-                    "success",
+                  const a = To("div", "ytb-corecell");
+                  return (
+                    a.appendChild(To("span", "ytb-corelbl", "Quiet on-screen messages")),
+                    a.appendChild(Bo("silentToasts")),
+                    a
                   );
                 })(),
-              "ytb-danger",
-            ),
-          ),
-          c.addEventListener(
-            "input",
-            ee(() => {
-              const e = c.value.trim().toLowerCase();
-              l.querySelectorAll(".ytb-card").forEach((t) => {
-
-                const a = va.get(t.dataset.feat);
-                if (!a) {
-                  t.style.display = "none";
-                  return;
+              ),
+              l.insertBefore(p, l.firstChild));
+            // Card DOM: Do() builds the switch card; the dashboard layer adds
+            // the category tag, the on/off accent and a click-to-copy badge of
+            // the card's master config key — what a power user edits in the
+            // keymap/store views.
+            const _mkCard = (card) => {
+              const el = Do(card);
+              el.dataset.cat = _catOf(card);
+              if (card.masterKey) {
+                const badge = document.createElement("button");
+                badge.type = "button";
+                badge.className = "ytb-key";
+                badge.textContent = card.masterKey;
+                badge.title = "click to copy setting key";
+                badge.addEventListener("click", (ev) => {
+                  ev.stopPropagation();
+                  try {
+                    navigator.clipboard.writeText(card.masterKey);
+                    pe("copied " + card.masterKey, 1200, "info");
+                  } catch (_) {
+                    try { pe(card.masterKey, 1800, "info"); } catch (__) {}
+                  }
+                });
+                const head = el.querySelector(".ytb-head");
+                if (head) head.insertBefore(badge, head.lastChild || null);
+              }
+              return el;
+            };
+            const h = Math.min(u.length, 40);
+            for (let e = 0; e < h; e++) {
+              const card = u[e];
+              _pages.get(_catOf(card)).appendChild(_mkCard(card));
+            }
+            u.length > h &&
+              (async () => {
+                for (let e = h; e < u.length; e += 12) {
+                  if ((await ne(), !wo)) return;
+                  for (let a = e; a < Math.min(e + 12, u.length); a++)
+                    _pages.get(_catOf(u[a])).appendChild(_mkCard(u[a]));
+                _updateCounts && _updateCounts();
                 }
-                const n =
-                  !e ||
-                  a.name.toLowerCase().includes(e) ||
-                  (a.summary || "").toLowerCase().includes(e) ||
-                  a.id.includes(e);
-                t.style.display = n ? "" : "none";
-              });
-            }, 80),
-          ),
-          wo.appendChild(t),
-          wo.appendChild(c),
-          wo.appendChild(l),
-          wo.appendChild(y),
+              })();
+            // Category rail with live ON counts.
+            let _activeCat = "all";
+            try { if (S.dashCat && (S.dashCat === "all" || _CAT_LABEL[S.dashCat])) _activeCat = S.dashCat; } catch (_) {}
+            const _catTotals = {};
+            for (const card of u) { const cat = _catOf(card); _catTotals[cat] = (_catTotals[cat] || 0) + 1; }
+            const _navBtns = [];
+            const _updateCounts = () => {
+              let total = 0;
+              for (const cat of _CAT_ORDER) {
+                let on = 0;
+                _pages.get(cat).querySelectorAll(".ytb-card").forEach((el) => {
+                  const card = va.get(el.dataset.feat);
+                  const live = card ? _isOn(card) : !1;
+                  el.classList.toggle("on", live);
+                  if (live) on++;
+                });
+                total += on;
+                const btn = _navBtns.find((x) => x.dataset.cat === cat);
+                if (btn)
+                  btn.querySelector(".ytb-nav-count").textContent =
+                    on + "/" + (_catTotals[cat] || 0);
+              }
+              const allBtn = _navBtns.find((x) => x.dataset.cat === "all");
+              if (allBtn) allBtn.querySelector(".ytb-nav-count").textContent = String(total);
+            };
+            const _applyCat = (cat) => {
+              _activeCat = cat;
+              for (const [id, page] of _pages)
+                page.style.display = cat === "all" || cat === id ? "" : "none";
+              for (const btn of _navBtns)
+                btn.classList.toggle("active", btn.dataset.cat === cat);
+              p.style.display = cat === "all" || cat === "core" ? "" : "none";
+              try { Ta("dashCat", cat); } catch (_) {}
+              _updateCounts();
+            };
+            const _mkNavItem = (cat, label) => {
+              const btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "ytb-nav-item";
+              btn.dataset.cat = cat;
+              const lbl = To("span", "ytb-nav-label", label);
+              const cnt = To("span", "ytb-nav-count", "0");
+              btn.appendChild(lbl);
+              btn.appendChild(cnt);
+              btn.addEventListener("click", () => _applyCat(cat));
+              _navBtns.push(btn);
+              _nav.appendChild(btn);
+            };
+            _mkNavItem("all", "All");
+            _mkNavItem("core", "Core");
+            _nav.appendChild(To("div", "ytb-nav-sep"));
+            for (const cat of _CAT_ORDER)
+              if (_catTotals[cat])
+                _mkNavItem(cat, _CAT_LABEL[cat]);
+            // pages for core view hold only the core grid (p is shared)
+            _applyCat(_activeCat);
+            let _syncQueued = !1;
+            const _unsubCfg = g.on("cfg.changed", () => {
+              if (_syncQueued || !wo) return;
+              _syncQueued = !0;
+              const sync = () => { _syncQueued = !1; if (wo) _updateCounts(); };
+              if (typeof requestAnimationFrame === "function") requestAnimationFrame(sync);
+              else setTimeout(sync, 60);
+            });
+            "function" == typeof _unsubCfg && Co.push(() => { try { _unsubCfg(); } catch (_) {} });
+            // Live text filter overrides the active category while searching.
+            c.addEventListener(
+              "input",
+              ee(() => {
+                const q = c.value.trim().toLowerCase();
+                if (q) {
+                  for (const page of _pages.values()) page.style.display = "";
+                  p.style.display = "none";
+                  l.querySelectorAll(".ytb-card").forEach((el) => {
+                    const card = va.get(el.dataset.feat);
+                    if (!card) { el.style.display = "none"; return; }
+                    const hit =
+                      card.name.toLowerCase().includes(q) ||
+                      (card.summary || "").toLowerCase().includes(q) ||
+                      card.id.includes(q) ||
+                      (card.masterKey || "").toLowerCase().includes(q);
+                    el.style.display = hit ? "" : "none";
+                  });
+                } else {
+                  l.querySelectorAll(".ytb-card").forEach((el) => (el.style.display = ""));
+                  _applyCat(_activeCat);
+                }
+              }, 80),
+            );
+            const y = To("div", "ytb-foot");
+            (y.appendChild(Oo("Export settings", () => Go())),
+              y.appendChild(Oo("Mark this video watched", Ut, "primary")),
+              y.appendChild(Oo("Import settings", () => Xo())),
+              y.appendChild(
+                Oo(
+                  "Reset to defaults",
+                  () =>
+                    (function () {
+                      if (
+                        "function" == typeof e.confirm &&
+                        !e.confirm(
+                          "Reset all toggles and values to defaults? Local notes and history are kept.",
+                        )
+                      )
+                        return;
+                      const t = Object.assign({}, S);
+                      ((S = Object.assign({}, s)), Y(), ue(), xa.applyAll());
+                      for (const e of Object.keys(S))
+                        t[e] !== S[e] &&
+                          g.emit("cfg.changed", { key: e, val: S[e] });
+                      pe(
+                        "Everything has been reset to default settings.",
+                        2e3,
+                        "success",
+                      );
+                    })(),
+                  "ytb-danger",
+                ),
+              ));
+            wo.appendChild(t);
+            wo.appendChild(_main);
+            wo.appendChild(y);
+          })(),
           document.body.appendChild(wo),
           (function () {
             const _esc = (ev) => {
@@ -27171,17 +23359,23 @@ const Nr = [
 
                   (t.history = t.history.slice(-5000)),
                   Array.isArray(t.history) &&
-                  (await Promise.all(
-                    t.history
-                      .filter(
-                        (e) =>
-                          e &&
-                          "object" == typeof e &&
-                          "string" == typeof e.videoId &&
-                          e.videoId,
-                      )
-                      .map((e) => Be(_ytSanitizeHistoryRow(e))),
-                  )),
+                  (await (async () => {
+                    // Chunked writes: Promise.all on up to 5000 records opened
+                    // thousands of IDB transactions at once and froze the tab on
+                    // large imports (plan F9). Batches of 200, sequentially.
+                    const rows = t.history.filter(
+                      (e) =>
+                        e &&
+                        "object" == typeof e &&
+                        "string" == typeof e.videoId &&
+                        e.videoId,
+                    );
+                    for (let i = 0; i < rows.length; i += 200) {
+                      await Promise.all(
+                        rows.slice(i, i + 200).map((e) => Be(_ytSanitizeHistoryRow(e))),
+                      );
+                    }
+                  })()),
                 Y(),
                 ue(),
                 xa.applyAll());
@@ -27261,6 +23455,13 @@ const Nr = [
       stats: () => SponsorBlockEngine.stats(),
       categories: i,
       options: Yi,
+      segments: () => SponsorBlockEngine.getSegments(),
+      debugInject: (segs) => SponsorBlockEngine.debugInjectSegments(segs),
+      isChannelWhitelisted: () => SponsorBlockEngine.isCurrentChannelWhitelisted(),
+      channelToken: () => SponsorBlockEngine.channelToken(),
+      debugActions: () => SponsorBlockEngine.debugActions(),
+      debugChipCalc: () => SponsorBlockEngine.debugChipCalc ? SponsorBlockEngine.debugChipCalc() : null,
+      debugTick: () => SponsorBlockEngine.debugTickInfo(),
       setCategoryAction: (catId, action) => {
         if (catId in Yi) {
           Ta("sb_" + catId + "_act", action);
@@ -28177,8 +24378,9 @@ const Nr = [
 
     xa.register({
       id: "hide-shorts",
-      name: "Remove Shorts Everywhere",
-      summary: "Removes every Shorts surface from YouTube.",
+      name: "Hide Shorts",
+      summary: "Removes every Shorts surface site-wide; optional API filtering.",
+      cat: "feed",
       masterKey: "hideShorts",
       keys: ["hideShorts", "hideShortsRedirect", "hideShortsDomClean", "hideShortsApiFilter"],
       apply(ctx) {
@@ -28214,8 +24416,9 @@ const Nr = [
 
     xa.register({
       id: "hide-auto-dubbed",
-      name: "Hide Auto-Dubbed Videos",
-      summary: "Filters auto-dubbed videos; prefers original audio.",
+      name: "Hide Auto-Dubs",
+      summary: "Filters auto-dubbed cards; keeps original-audio versions visible.",
+      cat: "feed",
       masterKey: "hideAutoDubbedOn",
       keys: ["hideAutoDubbedOn", "hideAutoDubbedPreferOriginal"],
       apply(ctx) {
@@ -28453,6 +24656,12 @@ const Nr = [
 
     const innerTube = (endpoint, body, opts) => Ot(endpoint, body, Object.assign({ parseJson: true, timeout: 8000 }, opts || {}));
     const fetchJson = (url, opts) => {
+      // Central gate: the "Maximum privacy" preset promises no script-initiated
+      // third-party network calls. he() (SponsorBlock) already enforces this;
+      // RYD, DeArrow and any other fetchJson consumer now share the contract.
+      try {
+        if (S && S.safeMode) return Promise.resolve({ ok: false, status: 0, json: null, text: "", blocked: "SAFE_MODE_BLOCKED" });
+      } catch (_) {}
       const o = Object.assign({ timeout: 9000, headers: {}, method: "GET" }, opts || {});
       const gmx = (typeof GM_xmlhttpRequest === "function") ? GM_xmlhttpRequest
         : (typeof window !== "undefined" && typeof window.GM_xmlhttpRequest === "function") ? window.GM_xmlhttpRequest : null;
@@ -30093,7 +26302,8 @@ const Nr = [
   xa.register({
     id: "discover",
     name: "Discover",
-    summary: "Clean search-based discovery instead of the algorithm.",
+    summary: "Topic-based search discovery with watch-history dedup, no algorithm.",
+      cat: "insights",
     masterKey: "discoverOn",
     keys: ["discoverOn"],
     apply(ctx) {
@@ -30292,7 +26502,20 @@ const Nr = [
         ensureUi();
         load();
       }, 0);
-      Yt["discover"].push(() => api.destroy());
+      Yt["discover"].push(() => {
+        // addSection() can return null/undefined if the host failed to build;
+        // destroying unconditionally then throws (caught by ha(), but the
+        // section DOM/pill then survives → leak bisect F8: +1 DOM residue).
+        try {
+          if (api) api.destroy();
+        } catch (_) {}
+        // Belt-and-suspenders: the reopen pill is only removed by removeSection
+        // when the last section goes; make sure it can't linger either way.
+        try {
+          const rp = document.getElementById("ytb-disco-reopen");
+          if (rp && rp.parentNode) rp.remove();
+        } catch (_) {}
+      });
     },
     settings(en) {
       en.appendChild(Io("Enable Discover", "discoverOn"));
@@ -30300,7 +26523,8 @@ const Nr = [
         "One toggle for discovery. Browse 8+ categories inside or outside your niche. Picks are filtered against your watch history while Session History is on, and never repeat within a session."));
     } });
 
-  xa.register({ id: "credibility-layer", name: "Credibility Layer", summary: "Upload age and channel trust badges on cards.", masterKey: "credLayerOn", keys: ["credLayerOn"],
+  xa.register({ id: "credibility-layer", name: "Credibility Badges", summary: "Upload-age and channel-trust badges on cards.",
+      cat: "insights", masterKey: "credLayerOn", keys: ["credLayerOn"],
     apply(ctx) {
       if (!S.credLayerOn) return;
       YourTubeEngine.injectCSS();
@@ -30358,7 +26582,8 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
 
-  xa.register({ id: "dead-link-detector", name: "Outdated Content Detector", summary: "Warns when search results are outdated.", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
+  xa.register({ id: "dead-link-detector", name: "Outdated Content Flags", summary: "Warns when search results reference stale content.",
+      cat: "insights", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
     apply(ctx) {
       if (!S.deadLinkOn) return;
       YourTubeEngine.injectCSS();
@@ -30393,7 +26618,8 @@ const Nr = [
     },
     settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
 
-  xa.register({ id: "curated-collections", name: "Curated Collections", summary: "Organize saved videos into collections.", masterKey: "collectionsOn", keys: ["collectionsOn"],
+  xa.register({ id: "curated-collections", name: "Collections", summary: "Organize saved videos into named collections.",
+      cat: "insights", masterKey: "collectionsOn", keys: ["collectionsOn"],
     apply(ctx) {
       if (!S.collectionsOn) return;
       YourTubeEngine.injectCSS();
@@ -30410,7 +26636,7 @@ const Nr = [
           html += '<button class="ytb-ui-btn" data-col="' + ytbEscapeHtml(c.id) + '">' + ytbEscapeHtml(c.name) + ' (' + c.videos.length + ')</button>';
         });
         html += '<button class="ytb-ui-btn primary" id="ytb-col-new">+ New</button></div>';
-        panel.innerHTML = html;
+        panel.innerHTML = Xy(html);
       };
       rebuild();
       const insert = () => {
@@ -30448,7 +26674,7 @@ const Nr = [
         const list = document.createElement("div");
         list.style.cssText = "margin-top:6px;font-size:11px;color:#aaa";
         cols.forEach(c => {
-          list.innerHTML += '<div style="padding:2px 0">' + ytbEscapeHtml(c.name) + ' (' + c.videos.length + ' videos)</div>';
+          list.innerHTML += Xy('<div style="padding:2px 0">' + ytbEscapeHtml(c.name) + ' (' + c.videos.length + ' videos)</div>');
         });
         en.appendChild(list);
       }
@@ -30456,8 +26682,9 @@ const Nr = [
 
   xa.register({
     id: "algo-intelligence",
-    name: "Algorithm Intelligence",
-    summary: "Shape your feed: fresher, more varied, interest-first.",
+    name: "Feed Intelligence",
+    summary: "Reorders your feed by freshness, variety and interest fit.",
+      cat: "insights",
     masterKey: "algoIntelligenceOn",
     keys: ["algoIntelligenceOn", "algoAutoTrain", "algoBlockTopics", "algoBlockKeywords", "algoBlockChannels", "algoScanInterval", "algoStrength", "algoBoostOn", "algoBoostInterval", "algoDiversityOn", "algoDiversityMax", "algoAutoLikeOn", "algoAutoLikePct", "algoAutoDislikeOn", "algoShortsOn"],
     apply(ctx) {
@@ -30582,7 +26809,7 @@ const Nr = [
         }
         const d = AlgoEngine.analyzeDiversity();
         if (d && d.dominant) html += "<br>Feed focus: " + ytbEscapeHtml(d.dominant) + " at " + d.maxShare + "% of recommendations";
-        profileDiv.innerHTML = html;
+        profileDiv.innerHTML = Xy(html);
       };
       updateProfile();
       en.appendChild(profileDiv);
@@ -30686,7 +26913,8 @@ const Nr = [
     },
   });
 
-  xa.register({ id: "screen-wake", name: "Keep Screen Awake", summary: "Keeps your screen awake while watching.", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
+  xa.register({ id: "screen-wake", name: "Screen Wake Lock", summary: "Requests a wake lock while a video plays.",
+      cat: "playback", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
     apply(ctx) {
       if (!S.screenWakeOn) return;
       if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") return;
@@ -30721,7 +26949,8 @@ const Nr = [
   xa.register({
     id: "perf-mode",
     name: "Performance Mode",
-    summary: "Five performance presets from light to maximum.",
+    summary: "Five presets scaling work from light to maximum.",
+      cat: "tools",
     masterKey: "perfModeOn",
     keys: ["perfModeOn", "perfModeLevel", "perfModeAuto", "perfContainment", "perfLazyThumbs", "perfLazyComments", "perfKillAnim", "perfKillBlur", "perfThumbQuality", "perfDisablePreviews", "perfMemoryTrim", "perfPrefetch", "perfPreconnect", "perfBgThrottle", "perfPaintReduction", "perfQualityCap"],
     apply(ctx) {
@@ -31029,13 +27258,14 @@ const Nr = [
       const info = document.createElement("div");
       info.className = "ytb-hist-note";
       info.style.marginTop = "8px";
-      info.innerHTML = "<strong>Level presets:</strong> each preset turns on a set of optimizations. Granular switches add individual optimizations on top of the selected level. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.";
+      info.innerHTML = Xy("<strong>Level presets:</strong> each preset turns on a set of optimizations. Granular switches add individual optimizations on top of the selected level. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.");
       en.appendChild(info);
     } });
   xa.register({
     id: "overlay-hub",
-    name: "Monolith Overlay Hub",
-    summary: "All performance meters docked into one HUD.",
+    name: "Overlay Hub",
+    summary: "Docks every performance meter into one HUD.",
+      cat: "tools",
     masterKey: "overlayHubOn",
     keys: ["overlayHubOn", "overlayHubPos"],
     apply(ctx) {
@@ -31192,15 +27422,16 @@ const Nr = [
       const info = document.createElement("div");
       info.className = "ytb-hist-note";
       info.style.marginTop = "8px";
-      info.innerHTML = "<strong>Monolith Overlay Hub:</strong> Consolidates all active floating performance meters and diagnostic tools into a single, unified docked glass HUD.";
+      info.innerHTML = Xy("<strong>Monolith Overlay Hub:</strong> Consolidates all active floating performance meters and diagnostic tools into a single, unified docked glass HUD.");
       en.appendChild(info);
     },
   });
 
   xa.register({
     id: "watch-budget",
-    name: "Watch-Budget Focus Mode",
-    summary: "A gentle daily watch limit with soft nudges.",
+    name: "Watch Budget",
+    summary: "Daily watch limit with soft nudges and a configurable cap.",
+      cat: "wellness",
     masterKey: "watchBudgetOn",
     keys: ["watchBudgetOn", "watchBudgetMinutes"],
     apply(ctx) {
@@ -31352,15 +27583,16 @@ const Nr = [
       const info = document.createElement("div");
       info.className = "ytb-hist-note";
       info.style.marginTop = "8px";
-      info.innerHTML = "<strong>How it counts:</strong> only visible playback on watch pages accrues time. At 80% you get one gentle nudge; at 100% a calm screen offers a break or three five-minute extensions per day. Shortcut: Shift+B.";
+      info.innerHTML = Xy("<strong>How it counts:</strong> only visible playback on watch pages accrues time. At 80% you get one gentle nudge; at 100% a calm screen offers a break or three five-minute extensions per day. Shortcut: Shift+B.");
       en.appendChild(info);
     },
   });
 
   xa.register({
     id: "shorts-policy",
-    name: "Shorts Policy Schedule",
-    summary: "Allow or block Shorts during chosen hours.",
+    name: "Shorts Schedule",
+    summary: "Allows or blocks Shorts by time of day.",
+      cat: "wellness",
     masterKey: "shortsScheduleOn",
     keys: ["shortsScheduleOn", "shortsScheduleMode", "shortsScheduleStart", "shortsScheduleEnd"],
     apply(ctx) {
@@ -31491,8 +27723,9 @@ const Nr = [
   })();
 
   xa.register({
-    id: "silence-skipper", name: "Silence Fast-Forward",
-    summary: "Speeds through silent stretches.",
+    id: "silence-skipper", name: "Silence Skip",
+    summary: "Fast-forwards through silent stretches at a configurable rate.",
+      cat: "audio",
     masterKey: "silenceSkipOn", keys: ["silenceSkipOn", "silenceSkipRate"],
     apply(ctx) {
       if (!S.silenceSkipOn) return;
@@ -31531,7 +27764,8 @@ const Nr = [
 
   xa.register({
     id: "chapter-auto-skip", name: "Chapter Auto-Skip",
-    summary: "Skips chapters titled intro, outro, sponsor, or custom words.",
+    summary: "Skips chapters whose titles match intro/outro/sponsor or your word list.",
+      cat: "playback",
     masterKey: "chapterAutoSkipOn", keys: ["chapterAutoSkipOn", "chapterSkipWords"],
     apply(ctx) {
       if (!S.chapterAutoSkipOn) return;
@@ -31598,7 +27832,8 @@ const Nr = [
 
   xa.register({
     id: "video-bookmarks", name: "Timestamp Bookmarks",
-    summary: "Timestamp bookmarks (Alt+B), stored locally.",
+    summary: "Bookmark moments with Alt+B; stored locally.",
+      cat: "data",
     masterKey: "videoBookmarksOn", keys: ["videoBookmarksOn"],
     apply(ctx) {
       if (!S.videoBookmarksOn) return;
@@ -31663,8 +27898,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "timestamp-notes", name: "Study Notes",
-    summary: "Timestamped notes while watching (Alt+N).",
+    id: "timestamp-notes", name: "Timestamped Notes",
+    summary: "Notes anchored to playhead positions (Alt+N).",
+      cat: "data",
     masterKey: "timestampNotesOn", keys: ["timestampNotesOn"],
     apply(ctx) {
       if (!S.timestampNotesOn) return;
@@ -31742,7 +27978,8 @@ const Nr = [
 
   xa.register({
     id: "pause-auto-rewind", name: "Pause Rewind",
-    summary: "Rewinds a few seconds every time you pause.",
+    summary: "Rewinds a few seconds each time you pause.",
+      cat: "playback",
     masterKey: "pauseRewindOn", keys: ["pauseRewindOn", "pauseRewindSec"],
     apply(ctx) {
       if (!S.pauseRewindOn) return;
@@ -31762,7 +27999,8 @@ const Nr = [
 
   xa.register({
     id: "instant-replay", name: "Instant Replay",
-    summary: "Alt+J replays the last few seconds.",
+    summary: "Alt+J replays the last N seconds.",
+      cat: "playback",
     masterKey: "instantReplayOn", keys: ["instantReplayOn", "instantReplaySec"],
     apply(ctx) {
       if (!S.instantReplayOn) return;
@@ -31783,7 +28021,8 @@ const Nr = [
 
   xa.register({
     id: "sleep-timer", name: "Sleep Timer",
-    summary: "Alt+O sets a sleep timer; volume fades before pause.",
+    summary: "Alt+O: pauses after N minutes with a volume fade.",
+      cat: "wellness",
     masterKey: "sleepTimerOn", keys: ["sleepTimerOn", "sleepTimerMin"],
     apply(ctx) {
       if (!S.sleepTimerOn) return;
@@ -31835,7 +28074,8 @@ const Nr = [
 
   xa.register({
     id: "stretch-reminder", name: "Stretch Reminder",
-    summary: "Gentle reminder after long non-stop watching.",
+    summary: "Reminder after long uninterrupted sessions.",
+      cat: "wellness",
     masterKey: "stretchReminderOn", keys: ["stretchReminderOn", "stretchEveryMin"],
     apply(ctx) {
       if (!S.stretchReminderOn) return;
@@ -31867,7 +28107,8 @@ const Nr = [
 
   xa.register({
     id: "intention-lock", name: "Session Intention",
-    summary: "Write your intention before watching; it stays visible.",
+    summary: "Shows your stated intent before watching; stays visible.",
+      cat: "wellness",
     masterKey: "intentionLockOn", keys: ["intentionLockOn"],
     apply(ctx) {
       if (!S.intentionLockOn) return;
@@ -31915,8 +28156,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "end-winddown", name: "End-of-Video Wind-Down",
-    summary: "Autoplay waits behind a calm continue screen.",
+    id: "end-winddown", name: "Wind-Down Gate",
+    summary: "Autoplay stops behind a continue screen.",
+      cat: "wellness",
     masterKey: "endWindDownOn", keys: ["endWindDownOn", "windDownSec"],
     apply(ctx) {
       if (!S.endWindDownOn) return;
@@ -32002,7 +28244,8 @@ const Nr = [
 
   xa.register({
     id: "shorts-marathon-guard", name: "Shorts Marathon Guard",
-    summary: "Nudges you after N Shorts in a row.",
+    summary: "Interrupts after N consecutive Shorts.",
+      cat: "wellness",
     masterKey: "shortsMarathonOn", keys: ["shortsMarathonOn", "shortsMarathonN"],
     apply(ctx) {
       if (!S.shortsMarathonOn) return;
@@ -32027,8 +28270,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "feed-freshness", name: "Feed Freshness Filter",
-    summary: "Hides home-feed videos older than you like.",
+    id: "feed-freshness", name: "Feed Freshness",
+    summary: "Hides home-feed cards older than a set age.",
+      cat: "feed",
     masterKey: "feedFreshnessOn", keys: ["feedFreshnessOn", "feedMaxAgeMonths"],
     apply(ctx) {
       if (!S.feedFreshnessOn) return;
@@ -32071,7 +28315,8 @@ const Nr = [
 
   xa.register({
     id: "channel-snooze", name: "Channel Snooze",
-    summary: "Snooze channels from your feeds for days.",
+    summary: "Temporarily hides channels from your feeds for N days.",
+      cat: "channels",
     masterKey: "channelSnoozeOn", keys: ["channelSnoozeOn", "channelSnoozeList"],
     apply(ctx) {
       if (!S.channelSnoozeOn) return;
@@ -32105,8 +28350,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "dup-title-spotter", name: "Duplicate Title Spotter",
-    summary: "Flags repeated titles in search (reuploads).",
+    id: "dup-title-spotter", name: "Duplicate Title Flags",
+    summary: "Marks repeated titles in search (reuploads).",
+      cat: "feed",
     masterKey: "dupTitleSpotterOn", keys: ["dupTitleSpotterOn"],
     apply(ctx) {
       if (!S.dupTitleSpotterOn) return;
@@ -32144,7 +28390,8 @@ const Nr = [
 
   xa.register({
     id: "playlist-watched-marker", name: "Playlist Watch-Marks",
-    summary: "Dims playlist videos you already watched.",
+    summary: "Dims playlist entries you've already watched.",
+      cat: "channels",
     masterKey: "playlistWatchedMarkerOn", keys: ["playlistWatchedMarkerOn", "sessionRestoreOn"],
     apply(ctx) {
       if (!S.playlistWatchedMarkerOn) return;
@@ -32203,8 +28450,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "comment-filter", name: "Comment Filter",
+    id: "comment-filter", name: "Comment Keyword Filter",
     summary: "Hides comments matching your keyword list.",
+      cat: "comments",
     masterKey: "commentFilterOn", keys: ["commentFilterOn", "commentBlockWords"],
     apply(ctx) {
       if (!S.commentFilterOn) return;
@@ -32239,8 +28487,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "history-local-hide", name: "History Local Hide",
-    summary: "Hide videos from your history, locally only.",
+    id: "history-local-hide", name: "Local History Hide",
+    summary: "Suppresses videos from YourTube's local history (does not touch account history).",
+      cat: "privacy",
     masterKey: "historyLocalHideOn", keys: ["historyLocalHideOn"],
     apply(ctx) {
       if (!S.historyLocalHideOn) return;
@@ -32291,7 +28540,8 @@ const Nr = [
 
   xa.register({
     id: "copy-link-cleaner", name: "Copy Link Cleaner",
-    summary: "Copied links lose tracking baggage.",
+    summary: "Removes tracking parameters from copied URLs.",
+      cat: "privacy",
     masterKey: "copyLinkCleanerOn", keys: ["copyLinkCleanerOn"],
     apply(ctx) {
       if (!S.copyLinkCleanerOn) return;
@@ -32322,8 +28572,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "night-scheduler", name: "Night Theme Scheduler",
-    summary: "Dark theme at night, light theme by day.",
+    id: "night-scheduler", name: "Theme Scheduler",
+    summary: "Switches dark/light themes on a schedule.",
+      cat: "appearance",
     masterKey: "nightSchedulerOn", keys: ["nightSchedulerOn", "nightStart", "nightEnd"],
     apply(ctx) {
       if (!S.nightSchedulerOn) return;
@@ -32377,8 +28628,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "text-scale", name: "Reading Size Boost",
-    summary: "Bigger text for descriptions and comments.",
+    id: "text-scale", name: "Text Scale",
+    summary: "Adjusts text size for descriptions and comments; site-wide or scoped.",
+      cat: "appearance",
     masterKey: "textScaleOn", keys: ["textScaleOn", "textScalePct", "textScaleScope"],
     apply(ctx) {
       if (!S.textScaleOn) return;
@@ -32403,8 +28655,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "storage-dashboard", name: "Storage Dashboard",
-    summary: "See and trim YourTube's local storage use.",
+    id: "storage-dashboard", name: "Storage Usage",
+    summary: "Inspect and prune YourTube's local storage footprint.",
+      cat: "data",
     masterKey: "storageDashboardOn", keys: ["storageDashboardOn"],
     apply(ctx) {  },
     settings(en) {
@@ -32428,7 +28681,7 @@ const Nr = [
             lines.push(storeName + ": " + (rows ? rows.length : 0) + " rows ≈ " + fmtBytes(bytes));
           } catch (_) { lines.push(storeName + ": unavailable"); }
         }
-        out.innerHTML = "";
+        out.innerHTML = Xy("");
         const pre = document.createElement("div");
         pre.style.whiteSpace = "pre-line";
         pre.textContent = lines.join("\n");
@@ -32455,7 +28708,8 @@ const Nr = [
 
   xa.register({
     id: "health-check", name: "Health Check",
-    summary: "Diagnostics: stats, quarantines, live probes.",
+    summary: "Diagnostics: stats, quarantined features, live DOM probes.",
+      cat: "tools",
     masterKey: "healthCheckOn", keys: ["healthCheckOn"],
     apply(ctx) { },
     settings(en) {
@@ -32510,7 +28764,8 @@ const Nr = [
 
   xa.register({
     id: "frame-stepper", name: "Frame Stepper",
-    summary: "Step frame by frame with buttons or Alt+, / Alt+..",
+    summary: "Frame-accurate stepping via buttons or Alt+, / Alt+..",
+      cat: "playback",
     masterKey: "frameStepperOn", keys: ["frameStepperOn", "frameFps"],
     apply(ctx) {
       if (!S.frameStepperOn) return;
@@ -32553,7 +28808,8 @@ const Nr = [
 
   xa.register({
     id: "playlist-resume", name: "Playlist Resume",
-    summary: "Resumes playlists where you stopped.",
+    summary: "Reopens playlists at the position you stopped.",
+      cat: "playback",
     masterKey: "playlistResumeOn", keys: ["playlistResumeOn"],
     apply(ctx) {
       if (!S.playlistResumeOn) return;
@@ -32606,7 +28862,8 @@ const Nr = [
 
   xa.register({
     id: "channel-volume", name: "Per-Channel Volume",
-    summary: "Remembers volume per channel.",
+    summary: "Stores one volume level per channel.",
+      cat: "audio",
     masterKey: "channelVolumeOn", keys: ["channelVolumeOn"],
     apply(ctx) {
       if (!S.channelVolumeOn) return;
@@ -32653,8 +28910,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "quick-collection-send", name: "Quick Save to Collection",
-    summary: "Quick button to save the current video to a collection.",
+    id: "quick-collection-send", name: "Save to Collection",
+    summary: "One-click save of the current video into a collection.",
+      cat: "channels",
     masterKey: "quickCollectionSendOn", keys: ["quickCollectionSendOn"],
     apply(ctx) {
       if (!S.quickCollectionSendOn) return;
@@ -32696,7 +28954,8 @@ const Nr = [
 
   xa.register({
     id: "reader-mode", name: "Description Reader",
-    summary: "Read long descriptions in a clean panel.",
+    summary: "Renders long descriptions in a clean reading panel.",
+      cat: "appearance",
     masterKey: "readerModeOn", keys: ["readerModeOn"],
     apply(ctx) {
       if (!S.readerModeOn) return;
@@ -32747,8 +29006,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "breather", name: "Breathing Break",
-    summary: "Alt+G opens a one-minute breathing break.",
+    id: "breather", name: "Breather",
+    summary: "Alt+G opens a one-minute breathing exercise.",
+      cat: "wellness",
     masterKey: "ytbBreatherOn", keys: ["ytbBreatherOn"],
     apply(ctx) {
       if (!S.ytbBreatherOn) return;
@@ -32801,12 +29061,26 @@ const Nr = [
 
   const aioEnroll = (master, members) => {
     const flag = master + "Enrolled";
+    const listKey = master + "EnrolledMembers";
     if (S[master]) {
       if (S[flag]) return;
-      for (const k of members) { if (!S[k]) Ta(k, true); }
+      const flipped = [];
+      for (const k of members) { if (!S[k]) { Ta(k, true); flipped.push(k); } }
+      // Record exactly which members this enrolment switched on (1.3.0). The
+      // previous version only kept the "Enrolled" marker, so turning the
+      // master off left six enrolled features running that the user never
+      // chose individually — the +1..3 timers/observers/DOM residue the leak
+      // bisect kept attributing to the aio-* cards.
+      Ta(listKey, flipped.join(","));
       Ta(flag, true);
     } else if (S[flag]) {
       Ta(flag, false);
+      // Master OFF un-enrols precisely the members the enrolment enabled, and
+      // only if they are still on: anything the user had set by hand (not in
+      // the recorded list, or turned back on after enrolment) is untouched.
+      const flipped = String(S[listKey] || "").split(",").filter(Boolean);
+      for (const k of flipped) if (S[k]) Ta(k, false);
+      Ta(listKey, "");
     }
   };
   const aioRows = (en, rows) => {
@@ -32817,8 +29091,9 @@ const Nr = [
 
   const _playerTools = ["copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn", "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
   xa.register({
-    id: "aio-player-tools", name: "Player Tools (All-in-One)",
-    summary: "One switch for player extras; each stays individually toggleable below.",
+    id: "aio-player-tools", name: "Bundle: Player Tools",
+    summary: "Group switch for the player-bar extras; members stay individually toggleable; OFF removes only what it enabled.",
+      cat: "bundles",
     masterKey: "aioPlayerToolsOn",
     settingsAlways: !0,
     keys: ["aioPlayerToolsOn", "aioPlayerToolsOnEnrolled", ..._playerTools],
@@ -32839,8 +29114,9 @@ const Nr = [
 
   const _shorts = ["redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"];
   xa.register({
-    id: "aio-shorts-cleanup", name: "Shorts Cleanup (All-in-One)",
-    summary: "Open Shorts in the player, mute them, or hide the comments panel.",
+    id: "aio-shorts-cleanup", name: "Bundle: Shorts Cleanup",
+    summary: "Group switch: Shorts in player, auto-mute, hide comments.",
+      cat: "bundles",
     masterKey: "aioShortsCleanupOn",
     settingsAlways: !0,
     keys: ["aioShortsCleanupOn", "aioShortsCleanupOnEnrolled", ..._shorts],
@@ -32857,8 +29133,9 @@ const Nr = [
 
   const _feed = ["hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn", "numberSearchResultsOn"];
   xa.register({
-    id: "aio-feed-cleanup", name: "Clean Feed (All-in-One)",
-    summary: "Hide recommendations, live cards, premieres, dubs; number the cards.",
+    id: "aio-feed-cleanup", name: "Bundle: Feed Cleanup",
+    summary: "Group switch: hide recs/live/premieres/dubs, number cards.",
+      cat: "bundles",
     masterKey: "aioFeedCleanupOn",
     settingsAlways: !0,
     keys: ["aioFeedCleanupOn", "aioFeedCleanupOnEnrolled", ..._feed, "hideAutoDubbedPreferOriginal"],
@@ -32879,8 +29156,9 @@ const Nr = [
 
   const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn"];
   xa.register({
-    id: "aio-compact-dense", name: "Compact Layout (All-in-One)",
-    summary: "Tighter spacing, denser grid, compact playlists.",
+    id: "aio-compact-dense", name: "Bundle: Compact Layout",
+    summary: "Group switch: compact UI, dense grid, compact playlists.",
+      cat: "bundles",
     masterKey: "aioCompactDenseOn",
     settingsAlways: !0,
     keys: ["aioCompactDenseOn", "aioCompactDenseOnEnrolled", ..._dense, "themeCompactOn"],
@@ -32904,8 +29182,9 @@ const Nr = [
 
   const _privacy = ["privacyShieldOn", "removeRedirectUrlsOn", "shortenShareUrlOn", "blockYTAIOn"];
   xa.register({
-    id: "aio-privacy-shield", name: "Privacy Shield (All-in-One)",
-    summary: "Skip tracking redirects, shorten share links, block AI features.",
+    id: "aio-privacy-shield", name: "Bundle: Privacy Shield",
+    summary: "Group switch: redirect bypass, short shares, AI hiding.",
+      cat: "bundles",
     masterKey: "aioPrivacyShieldOn",
     settingsAlways: !0,
     keys: ["aioPrivacyShieldOn", "aioPrivacyShieldOnEnrolled", ..._privacy],
@@ -32923,8 +29202,9 @@ const Nr = [
 
   const _comments = ["collapseLongCommentsOn", "highlightCreatorCommentsOn", "highlightTimestampLinksOn"];
   xa.register({
-    id: "aio-comment-cleanup", name: "Comment Cleanup (All-in-One)",
-    summary: "Clamp long comments; highlight creator replies and timestamps.",
+    id: "aio-comment-cleanup", name: "Bundle: Comment Cleanup",
+    summary: "Group switch: clamp long comments, highlight creators/timestamps.",
+      cat: "bundles",
     masterKey: "aioCommentCleanupOn",
     settingsAlways: !0,
     keys: ["aioCommentCleanupOn", "aioCommentCleanupOnEnrolled", ..._comments, "collapseLongCommentChars"],
@@ -33031,7 +29311,8 @@ const Nr = [
   // while you are looking at it.
   xa.register({
     id: "seen-memory", name: "Anti-Repeat Memory",
-    summary: "Hides videos you have already scrolled past, for a while.",
+    summary: "Suppresses cards scrolled past for a configurable number of days.",
+      cat: "feed",
     masterKey: "antiRepeatOn", keys: ["antiRepeatOn", "antiRepeatDays", "antiRepeatGraceMin"],
     apply(ctx) {
       if (!S.antiRepeatOn) return;
@@ -33113,8 +29394,9 @@ const Nr = [
   // Hides cards whose view count is below the threshold. Cards without a view
   // count (live, upcoming, some shorts) are left alone.
   xa.register({
-    id: "hide-low-views", name: "Hide Low-View Videos",
+    id: "hide-low-views", name: "Low-View Filter",
     summary: "Hides cards below a view-count threshold.",
+      cat: "feed",
     masterKey: "hideLowViewsOn", keys: ["hideLowViewsOn", "lowViewThreshold"],
     apply(ctx) {
       if (!S.hideLowViewsOn) return;
@@ -33159,8 +29441,9 @@ const Nr = [
   // already reports channel reach; this reports how fast a video is being
   // watched, which is the useful signal when a feed is full of old uploads.
   xa.register({
-    id: "card-metadata", name: "Card Metadata Badges",
-    summary: "Adds upload date and views-per-day to feed and search cards.",
+    id: "card-metadata", name: "Card Metadata",
+    summary: "Upload date and views/day badges on feed and search cards.",
+      cat: "feed",
     masterKey: "cardMetaOn", keys: ["cardMetaOn", "cardMetaVelocity", "cardMetaDate"],
     apply(ctx) {
       if (!S.cardMetaOn) return;
@@ -33216,8 +29499,9 @@ const Nr = [
   // by element first, with an English text fallback for sections that have no
   // stable id of their own.
   xa.register({
-    id: "search-filler", name: "Clean Up Search Filler",
-    summary: "Removes related-search and similar filler sections.",
+    id: "search-filler", name: "Search Filler Removal",
+    summary: "Removes related-search and 'similar' filler blocks.",
+      cat: "feed",
     masterKey: "searchFillerOff", keys: ["searchFillerOff"],
     apply(ctx) {
       if (!S.searchFillerOff) return;
@@ -33256,7 +29540,8 @@ const Nr = [
 
   xa.register({
     id: "hide-community-posts", name: "Hide Community Posts",
-    summary: "Removes posts and polls from feeds and shelves.",
+    summary: "Removes community posts and polls from feeds and shelves.",
+      cat: "feed",
     masterKey: "hideCommunityPostsOn", keys: ["hideCommunityPostsOn"],
     apply(ctx) {
       S.hideCommunityPostsOn && ctx.addStyle(
@@ -33271,8 +29556,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "hide-mixes", name: "Hide Mix / Radio Playlists",
-    summary: "Removes auto-generated mixes and radios from every surface.",
+    id: "hide-mixes", name: "Hide Mixes",
+    summary: "Removes auto-generated Mix/Radio playlists everywhere.",
+      cat: "feed",
     masterKey: "hideMixesOn", keys: ["hideMixesOn"],
     apply(ctx) {
       S.hideMixesOn && ctx.addStyle(
@@ -33292,7 +29578,8 @@ const Nr = [
 
   xa.register({
     id: "player-gradient", name: "Remove Player Gradient",
-    summary: "Removes the dark fade YouTube paints over the player edges.",
+    summary: "Removes the vignette shading over the player edges.",
+      cat: "playback",
     masterKey: "hidePlayerGradientOn", keys: ["hidePlayerGradientOn"],
     apply(ctx) {
       S.hidePlayerGradientOn && ctx.addStyle(
@@ -33307,8 +29594,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "hide-upnext", name: "Hide Up-Next Overlay",
-    summary: "Removes the autoplay countdown and the end-screen video wall.",
+    id: "hide-upnext", name: "Hide Up-Next Wall",
+    summary: "Removes the autoplay countdown and end-screen video wall.",
+      cat: "feed",
     masterKey: "hideUpNextOn", keys: ["hideUpNextOn"],
     apply(ctx) {
       S.hideUpNextOn && ctx.addStyle(
@@ -33327,8 +29615,9 @@ const Nr = [
   // The 2026 "Ask" pill has no stable element name across experiments, so this
   // matches its label instead of its tag.
   xa.register({
-    id: "hide-ai-ask", name: "Hide the AI Ask Button",
-    summary: "Removes the Ask pill from feeds, the watch page and comments.",
+    id: "hide-ai-ask", name: "Hide AI Ask",
+    summary: "Removes the AI Ask pill from feeds, watch and comments.",
+      cat: "feed",
     masterKey: "hideAiAskOn", keys: ["hideAiAskOn"],
     apply(ctx) {
       if (!S.hideAiAskOn) return;
@@ -33374,7 +29663,8 @@ const Nr = [
 
   xa.register({
     id: "auto-exit-fullscreen", name: "Auto-Exit Fullscreen",
-    summary: "Leaves fullscreen when the video ends.",
+    summary: "Leaves fullscreen automatically at video end.",
+      cat: "playback",
     masterKey: "autoExitFullscreenOn", keys: ["autoExitFullscreenOn"],
     apply(ctx) {
       if (!S.autoExitFullscreenOn) return;
@@ -33458,7 +29748,8 @@ const Nr = [
 
   xa.register({
     id: "wheel-controls", name: "Mouse-Wheel Controls",
-    summary: "Wheel over the player changes volume, over the bar seeks.",
+    summary: "Wheel over the player adjusts volume; over the seek bar seeks.",
+      cat: "audio",
     masterKey: "wheelControlsOn", keys: ["wheelControlsOn", "wheelVolumeStep", "wheelSeekStep"],
     apply(ctx) {
       if (!S.wheelControlsOn) return;
@@ -33509,7 +29800,8 @@ const Nr = [
 
   xa.register({
     id: "volume-boost", name: "Volume Boost",
-    summary: "Amplifies playback beyond 100%, optionally per channel.",
+    summary: "Amplifies playback past 100% via WebAudio; optional per-channel.",
+      cat: "audio",
     masterKey: "volumeBoostOn", keys: ["volumeBoostOn", "volumeBoostPct", "volumeBoostPerChannel"],
     apply(ctx) {
       if (!S.volumeBoostOn) return;
@@ -33576,8 +29868,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "loudness-leveling", name: "Loudness Leveling",
-    summary: "Evens out quiet dialogue and loud music.",
+    id: "loudness-leveling", name: "Loudness Normalization",
+    summary: "Compressor evens quiet dialogue and loud segments.",
+      cat: "audio",
     masterKey: "loudnessLevelOn", keys: ["loudnessLevelOn", "loudnessStrength"],
     apply(ctx) {
       if (!S.loudnessLevelOn) return;
@@ -33621,8 +29914,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "sticky-quality", name: "Sticky Quality for Live",
-    summary: "Re-asserts your quality preference on livestreams.",
+    id: "sticky-quality", name: "Live Quality Lock",
+    summary: "Re-applies the preferred quality on live streams.",
+      cat: "playback",
     masterKey: "stickyQualityOn", keys: ["stickyQualityOn"],
     apply(ctx) {
       if (!S.stickyQualityOn) return;
@@ -33670,7 +29964,8 @@ const Nr = [
 
   xa.register({
     id: "wide-player", name: "Wide Player",
-    summary: "Expands the player to the full window width.",
+    summary: "Stretches the player to the full window width.",
+      cat: "playback",
     masterKey: "widePlayerOn", keys: ["widePlayerOn"],
     apply(ctx) {
       if (!S.widePlayerOn) return;
@@ -33691,7 +29986,8 @@ const Nr = [
 
   xa.register({
     id: "shorts-speed", name: "Shorts Speed & Progress",
-    summary: "Sets a playback speed and shows a progress bar on Shorts.",
+    summary: "Speed control and a progress bar for Shorts.",
+      cat: "playback",
     masterKey: "shortsSpeedOn", keys: ["shortsSpeedOn", "shortsSpeedDefault", "shortsProgressOn"],
     apply(ctx) {
       if (!S.shortsSpeedOn) return;
@@ -33751,7 +30047,8 @@ const Nr = [
   // under it. Failures are silent: the native UI is left alone.
   xa.register({
     id: "return-dislike", name: "Return YouTube Dislike",
-    summary: "Shows dislike counts and a like/dislike ratio bar.",
+    summary: "Restores dislike counts plus a like/dislike ratio bar (RYD API).",
+      cat: "integrations",
     masterKey: "returnDislikeOn", keys: ["returnDislikeOn", "returnDislikeBar"],
     apply(ctx) {
       if (!S.returnDislikeOn) return;
@@ -33851,8 +30148,9 @@ const Nr = [
   // cards. Card thumbnails are fetched lazily as cards scroll into view, capped
   // per navigation, because the API is per video.
   xa.register({
-    id: "dearrow", name: "DeArrow Titles & Thumbnails",
-    summary: "Replaces clickbait titles and thumbnails with community versions.",
+    id: "dearrow", name: "DeArrow",
+    summary: "Swaps clickbait titles/thumbnails for community-submitted versions.",
+      cat: "integrations",
     masterKey: "deArrowOn", keys: ["deArrowOn", "deArrowTitles", "deArrowThumbs"],
     apply(ctx) {
       if (!S.deArrowOn) return;
@@ -34010,7 +30308,8 @@ const Nr = [
   // Live chat cleanup: hide paid messages and tighten the message layout.
   xa.register({
     id: "live-chat-clean", name: "Live Chat Cleanup",
-    summary: "Hides superchats and compacts live chat.",
+    summary: "Hides paid messages and compacts the chat feed.",
+      cat: "comments",
     masterKey: "liveChatCleanOn", keys: ["liveChatCleanOn", "liveChatHidePaid", "liveChatCompact"],
     apply(ctx) {
       if (!S.liveChatCleanOn) return;
@@ -34044,7 +30343,8 @@ const Nr = [
   // from scrolling the page when the panel opens.
   xa.register({
     id: "transcript-tools", name: "Transcript Tools",
-    summary: "Copy or download the transcript, without the page jump.",
+    summary: "Copy or download transcripts without scrolling.",
+      cat: "playback",
     masterKey: "transcriptToolsOn", keys: ["transcriptToolsOn", "transcriptTimestamps", "transcriptNoScroll"],
     apply(ctx) {
       if (!S.transcriptToolsOn) return;
@@ -34127,8 +30427,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "notification-clean", name: "Notification Limiting",
-    summary: "Hides the badge and adds a mark-all-read button.",
+    id: "notification-clean", name: "Notification Cleanup",
+    summary: "Hides the notification badge and adds a mark-all-read control.",
+      cat: "feed",
     masterKey: "notificationCleanOn", keys: ["notificationCleanOn", "notificationHideBadge"],
     apply(ctx) {
       if (!S.notificationCleanOn) return;
@@ -34170,7 +30471,8 @@ const Nr = [
   // left, and reorder the list by duration client-side.
   xa.register({
     id: "watch-later-tools", name: "Watch Later Tools",
-    summary: "Hide watched entries, copy the rest, sort by duration.",
+    summary: "Hide watched entries, export the rest, sort by duration.",
+      cat: "channels",
     masterKey: "watchLaterToolsOn", keys: ["watchLaterToolsOn", "watchLaterHideWatched", "watchLaterSortDuration"],
     apply(ctx) {
       if (!S.watchLaterToolsOn) return;
@@ -34259,8 +30561,9 @@ const Nr = [
   // Statistics computed from the local history store: totals, per-channel and
   // per-day breakdowns. The panel lives in the dashboard.
   xa.register({
-    id: "watch-stats", name: "Watch-Time Statistics",
-    summary: "Hours watched, per channel and per day, from local history.",
+    id: "watch-stats", name: "Watch Statistics",
+    summary: "Hours watched by channel and day, from local history.",
+      cat: "insights",
     masterKey: "watchStatsOn", keys: ["watchStatsOn", "watchStatsDays"],
     apply() { },
     settings(en) {
@@ -34316,8 +30619,9 @@ const Nr = [
 
   // A weekly digest shown once per week, built from the same history store.
   xa.register({
-    id: "weekly-report", name: "Weekly Watch Report",
-    summary: "A short summary of the last seven days, once a week.",
+    id: "weekly-report", name: "Weekly Report",
+    summary: "Seven-day watch summary, generated weekly.",
+      cat: "insights",
     masterKey: "weeklyReportOn", keys: ["weeklyReportOn"],
     apply(ctx) {
       if (!S.weeklyReportOn) return;
@@ -34359,8 +30663,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "random-pick", name: "Random Video Picker",
-    summary: "Jumps to a random video from a channel or playlist.",
+    id: "random-pick", name: "Random Pick",
+    summary: "Plays a random video from a channel or playlist.",
+      cat: "insights",
     masterKey: "randomPickOn", keys: ["randomPickOn", "randomPickUnwatched"],
     apply(ctx) {
       if (!S.randomPickOn) return;
@@ -34414,8 +30719,9 @@ const Nr = [
   // True shuffle for playlists and the queue: YouTube's shuffle keeps the
   // original order in the DOM, which makes it easy to lose your place.
   xa.register({
-    id: "shuffle-tools", name: "Shuffle & Queue Tools",
-    summary: "Randomises playlist order and reorders your own queue.",
+    id: "shuffle-tools", name: "Shuffle & Queue",
+    summary: "Reorders playlists randomly; manages your queue.",
+      cat: "insights",
     masterKey: "shuffleToolsOn", keys: ["shuffleToolsOn"],
     apply(ctx) {
       if (!S.shuffleToolsOn) return;
@@ -34461,8 +30767,9 @@ const Nr = [
   // Export local data to files: watch history, notes, bookmarks, collections,
   // the current playlist, and the subscription list.
   xa.register({
-    id: "export-data", name: "Export Lists & History",
-    summary: "Save history, notes, playlists and subscriptions to a file.",
+    id: "export-data", name: "Data Export",
+    summary: "Exports history, notes, playlists and groups to a file.",
+      cat: "data",
     masterKey: "exportDataOn", keys: ["exportDataOn"],
     apply() { },
     settings(en) {
@@ -34552,7 +30859,8 @@ const Nr = [
   // subscriptions feed.
   xa.register({
     id: "sub-groups", name: "Subscription Groups",
-    summary: "Local channel folders and a filtered subscriptions feed.",
+    summary: "Local channel folders plus a filtered subscriptions feed.",
+      cat: "channels",
     masterKey: "subGroupsOn", keys: ["subGroupsOn", "subGroupsActive"],
     apply(ctx) {
       if (!S.subGroupsOn) return;
@@ -34683,8 +30991,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "ui-restore-2026", name: "Restore 2026 UI Regressions",
-    summary: "Brings back the subscriber count and tidies the 2026 watch layout.",
+    id: "ui-restore-2026", name: "2026 UI Restores",
+    summary: "Restores the subscriber count and tidies the 2026 watch layout.",
+      cat: "appearance",
     masterKey: "uiRestoreOn", keys: ["uiRestoreOn", "uiRestoreSubs", "uiRestoreInlineLikes"],
     apply(ctx) {
       if (!S.uiRestoreOn) return;
@@ -34783,8 +31092,9 @@ const Nr = [
   });
 
   xa.register({
-    id: "watch-tabs", name: "Tabbed Watch Page",
-    summary: "Details, comments, chapters and related as tabs.",
+    id: "watch-tabs", name: "Watch Tabs",
+    summary: "Details, comments, chapters and related videos as tabs.",
+      cat: "appearance",
     masterKey: "watchTabsOn", keys: ["watchTabsOn"],
     apply(ctx) {
       if (!S.watchTabsOn) return;
@@ -34855,6 +31165,10 @@ const Nr = [
     chapterNext: "equal",
     speedUp: "alt+shift+period",
     speedDown: "alt+shift+comma",
+    sbSkip: "enter",
+    sbHighlight: "",
+    sbUpvote: "",
+    sbDownvote: "",
   };
   function _ytKeySpec(ev) {
     try {
@@ -34872,8 +31186,9 @@ const Nr = [
   }
 
   xa.register({
-    id: "keymap", name: "Keyboard Shortcuts",
-    summary: "Rebind the script's own shortcuts.",
+    id: "keymap", name: "Keymap",
+    summary: "Rebinds all of the script's keyboard shortcuts.",
+      cat: "tools",
     masterKey: "keymapOn", keys: ["keymapOn", "keymap"],
     apply() { },
     settings(en) {
@@ -34886,6 +31201,10 @@ const Nr = [
         ["chapterNext", "Next chapter"],
         ["speedUp", "Speed up"],
         ["speedDown", "Slow down"],
+        ["sbSkip", "SponsorBlock: skip current segment"],
+        ["sbHighlight", "SponsorBlock: jump to highlight"],
+        ["sbUpvote", "SponsorBlock: upvote segment under playhead"],
+        ["sbDownvote", "SponsorBlock: downvote segment under playhead"],
       ];
       const current = () => Object.assign({}, S.keymap && typeof S.keymap === "object" ? S.keymap : {});
       const pretty = (spec) => String(spec || "").split("+").map((part) => {
@@ -34943,8 +31262,9 @@ const Nr = [
 
   // Channel page helper for the subscription groups feature.
   xa.register({
-    id: "sub-group-add", name: "Add Channel to Group",
+    id: "sub-group-add", name: "Assign to Group",
     summary: "Adds the open channel to one of your groups.",
+      cat: "channels",
     masterKey: "subGroupsOn", keys: [],
     apply(ctx) {
       if (!S.subGroupsOn) return;
@@ -34998,8 +31318,9 @@ const Nr = [
   // ---------------------------------------------------------------------------
 
   xa.register({
-    id: "subs-only-home", name: "Subscriptions-Only Home",
-    summary: "Turns the front page into your subscriptions.",
+    id: "subs-only-home", name: "Subscriptions Home",
+    summary: "Redirects the home feed to your subscriptions; optional full redirect.",
+      cat: "feed",
     masterKey: "subsOnlyHomeOn", keys: ["subsOnlyHomeOn", "subsOnlyRedirect"],
     apply(ctx) {
       if (!S.subsOnlyHomeOn) return;
@@ -35060,8 +31381,9 @@ const Nr = [
   // Client-side sorting of the results YouTube already returned. It reorders the
   // cards on the page; it cannot fetch more results.
   xa.register({
-    id: "sort-search", name: "Sort Search Results",
-    summary: "Reorders the results on the page by date, views or length.",
+    id: "sort-search", name: "Sort Results",
+    summary: "Reorders page results by date, views or length.",
+      cat: "feed",
     masterKey: "sortSearchOn", keys: ["sortSearchOn", "sortSearchBy"],
     apply(ctx) {
       if (!S.sortSearchOn) return;
@@ -35311,6 +31633,22 @@ const Nr = [
           }
         }
 
+        if (S.sponsorblockOn && !S.sbDisable) {
+          if (_bound("sbSkip")) {
+            e.preventDefault();
+            try { SponsorBlockEngine.skipCurrentSegment(); } catch (err) { m("hotkey sb skip", err); }
+          } else if (_bound("sbHighlight")) {
+            e.preventDefault();
+            try { SponsorBlockEngine.jumpToHighlight(); } catch (err) { m("hotkey sb highlight", err); }
+          } else if (_bound("sbUpvote")) {
+            e.preventDefault();
+            try { SponsorBlockEngine.voteActive(1).then((r) => pe(r && r.ok ? "Segment upvoted" : "Upvote: " + (r && r.message || "failed"), 1800, r && r.ok ? "success" : "error")); } catch (err) { m("hotkey sb upvote", err); }
+          } else if (_bound("sbDownvote")) {
+            e.preventDefault();
+            try { SponsorBlockEngine.voteActive(0).then((r) => pe(r && r.ok ? "Segment downvoted" : "Downvote: " + (r && r.message || "failed"), 1800, r && r.ok ? "success" : "error")); } catch (err) { m("hotkey sb downvote", err); }
+          }
+        }
+
         if (_bound("speedUp") || _bound("speedDown")) {
           e.preventDefault();
           try {
@@ -35342,7 +31680,7 @@ const Nr = [
                 "cfg_update" === d.type &&
                 typeof d.ver === "number" &&
                 Number.isFinite(d.ver) &&
-                d.ver > A &&
+                d.ver >= A &&
                 X();
             }));
         } catch (e) {
@@ -35354,7 +31692,19 @@ const Nr = [
           });
         } catch (e) {}
         try {
-
+          // Heal window: a tab that slept through broadcasts (bfcache, throttled
+          // timers, missed storage event) re-checks the latest snapshot whenever
+          // it becomes observable again. Cheap no-op when already current.
+          const _heal = () => {
+            try {
+              if ("visible" === document.visibilityState) X();
+            } catch (e) {}
+          };
+          document.addEventListener("visibilitychange", _heal);
+          window.addEventListener("pageshow", (e) => {
+            if (e && e.persisted) { try { X(); } catch (e2) {} }
+          });
+          window.addEventListener("focus", _heal);
         } catch (e) {}
       })();
     } catch (e) {

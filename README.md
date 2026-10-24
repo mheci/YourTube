@@ -6,7 +6,7 @@
 
 A client-side userscript that changes how YouTube looks and behaves: 200 themes,
 feed and comment filtering, playback tools, SponsorBlock integration, and a
-settings dashboard with 169 feature cards. Everything runs in your browser.
+settings dashboard with 160+ feature cards. Everything runs in your browser.
 There is no account, no server, and no analytics.
 
 Latest release: [github.com/mheci/YourTube/releases](https://github.com/mheci/YourTube/releases)
@@ -57,6 +57,12 @@ Latest release: [github.com/mheci/YourTube/releases](https://github.com/mheci/Yo
 
 - Return YouTube Dislike counts and ratio bar; DeArrow community titles and
   thumbnails; live chat cleanup. Both external integrations are off by default.
+- Block Player Enhancements force-disables YouTube's own player extras:
+  Ambient Mode glow, Stable Volume (dynamic range compression) and Voice
+  Boost, each toggled individually.
+- Calm Popups & Toasts carries the dashboard's design onto every floating
+  surface: toasts, skip notices, resume prompts, gates and panels, in light
+  and dark.
 - Session history, bookmarks, study notes, subscription groups, watch Later
   helpers, playlist resume and shuffle.
 - Watch-time statistics, weekly summary, budget overlay, Shorts limits and

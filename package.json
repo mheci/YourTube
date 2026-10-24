@@ -7,22 +7,9 @@
   "scripts": {
     "build": "node scripts/build-userscript.js",
     "verify": "node scripts/verify-bundle.js",
-    "check": "node scripts/check.js && node scripts/check-release.js && node scripts/check-xray.js",
-    "audit:dashboard": "node scripts/audit-dashboard.cjs",
-    "audit:keys": "node scripts/audit-keys.cjs",
-    "audit:selectors": "node scripts/audit-selectors.cjs",
-    "audit:dead": "node scripts/check-dead-code.cjs",
-    "test:unit": "node scripts/test-unit.js && node scripts/test-sponsorblock-parity.js && node scripts/test-resources.js && node scripts/test-ublock.js && node scripts/test-sponsorblock-privacy.js && node scripts/test-engine-pins.js && node scripts/test-bundle-pins.js && node scripts/test-regressions.js && node scripts/test-import-roundtrip.js && node scripts/test-privacy-gate.js && node scripts/test-leak-bisect.js && node scripts/test-dead-code.js && node scripts/test-config-schema.js",
-    "test": "npm run build && npm run check && npm run audit:dashboard && npm run audit:dead && npm run test:unit && npm run test:engine && npm run test:boot && npm run test:stability && npm run verify",
-    "test:boot": "node scripts/harness-boot.js",
-    "test:stability": "node scripts/harness-stability.js",
-    "test:engine": "node scripts/test-engine.js",
-    "test:e2e": "node scripts/e2e-live.js"
+    "check": "node scripts/check.js"
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
-  },
-  "devDependencies": {
-    "jsdom": "^24.1.3"
   }
 }

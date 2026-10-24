@@ -128,7 +128,94 @@
 .ytb-ui-focus-row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 @keyframes ytbFocusIn{from{opacity:0}to{opacity:1}}
 @keyframes ytbBreath{0%,100%{opacity:.45;transform:scaleX(.7)}50%{opacity:1;transform:scaleX(1)}}
+
+/* --- Calm popups, overlays and toasts (v1.9.0) ---------------------------
+   Mirrors the dashboard tokens one-for-one (light + .ytb-calm-dark). Every
+   rule is prefixed with body.ytb-calm so it outranks the legacy dark-glass
+   sheets no matter when they were injected. Toggle: calmUiOn. */
+body.ytb-calm{--ytbc-acc:#b45309;--ytbc-accink:180,83,9;--ytbc-panel:#faf7f0;--ytbc-panel2:#fcf9f3;--ytbc-panel3:#fffdf8;--ytbc-card:#fffdf8;--ytbc-card-hi:#f5f1e8;--ytbc-card-lo:#efece7;--ytbc-line:#e7e5e4;--ytbc-line2:#d6d3d1;--ytbc-ink:#1c1917;--ytbc-ink2:#57534e;--ytbc-ink3:#a8a29e;--ytbc-ok:#4a7d5d;--ytbc-crit:#b91c1c;--ytbc-shadow:0 18px 50px rgba(28,25,23,.18),0 2px 8px rgba(28,25,23,.08);--ytbc-font:"Segoe UI",system-ui,-apple-system,sans-serif}
+body.ytb-calm.ytb-calm-dark{--ytbc-acc:#f59e0b;--ytbc-accink:245,158,11;--ytbc-panel:#17181c;--ytbc-panel2:#1b1d22;--ytbc-panel3:#212428;--ytbc-card:#212428;--ytbc-card-hi:#2a2d34;--ytbc-card-lo:#30343c;--ytbc-line:#2b2e35;--ytbc-line2:#3a3e47;--ytbc-ink:#e8e6e3;--ytbc-ink2:#b3aaa0;--ytbc-ink3:#7a7268;--ytbc-ok:#4ade80;--ytbc-crit:#f87171;--ytbc-shadow:0 24px 70px rgba(0,0,0,.72),0 4px 16px rgba(0,0,0,.5)}
+@keyframes ytbCalmPop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* Toasts */
+body.ytb-calm .ytb-t-info,body.ytb-calm .ytb-t-success,body.ytb-calm .ytb-t-error{background:var(--ytbc-card);color:var(--ytbc-ink);border:1px solid var(--ytbc-line2);border-radius:10px;box-shadow:var(--ytbc-shadow);backdrop-filter:none;-webkit-backdrop-filter:none;font:12.5px/1.4 var(--ytbc-font);padding:9px 16px 9px 14px}
+body.ytb-calm .ytb-t-info{border-left:3px solid var(--ytbc-acc)}
+body.ytb-calm .ytb-t-success{border-left:3px solid var(--ytbc-ok)}
+body.ytb-calm .ytb-t-error{border-left:3px solid var(--ytbc-crit)}
+
+/* Resume prompt (watch overlay + inline card) */
+body.ytb-calm #ytb-resume-overlay>div,body.ytb-calm .ytb-resume-card-inner,body.ytb-calm .ytb-resume-card{background:var(--ytbc-card)!important;border:1px solid var(--ytbc-line2)!important;border-radius:12px!important;box-shadow:var(--ytbc-shadow)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-eyebrow{color:var(--ytbc-acc)}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-title{color:var(--ytbc-ink)}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-meta{color:var(--ytbc-ink3)}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-body{color:var(--ytbc-ink2)}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-thumb{border:1px solid var(--ytbc-line);box-shadow:none}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-footer{color:var(--ytbc-ink3);border-top-color:var(--ytbc-line)}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-dismiss{color:var(--ytbc-ink3)!important}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-dismiss:hover{color:var(--ytbc-ink)!important}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-primary{background:var(--ytbc-ink)!important;color:var(--ytbc-panel)!important;box-shadow:none!important;border-radius:6px}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-primary:hover{background:var(--ytbc-ink2)!important;box-shadow:none!important}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-secondary{background:var(--ytbc-card-hi)!important;color:var(--ytbc-ink)!important;border:1px solid var(--ytbc-line2)!important;border-radius:6px}
+body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-secondary:hover{background:var(--ytbc-card-lo)!important}
+body.ytb-calm #ytb-resume-card{background:var(--ytbc-card)!important;color:var(--ytbc-ink)!important}
+body.ytb-calm #ytb-resume-card .ytb-resume-cta{color:var(--ytbc-acc)}
+body.ytb-calm #ytb-resume-card .ytb-resume-title{color:var(--ytbc-ink3)}
+body.ytb-calm #ytb-resume-card .ytb-resume-btn-primary:hover{background:var(--ytbc-ink2)!important}
+
+/* SponsorBlock floating surfaces */
+body.ytb-calm #ytb-sb-hud{background:var(--ytbc-card)!important;color:var(--ytbc-ink2)!important;border:1px solid var(--ytbc-line2)!important;border-radius:8px!important;box-shadow:var(--ytbc-shadow)!important;font-family:var(--ytbc-font)!important}
+body.ytb-calm #YourTube-sb-hud{position:fixed;left:16px;bottom:48px;z-index:2147483635;display:none;min-width:240px;max-width:360px;background:var(--ytbc-card);color:var(--ytbc-ink);border:1px solid var(--ytbc-line2);border-radius:10px;box-shadow:var(--ytbc-shadow);overflow:hidden;font:12.5px/1.4 var(--ytbc-font)}
+body.ytb-calm #YourTube-sb-hud.show{display:block;animation:ytbCalmPop .18s ease-out}
+body.ytb-calm #YourTube-sb-hud .hud-header{display:flex;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--ytbc-card-hi);border-bottom:1px solid var(--ytbc-line);font-size:12.5px}
+body.ytb-calm #YourTube-sb-hud .hud-header span:last-child{color:var(--ytbc-ink3);font-weight:400}
+body.ytb-calm #YourTube-sb-hud .hud-actions{display:flex;gap:6px;padding:8px 10px;align-items:center}
+body.ytb-calm #YourTube-sb-hud .hud-btn{appearance:none;border:1px solid var(--ytbc-line2);border-radius:6px;background:var(--ytbc-card);color:var(--ytbc-ink2);padding:4px 10px;font:600 11px var(--ytbc-font);cursor:pointer;line-height:1.3}
+body.ytb-calm #YourTube-sb-hud .hud-btn:hover{background:var(--ytbc-card-hi);color:var(--ytbc-ink)}
+body.ytb-calm #YourTube-sb-hud .hud-btn.undo-btn{color:var(--ytbc-acc);border-color:rgba(var(--ytbc-accink),.4)}
+body.ytb-calm #YourTube-sb-hud .hud-btn.close-btn{margin-left:auto;color:var(--ytbc-ink3);padding:4px 8px}
+body.ytb-calm #YourTube-sb-editor{display:none;position:fixed;left:50%!important;top:50%!important;transform:translate(-50%,-50%)!important;z-index:2147483640;width:min(440px,calc(100vw - 32px));background:var(--ytbc-card);color:var(--ytbc-ink);border:1px solid var(--ytbc-line2);border-radius:12px;box-shadow:var(--ytbc-shadow);padding:16px 18px;font:12.5px/1.45 var(--ytbc-font);max-height:86vh;overflow:auto}
+body.ytb-calm #YourTube-sb-editor.show{display:block;animation:ytbCalmPop .18s ease-out}
+body.ytb-calm #YourTube-sb-editor>div:first-child{color:var(--ytbc-ink)!important;border-bottom-color:var(--ytbc-line)!important}
+body.ytb-calm #YourTube-sb-editor input:not([type=checkbox]),body.ytb-calm #YourTube-sb-editor select,body.ytb-calm #YourTube-sb-editor textarea{background:var(--ytbc-panel3)!important;border:1px solid var(--ytbc-line2)!important;border-radius:6px!important;color:var(--ytbc-ink)!important;padding:5px 9px;font:12px var(--ytbc-font)}
+body.ytb-calm #YourTube-sb-editor button{appearance:none;border:1px solid var(--ytbc-line2);border-radius:6px;background:var(--ytbc-card)!important;color:var(--ytbc-ink2)!important;padding:5px 12px;font:600 11px var(--ytbc-font);cursor:pointer}
+body.ytb-calm #YourTube-sb-editor button:hover{background:var(--ytbc-card-hi)!important;color:var(--ytbc-ink)!important}
+body.ytb-calm .YourTube-sb-countdown{position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483639;display:flex;align-items:center;gap:12px;background:var(--ytbc-card);color:var(--ytbc-ink);border:1px solid var(--ytbc-line2);border-radius:10px;padding:8px 14px;box-shadow:var(--ytbc-shadow);font:12.5px var(--ytbc-font)}
+body.ytb-calm .YourTube-sb-countdown button{appearance:none;border:1px solid var(--ytbc-line2);border-radius:6px;background:var(--ytbc-card-hi);color:var(--ytbc-ink);padding:4px 12px;font:600 11px var(--ytbc-font);cursor:pointer}
+
+/* Gates and modal cards (focus, wind-down, shorts gate, breather accents) */
+body.ytb-calm .ytb-ui-focus-card{background:var(--ytbc-card);border:1px solid var(--ytbc-line2);border-radius:12px;box-shadow:var(--ytbc-shadow)}
+body.ytb-calm .ytb-ui-focus-card::before{background:var(--ytbc-acc);animation:none;opacity:.85;transform:none}
+body.ytb-calm .ytb-ui-focus-title{color:var(--ytbc-ink)}
+body.ytb-calm .ytb-ui-focus-body{color:var(--ytbc-ink2)}
+body.ytb-calm #ytb-breather>div{border-color:rgba(var(--ytbc-accink),.75)!important}
+body.ytb-calm #ytb-breather>div+div{color:var(--ytbc-ink2)!important}
+
+/* Shared buttons */
+body.ytb-calm .ytb-ui-btn{background:var(--ytbc-card);border:1px solid var(--ytbc-line2);color:var(--ytbc-ink);border-radius:6px}
+body.ytb-calm .ytb-ui-btn:hover{background:var(--ytbc-card-hi)}
+body.ytb-calm .ytb-ui-btn.primary{background:var(--ytbc-ink);border-color:transparent;color:var(--ytbc-panel)}
+body.ytb-calm .ytb-ui-btn.primary:hover{background:var(--ytbc-ink2)}
+
+/* Floating panels: discover feed, its reopen pill, card preview, stats, diag */
+body.ytb-calm #ytb-disco{background:var(--ytbc-card);border-color:var(--ytbc-line2);box-shadow:var(--ytbc-shadow);backdrop-filter:none;-webkit-backdrop-filter:none;color:var(--ytbc-ink2)}
+body.ytb-calm #ytb-disco .ytb-ui-disco-title{color:var(--ytbc-ink)}
+body.ytb-calm #ytb-disco .ytb-ui-disco-close{color:var(--ytbc-ink3)}
+body.ytb-calm #ytb-disco .ytb-ui-disco-close:hover{color:var(--ytbc-ink);background:var(--ytbc-card-hi)}
+body.ytb-calm #ytb-disco .ytb-ui-disco-tab{background:var(--ytbc-card-hi);border-color:var(--ytbc-line);color:var(--ytbc-ink2)}
+body.ytb-calm #ytb-disco .ytb-ui-disco-tab:hover{border-color:var(--ytbc-line2);background:var(--ytbc-card-lo)}
+body.ytb-calm #ytb-disco .ytb-ui-disco-tab.active{background:rgba(var(--ytbc-accink),.1);border-color:rgba(var(--ytbc-accink),.4);color:var(--ytbc-acc)}
+body.ytb-calm #ytb-disco .ytb-ui-status{color:var(--ytbc-ink3)}
+body.ytb-calm #ytb-disco-reopen{background:var(--ytbc-card);border-color:rgba(var(--ytbc-accink),.45);color:var(--ytbc-acc);box-shadow:var(--ytbc-shadow)}
+body.ytb-calm #ytb-preview{background:var(--ytbc-card);border-color:var(--ytbc-line2);box-shadow:var(--ytbc-shadow);color:var(--ytbc-ink)}
+body.ytb-calm #ytb-stats{background:var(--ytbc-card);color:var(--ytbc-ink2);border:1px solid var(--ytbc-line2);box-shadow:var(--ytbc-shadow);backdrop-filter:none;-webkit-backdrop-filter:none}
+body.ytb-calm #ytb-diag{background:var(--ytbc-card);color:var(--ytbc-ink2);border:1px solid var(--ytbc-line2);box-shadow:var(--ytbc-shadow);backdrop-filter:none;-webkit-backdrop-filter:none}
+
+/* Inline-styled floating panels pinned by features */
+body.ytb-calm #ytb-intent{background:var(--ytbc-card)!important;border-color:var(--ytbc-line2)!important;color:var(--ytbc-ink)!important;box-shadow:var(--ytbc-shadow)!important}
+body.ytb-calm #ytb-intent input{background:var(--ytbc-panel3)!important;border-color:var(--ytbc-line2)!important;color:var(--ytbc-ink)!important}
+body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--ytbc-ink)!important;border-color:var(--ytbc-line2)!important}
 `;
+
     let cssInjected = false;
     const injectCSS = () => {
       // The latch alone can wedge styling if the style element is ever removed
@@ -5595,10 +5682,12 @@
       const format = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n));
       const dislikeButton = () => {
         try {
-          return document.querySelector("dislike-button-view-model button") ||
-            document.querySelector("ytd-menu-renderer #segmented-dislike-button button") ||
-            document.querySelector("button[title*='dislike' i]") ||
-            document.querySelector("ytd-toggle-button-renderer:nth-of-type(2) button");
+          const cands = [
+            ...document.querySelectorAll("dislike-button-view-model button, ytd-menu-renderer #segmented-dislike-button button, button[title*='dislike' i], ytd-toggle-button-renderer:nth-of-type(2) button"),
+          ];
+          // YouTube ships a second dislike button in the fullscreen quick-actions
+          // bar (always display:none on the watch page); pick the visible one.
+          return cands.find((b) => !b.closest(".ytp-fullscreen-quick-actions") && b.getBoundingClientRect().width > 0) || cands[0] || null;
         } catch (_) { return null; }
       };
       const render = (videoId, data) => {
@@ -5832,6 +5921,138 @@
       en.appendChild(Io("Replace card thumbnails", "deArrowThumbs"));
       en.appendChild(To("div", "ytb-hist-note",
         "Data comes from the DeArrow API on sponsor.ajay.app. Card thumbnails are loaded as cards scroll into view, capped per page."));
+    },
+  });
+
+  // Block Player Enhancements: force-disable YouTube's own player extras.
+  // Ambient Mode paints blurred copies of the video into #cinematics, Stable
+  // Volume is DRC (dynamic range compression), Voice Boost lifts dialogue.
+  // The player element exposes setDrcUserPreference, setVoiceBoostUserPreference
+  // and updateCinematicSettings, so we wrap those setters and re-assert the
+  // off state on navigation.
+  xa.register({
+    id: "player-effects-block", name: "Block Player Enhancements",
+    summary: "Force-off Ambient Mode, Stable Volume (dynamic range compression) and Voice Boost.",
+      cat: "playback",
+    masterKey: "blockPlayerFxOn", keys: ["blockPlayerFxOn", "blockAmbient", "blockStableVolume", "blockVoiceBoost"],
+    apply(ctx) {
+      if (!S.blockPlayerFxOn) return;
+      if (S.blockAmbient) ctx.addStyle("#cinematics{display:none!important}");
+      const hooked = new WeakSet();
+      const settled = (v) => v === 0 || v === "0" || v === !1 || v == null;
+      const hook = () => {
+        const p = document.getElementById("movie_player");
+        if (!p) return null;
+        if (hooked.has(p)) return p;
+        if (typeof p.setDrcUserPreference !== "function" && typeof p.updateCinematicSettings !== "function")
+          return null; // the audio/cinematic surface arrives after the element; retry
+        const orig = (p.__ytbFxOrig = p.__ytbFxOrig || {});
+        if (typeof p.setDrcUserPreference === "function" && !orig.drc) {
+          orig.drc = p.setDrcUserPreference;
+          const bound = orig.drc.bind(p);
+          p.setDrcUserPreference = function (v) {
+            return bound(S.blockPlayerFxOn && S.blockStableVolume ? 0 : v);
+          };
+        }
+        if (typeof p.setVoiceBoostUserPreference === "function" && !orig.vb) {
+          orig.vb = p.setVoiceBoostUserPreference;
+          const bound = orig.vb.bind(p);
+          p.setVoiceBoostUserPreference = function (v) {
+            return bound(S.blockPlayerFxOn && S.blockVoiceBoost ? 0 : v);
+          };
+        }
+        if (typeof p.updateCinematicSettings === "function" && !orig.cine) {
+          orig.cine = p.updateCinematicSettings;
+          const bound = orig.cine.bind(p);
+          p.updateCinematicSettings = function (v) {
+            if (S.blockPlayerFxOn && S.blockAmbient) return;
+            return bound(v);
+          };
+        }
+        hooked.add(p);
+        Yt["player-effects-block"].push(() => {
+          try {
+            if (orig.drc) p.setDrcUserPreference = orig.drc;
+            if (orig.vb) p.setVoiceBoostUserPreference = orig.vb;
+            if (orig.cine) p.updateCinematicSettings = orig.cine;
+            delete p.__ytbFxOrig;
+          } catch (_) {}
+        });
+        return p;
+      };
+      const stripAmbientAttr = () => {
+        if (!(S.blockPlayerFxOn && S.blockAmbient)) return;
+        const flexy = document.querySelector("ytd-watch-flexy");
+        if (flexy && flexy.hasAttribute("ambient-mode-enabled")) flexy.removeAttribute("ambient-mode-enabled");
+      };
+      const assert = () => {
+        const p = hook();
+        if (p) {
+          try {
+            if (S.blockStableVolume && typeof p.getDrcUserPreference === "function" && !settled(p.getDrcUserPreference()))
+              p.setDrcUserPreference(0);
+          } catch (_) {}
+          try {
+            if (S.blockVoiceBoost && typeof p.getVoiceBoostUserPreference === "function" && !settled(p.getVoiceBoostUserPreference()))
+              p.setVoiceBoostUserPreference(0);
+          } catch (_) {}
+        }
+        stripAmbientAttr();
+      };
+      const watchFlexy = () => {
+        const flexy = document.querySelector("ytd-watch-flexy");
+        if (!flexy || flexy.__ytbFxObs) return;
+        flexy.__ytbFxObs = 1;
+        const obs = new MutationObserver(stripAmbientAttr);
+        obs.observe(flexy, { attributes: !0, attributeFilter: ["ambient-mode-enabled"] });
+        Yt["player-effects-block"].push(() => { try { obs.disconnect(); } catch (_) {} });
+      };
+      ctx.addInterval(() => { watchFlexy(); assert(); }, 4000);
+      ctx.addTimeout(assert, 900);
+      ctx.onNav(() => ctx.addTimeout(assert, 1400));
+    },
+    settings(en) {
+      en.appendChild(Io("Block player enhancements", "blockPlayerFxOn"));
+      en.appendChild(Io("Block ambient mode glow", "blockAmbient"));
+      en.appendChild(Io("Block stable volume (DRC)", "blockStableVolume"));
+      en.appendChild(Io("Block voice boost", "blockVoiceBoost"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "Wraps the YouTube player's own switches: ambient mode stops painting its blurred backdrop, Stable Volume keeps full dynamics, Voice Boost never turns itself on."));
+    },
+  });
+
+  // Calm chrome: carries the dashboard design tokens onto every floating
+  // surface (toasts, resume prompts, SponsorBlock notices, gates). The body
+  // class holds the palette; the rules live in the engine base CSS, which is
+  // injected here so toasts are styled before the dashboard ever opens.
+  xa.register({
+    id: "calm-chrome", name: "Calm Popups & Toasts",
+    summary: "Applies the dashboard's Calm design to popups, overlays and toasts.",
+      cat: "appearance",
+    masterKey: "calmUiOn", keys: ["calmUiOn"],
+    apply(ctx) {
+      const sync = () => {
+        if (!document.body) return;
+        document.body.classList.toggle("ytb-calm", !!S.calmUiOn);
+        document.body.classList.toggle("ytb-calm-dark", !!S.calmUiOn && String(S.dashMode || "light") === "dark");
+      };
+      YourTubeEngine.injectCSS();
+      sync();
+      const sub = g.on("cfg.changed", ({ key }) => {
+        if (key === "dashMode" || key === "calmUiOn") sync();
+      });
+      ctx.addInterval(sync, 2000);
+      Yt["calm-chrome"].push(() => {
+        try { if (typeof sub === "function") sub(); } catch (_) {}
+        try {
+          if (document.body) document.body.classList.remove("ytb-calm", "ytb-calm-dark");
+        } catch (_) {}
+      });
+    },
+    settings(en) {
+      en.appendChild(Io("Calm design for popups, overlays and toasts", "calmUiOn"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "On by default. Turn off to restore the legacy dark-glass popups."));
     },
   });
 

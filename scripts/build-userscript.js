@@ -20,9 +20,13 @@ const pkg = JSON.parse(read("package.json"));
 const VERSION = pkg.version;
 const LICENSE = pkg.license || "MIT";
 
-const MODULES = fs.readdirSync(srcDir)
-  .filter((f) => /^\d\d-.+\.js$/.test(f))
-  .sort();
+const allFiles = fs.readdirSync(srcDir).filter((f) => f.endsWith(".js"));
+const stray = allFiles.filter((f) => !/^\d\d-.+\.js$/.test(f));
+if (stray.length) {
+  console.error("build: src/ contains files that are not numbered modules: " + stray.join(", "));
+  process.exit(1);
+}
+const MODULES = allFiles.sort();
 
 if (!MODULES.length) {
   console.error("build: no modules found in src/");
@@ -40,6 +44,15 @@ let bundle;
   // (tests, raw script-tag injection) can never drift from package.json again.
   text = text.split("__YTP_VERSION__").join(VERSION);
   bundle = text;
+}
+
+if (!bundle.includes("// @version      " + VERSION)) {
+  console.error("build: @version header stamp did not land; refusing to write a bundle with a stale version");
+  process.exit(1);
+}
+if (!bundle.includes("// @license      " + LICENSE)) {
+  console.error("build: @license header stamp did not land; refusing to write a bundle with a stale license");
+  process.exit(1);
 }
 
 const firstBrace = bundle.indexOf("(() => {");

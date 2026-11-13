@@ -17,6 +17,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Reject prerelease tags
+        shell: bash
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) echo "This workflow publishes stable releases only: $GITHUB_REF_NAME" >&2; exit 1 ;;
+          esac
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -25,9 +31,9 @@ jobs:
       - name: Install
         run: npm ci
       - name: Build and deterministic verify
-        run: npm run build && npm run check && npm run verify
+        run: npm run check && npm run verify
       - name: Verify bundle matches sources
-        run: git diff --exit-code -- yourtube.user.js
+        run: git diff --exit-code -- yourtube.user.js yourtube.meta.js
       - name: Verify tag matches package version
         shell: bash
         run: |
@@ -39,7 +45,7 @@ jobs:
         run: |
           title="YourTube ${GITHUB_REF_NAME#v}"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --title "$title" --verify-tag
+            gh release edit "$GITHUB_REF_NAME" --title "$title" --verify-tag --draft=false --prerelease=false
             gh release upload "$GITHUB_REF_NAME" yourtube.user.js yourtube.meta.js --clobber
           else
             gh release create "$GITHUB_REF_NAME" \

@@ -570,6 +570,9 @@
               }
               const t = JSON.parse(jsonText),
                 a = Object.assign({}, S);
+              if (!t || "object" != typeof t || Array.isArray(t) || !t.cfg || "object" != typeof t.cfg || Array.isArray(t.cfg)) {
+                throw new Error("invalid settings file");
+              }
               (t.cfg && j(D(t.cfg)),
 
                 Array.isArray(t.history) &&

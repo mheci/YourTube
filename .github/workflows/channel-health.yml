@@ -50,6 +50,7 @@ jobs:
           cache: npm
 
       - name: Audit channel
+        id: audit
         run: |
           set -u
           : > diagnostics.txt
@@ -112,6 +113,10 @@ jobs:
       - name: Report result
         if: always()
         run: |
+          if [ "${{ steps.audit.outcome }}" != "success" ] && [ ! -s diagnostics.txt ]; then
+            echo "Channel audit did not produce diagnostics; leaving any open issue untouched." >&2
+            exit 1
+          fi
           if [ -s diagnostics.txt ]; then
             {
               echo "Automated channel audit failed."

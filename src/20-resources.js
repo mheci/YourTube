@@ -166,6 +166,7 @@
         this._loadPromise = null;
         this._listeners = null;
         this._flushes = 0;
+        this._rev = 0;
       }
 
       onChange(callback) {
@@ -220,6 +221,7 @@
 
       set(value) {
         this._mutated = true;
+        this._rev++;
         this._data = value;
         this._scheduleFlush();
         this._emitChange(null, value);
@@ -235,12 +237,14 @@
           // persist and announce that state so memory and storage cannot
           // diverge silently, then keep the existing throw contract.
           this._mutated = true;
+          this._rev++;
           this._scheduleFlush();
           this._emitChange(key, this._data);
           try { console.error("[StateStore:" + this._key + "] update failed:", error); } catch (_) {}
           throw new Error("[StateStore:" + this._key + "] update failed: " + (error instanceof Error ? error.message : String(error)));
         }
         this._mutated = true;
+        this._rev++;
         this._scheduleFlush();
         this._emitChange(key, this._data);
       }
@@ -273,11 +277,16 @@
         }
 
         const snapshot = this._data;
+        const rev = this._rev;
         this._flushes++;
         try {
           await this._storage.set(this._key, snapshot);
-          this._dirty = false;
-          this._flushRetries = 0;
+          if (this._rev === rev) {
+            this._dirty = false;
+            this._flushRetries = 0;
+          } else {
+            this._scheduleFlush();
+          }
           return true;
         } catch (_) {
           this._flushRetries = (this._flushRetries || 0) + 1;

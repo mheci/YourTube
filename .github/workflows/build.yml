@@ -25,11 +25,11 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Build and deterministic verify
-        run: npm run build && npm run verify
+      - name: Check and deterministic verify
+        run: npm run check && npm run verify
 
       - name: Verify bundle matches sources
-        run: git diff --exit-code -- yourtube.user.js
+        run: git diff --exit-code -- yourtube.user.js yourtube.meta.js
 
       - name: Extract version
         id: version

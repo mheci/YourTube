@@ -1486,7 +1486,8 @@ algoBlockChannels: "",
     O = 0,
     M = !1,
     L = null,
-    A = 0;
+    A = 0,
+    _cfgDirty = !1;
   const E = ["darkTweaks"],
     B = "yourtube.cfg",
     P = "yourtube.cfg",
@@ -1857,10 +1858,12 @@ algoBlockChannels: "",
     }
   }
   function U() {
+    O = 0;
     (A++, _ || (_ = {}));
     for (const e in _) e in S || delete _[e];
     (Object.assign(_, S),
       W(_, A),
+      (_cfgDirty = !1),
       (L = { obj: _, ver: A }),
       K(),
       (function () {
@@ -1890,11 +1893,15 @@ algoBlockChannels: "",
         }));
   }
   function Y() {
+    _cfgDirty = !0;
     const delay = (typeof Xt !== "undefined" && Xt.perfMode) || (typeof S !== "undefined" && S.perfModeOn) ? 1200 : 600;
     T && (clearTimeout(O), (O = setTimeout(U, delay)));
   }
   function G() {
-    T && (clearTimeout(O), (O = 0), U());
+    if (!T) return;
+    clearTimeout(O);
+    O = 0;
+    if (_cfgDirty) U();
   }
   function _cfgCanon(e) {
     // Deterministic serialization (sorted keys) for payload identity checks.

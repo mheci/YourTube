@@ -2823,7 +2823,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           };
           ctx.addTimeout(observePaint, 2000);
           ctx.onNav(() => ctx.addTimeout(observePaint, 2000));
-          Yt["perf-mode"].push(() => { try { paintObserver.disconnect(); } catch (e) {} });
+          Yt["perf-mode"].push(() => {
+            try { paintObserver.disconnect(); } catch (e) {}
+            try {
+              document.querySelectorAll("[data-ytb-paint-observed]").forEach((el) => {
+                el.style.contentVisibility = "";
+                delete el.dataset.ytbPaintObserved;
+              });
+            } catch (e) {}
+          });
         } catch (e) {}
       }
       if (on("QualityCap")) {
@@ -5681,6 +5689,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         ".ytb-ui-ryd-label{font:600 10.5px system-ui;color:#aaa;display:flex;gap:8px;align-items:center;justify-content:space-between}",
       );
       const cache = new YourTubeResources.BoundedCache(64, "ytb-ryd", { ttlMs: 6 * 60 * 60 * 1000 });
+      const failed = new YourTubeResources.BoundedCache(64, "ytb-ryd-fail", { ttlMs: 10 * 60 * 1000 });
       let inFlight = 0;
       const format = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n));
       const dislikeButton = () => {
@@ -5736,16 +5745,18 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!videoId) return;
         const cached = cache.get(videoId);
         if (cached) { render(videoId, cached); return; }
+        if (failed.has(videoId)) return;
         if (inFlight >= 2) return;
         inFlight++;
         YourTubeEngine.fetchJson("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId))
           .then((result) => {
             const data = result && result.ok ? result.json : null;
-            if (!data || typeof data.dislikes !== "number") return;
+            if (!data || typeof data.dislikes !== "number") { failed.set(videoId, 1); return; }
             cache.set(videoId, data);
+            failed.delete(videoId);
             if (videoId === (ie.videoId && ie.videoId())) render(videoId, data);
           })
-          .catch(() => {})
+          .catch(() => { failed.set(videoId, 1); })
           .then(() => { inFlight--; });
       };
       const tick = () => {
@@ -5783,6 +5794,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         ".ytb-ui-dearrow-chip:hover{background:rgba(111,168,220,.26)}",
       );
       const cache = new YourTubeResources.BoundedCache(96, "ytb-dearrow", { ttlMs: 12 * 60 * 60 * 1000 });
+      const failed = new YourTubeResources.BoundedCache(96, "ytb-dearrow-fail", { ttlMs: 10 * 60 * 1000 });
       const thumbUrl = (videoId, time) =>
         "https://dearrow-thumb.ajay.app/api/v1/getThumbnail?videoID=" + encodeURIComponent(videoId) +
         "&time=" + encodeURIComponent(time) + "&returnError=true";
@@ -5843,13 +5855,22 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const load = (videoId) => {
         const cached = cache.get(videoId);
         if (cached) return Promise.resolve(cached);
+        if (failed.has(videoId)) return Promise.resolve(null);
         return YourTubeEngine.fetchJson("https://sponsor.ajay.app/api/branding?videoID=" + encodeURIComponent(videoId))
           .then((result) => {
             const data = result && result.ok && result.json && typeof result.json === "object" ? result.json : null;
-            if (data) cache.set(videoId, data);
+            if (data) {
+              cache.set(videoId, data);
+              failed.delete(videoId);
+            } else {
+              failed.set(videoId, 1);
+            }
             return data;
           })
-          .catch(() => null);
+          .catch(() => {
+            failed.set(videoId, 1);
+            return null;
+          });
       };
       const watchTick = () => {
         if (!location.pathname.startsWith("/watch")) return;

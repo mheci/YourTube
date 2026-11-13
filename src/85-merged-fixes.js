@@ -317,6 +317,8 @@
           try {
             if (generation !== _ytAbsGeneration) return;
             if (!container.isConnected) return;
+            if (_ytAbsWatchId() !== videoId) return;
+            if (container.dataset.ytbAbsWatchVid !== videoId) return;
             const formatted = _ytAbsFormatDate(when);
             if (!formatted) {
               delete container.dataset.ytbAbsWatchVid;

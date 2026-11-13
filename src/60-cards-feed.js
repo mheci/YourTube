@@ -219,7 +219,8 @@
       ".yt-attributed-string",
       ".yt-core-attributed-string",
       "yt-formatted-string#video-title",
-    ];
+    ],
+    Cb_blockSurfaces = "ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,ytd-grid-video-renderer,yt-lockup-view-model,ytd-channel-renderer,ytd-playlist-renderer,ytd-reel-item-renderer,ytm-media-item,ytm-compact-video-renderer,ytm-reel-item-renderer";
   function za(e, t) {
     const a = e.querySelectorAll(
       'a[href*="/@"],a[href^="/@"],a[href*="/channel/"],a[href*="/c/"],a[href*="/user/"],a#channel-name,ytd-channel-name a,#channel-name a,#owner-name a',
@@ -332,10 +333,8 @@
         const norm = Cb_norm(trimmed);
         if (!norm) continue;
         if (norm.startsWith("@")) {
-          const handle = norm.slice(1).replace(/["\\]/g, "\\$&");
-          const sel = Fa.map(s =>
-            s + ':has(a[href^="/@' + handle + '" i])'
-          ).join(",");
+          const handle = norm.slice(1).replace(/["\\]/g, "\\$&").slice(0, 100);
+          const sel = ":is(" + Cb_blockSurfaces + '):has(a[href^="/@' + handle + '" i])';
           convertedLines.push("youtube.com##" + sel);
           if (S.channelBlockerHideWatch) {
             convertedLines.push(
@@ -344,13 +343,11 @@
           }
         } else {
 
-          const escaped = UBlockEngine.escapeRegex(norm);
+          const escaped = UBlockEngine.escapeRegex(norm).slice(0, 120);
           const scopeSel = S.channelBlockerMatchTitleText
             ? ja.join(",")
-            : "ytd-channel-name a, #channel-name a, #owner-name a, ytd-video-owner-renderer a";
-          const titleSel = Fa.map(s =>
-            s + ':has(:is(' + scopeSel + '):has-text(/' + escaped + '/i))'
-          ).join(",");
+            : "ytd-channel-name a,#channel-name a,#owner-name a,ytd-video-owner-renderer a";
+          const titleSel = ":is(" + Cb_blockSurfaces + '):has(:is(' + scopeSel + '):has-text(/' + escaped + '/i))';
           convertedLines.push("youtube.com##" + titleSel);
         }
       }
@@ -528,16 +525,16 @@
       masterKey: "keywordFilterOn",
       keys: ["keywordFilterOn", "keywordFilterList"],
       apply(e) {
-        if (!S.keywordFilterOn) {
-
+        const clearHidden = () => {
           try {
-            document
-              .querySelectorAll("[data-ytb-kw-hidden]")
-              .forEach((el) => {
-                delete el.dataset.ytbKwHidden;
-                el.style.display = "";
-              });
+            document.querySelectorAll("[data-ytb-kw-hidden]").forEach((el) => {
+              delete el.dataset.ytbKwHidden;
+              el.style.display = "";
+            });
           } catch (_kwErr) {}
+        };
+        if (!S.keywordFilterOn) {
+          clearHidden();
           return;
         }
         const t = (S.keywordFilterList || "")
@@ -600,6 +597,8 @@
               }),
               e.addTimeout(n, 500));
           }
+        } else {
+          clearHidden();
         }
       },
       settings(e) {
@@ -1791,6 +1790,7 @@
         let a = null;
         let r = 0;
         let o = performance.now();
+        let unsub = null;
         const i = () => {
           if (!S.fpsCounterOn) return;
           const s = S.fpsCounterPos || "tl";
@@ -1850,7 +1850,7 @@
           e.onNav(() => {
             c(0), e.addTimeout(() => c(1), 1200);
           }),
-          So("cfg.changed", ({ key: n }) => {
+          (unsub = So("cfg.changed", ({ key: n }) => {
             "fpsCounterOn" === n
               ? S.fpsCounterOn
                 ? c(1)
@@ -1858,8 +1858,9 @@
                   t && (function () { try { t.remove(); } catch (e) {} })(),
                   (t = null))
               : "fpsCounterPos" === n && t && i();
-          }),
+          })),
           Yt["fps-counter"].push(() => {
+            if (unsub) { unsub(); unsub = null; }
             c(0);
             if (t) {
               try {
@@ -1893,6 +1894,7 @@
         let n = null;
         let r = 0;
         let o = 0;
+        let unsub = null;
         const i = () => {
           if (!S.bufferHealthOn) return;
           const v = ie.el && ie.el();
@@ -2004,7 +2006,7 @@
           e.addTimeout(startInterval, 1500);
           e.addTimeout(bindVideo, 1200);
         });
-        So("cfg.changed", ({ key: k }) => {
+        (unsub = So("cfg.changed", ({ key: k }) => {
           "bufferHealthOn" === k &&
             (S.bufferHealthOn
               ? (startInterval(), i())
@@ -2012,8 +2014,9 @@
                 t && (function () { try { t.remove(); } catch (e) {} })(),
                 (t = null),
                 (o = 0)));
-        });
+        }));
         Yt["buffer-health"].push(() => {
+          if (unsub) { unsub(); unsub = null; }
           stopInterval();
           if (t) {
             try {
@@ -2042,6 +2045,7 @@
         let r = 0;
         let o = performance.now();
         let running = false;
+        let unsub = null;
         const i = () => {
           if (!S.droppedFrameOn) return;
           const p = S.droppedFramePos || "tr";
@@ -2122,7 +2126,7 @@
         e.onNav(() => {
           S.droppedFrameResetOnNav && c();
         });
-        So("cfg.changed", ({ key: k }) => {
+        (unsub = So("cfg.changed", ({ key: k }) => {
           if ("droppedFrameOn" === k) {
             S.droppedFrameOn ? start() : stop();
           } else if ("droppedFramePos" === k && t) {
@@ -2135,8 +2139,11 @@
               (t.style.left = "tl" === p || "bl" === p ? "8px" : ""),
               (t.style.right = "tr" === p || "br" === p ? "8px" : "");
           }
+        }));
+        Yt["dropped-frame-counter"].push(() => {
+          if (unsub) { unsub(); unsub = null; }
+          stop();
         });
-        Yt["dropped-frame-counter"].push(stop);
       },
       settings(e) {
         (e.appendChild(Io("Show dropped-frame counter", "droppedFrameOn")),
@@ -2424,7 +2431,7 @@
           try {
             a.disconnect();
           } catch (e) {}
-          document.querySelectorAll("ytd-shelf-renderer[data-ytb-tlg-hidden]").forEach((e) => {
+          document.querySelectorAll("ytd-shelf-renderer[data-ytb-t-l-g-hidden]").forEach((e) => {
             e.style.display = "";
             delete e.dataset.ytbTLGHidden;
           });
@@ -4629,11 +4636,9 @@
                 (p.querySelector("#thumbnail") || p).prepend(e));
             }
             const h = t || a ? br(p) : 0;
-            if (
-              (t && p.classList.toggle("ytb-extra-long", h >= c),
-              a && p.classList.toggle("ytb-extra-short", h > 0 && h <= s),
-              n || r)
-            ) {
+            p.classList.toggle("ytb-extra-long", t && h >= c);
+            p.classList.toggle("ytb-extra-short", a && h > 0 && h <= s);
+            if (n || r) {
               const e = vr(p);
               (n &&
                 p.classList.toggle(
@@ -4645,9 +4650,10 @@
                     "ytb-extra-premiere",
                     /premiere|premieres/i.test(e),
                   ));
+            } else {
+              p.classList.remove("ytb-extra-live", "ytb-extra-premiere");
             }
-            (u &&
-              o &&
+            if (u && o) {
               (d.has(u) ||
                 d.set(
                   u,
@@ -4665,8 +4671,11 @@
                     "ytb-extra-watched-hide",
                     e && !!S.feedHideWatchedOn,
                   ));
-              })),
-              (l + 1) % 40 == 0 && (await ne()));
+              }));
+            } else if (u) {
+              p.classList.remove("ytb-extra-watched-dim", "ytb-extra-watched-hide");
+            }
+            (l + 1) % 40 == 0 && (await ne());
           }
         } finally {
           Pr = !1;
@@ -5062,7 +5071,10 @@ ytd-video-renderer{margin:2px 0!important}
       masterKey: "hideLiveContentOn",
       keys: ["hideLiveContentOn"],
       apply(e) {
-        S.hideLiveContentOn && (Rr(), e.addInterval(Rr, 2500));
+        S.hideLiveContentOn &&
+          (e.addStyle(".ytb-extra-live{display:none!important}"),
+          Rr(),
+          e.addInterval(Rr, 2500));
       },
       settings() {},
     }),
@@ -5074,7 +5086,10 @@ ytd-video-renderer{margin:2px 0!important}
       masterKey: "hidePremieresOn",
       keys: ["hidePremieresOn"],
       apply(e) {
-        S.hidePremieresOn && (Rr(), e.addInterval(Rr, 2500));
+        S.hidePremieresOn &&
+          (e.addStyle(".ytb-extra-premiere{display:none!important}"),
+          Rr(),
+          e.addInterval(Rr, 2500));
       },
       settings() {},
     }),
@@ -5152,9 +5167,19 @@ ytd-video-renderer{margin:2px 0!important}
       keys: ["feedWatchedMode", "feedDimWatchedOn", "feedHideWatchedOn"],
       isOn: () => !!S.feedWatchedMode && "off" !== S.feedWatchedMode,
       apply(e) {
-        if (!S.feedWatchedMode || "off" === S.feedWatchedMode) return;
+        const cleanup = () => {
+          document.querySelectorAll(".ytb-extra-watched-dim,.ytb-extra-watched-hide").forEach((el) => {
+            el.classList.remove("ytb-extra-watched-dim", "ytb-extra-watched-hide");
+          });
+        };
+        if (!S.feedWatchedMode || "off" === S.feedWatchedMode) { cleanup(); return; }
+        e.addStyle(
+          ".ytb-extra-watched-hide{display:none!important}" +
+          ".ytb-extra-watched-dim{opacity:.45!important}",
+        );
         try { Rr(); } catch (_) {}
         e.addInterval(() => { try { Rr(); } catch (_) {} }, 2500);
+        Yt["feed-watched"].push(cleanup);
       },
       settings(en) {
         en.appendChild(

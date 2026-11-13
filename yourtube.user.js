@@ -1523,7 +1523,8 @@ algoBlockChannels: "",
     O = 0,
     M = !1,
     L = null,
-    A = 0;
+    A = 0,
+    _cfgDirty = !1;
   const E = ["darkTweaks"],
     B = "yourtube.cfg",
     P = "yourtube.cfg",
@@ -1894,10 +1895,12 @@ algoBlockChannels: "",
     }
   }
   function U() {
+    O = 0;
     (A++, _ || (_ = {}));
     for (const e in _) e in S || delete _[e];
     (Object.assign(_, S),
       W(_, A),
+      (_cfgDirty = !1),
       (L = { obj: _, ver: A }),
       K(),
       (function () {
@@ -1927,11 +1930,15 @@ algoBlockChannels: "",
         }));
   }
   function Y() {
+    _cfgDirty = !0;
     const delay = (typeof Xt !== "undefined" && Xt.perfMode) || (typeof S !== "undefined" && S.perfModeOn) ? 1200 : 600;
     T && (clearTimeout(O), (O = setTimeout(U, delay)));
   }
   function G() {
-    T && (clearTimeout(O), (O = 0), U());
+    if (!T) return;
+    clearTimeout(O);
+    O = 0;
+    if (_cfgDirty) U();
   }
   function _cfgCanon(e) {
     // Deterministic serialization (sorted keys) for payload identity checks.
@@ -2446,6 +2453,7 @@ algoBlockChannels: "",
         this._loadPromise = null;
         this._listeners = null;
         this._flushes = 0;
+        this._rev = 0;
       }
 
       onChange(callback) {
@@ -2500,6 +2508,7 @@ algoBlockChannels: "",
 
       set(value) {
         this._mutated = true;
+        this._rev++;
         this._data = value;
         this._scheduleFlush();
         this._emitChange(null, value);
@@ -2515,12 +2524,14 @@ algoBlockChannels: "",
           // persist and announce that state so memory and storage cannot
           // diverge silently, then keep the existing throw contract.
           this._mutated = true;
+          this._rev++;
           this._scheduleFlush();
           this._emitChange(key, this._data);
           try { console.error("[StateStore:" + this._key + "] update failed:", error); } catch (_) {}
           throw new Error("[StateStore:" + this._key + "] update failed: " + (error instanceof Error ? error.message : String(error)));
         }
         this._mutated = true;
+        this._rev++;
         this._scheduleFlush();
         this._emitChange(key, this._data);
       }
@@ -2553,11 +2564,16 @@ algoBlockChannels: "",
         }
 
         const snapshot = this._data;
+        const rev = this._rev;
         this._flushes++;
         try {
           await this._storage.set(this._key, snapshot);
-          this._dirty = false;
-          this._flushRetries = 0;
+          if (this._rev === rev) {
+            this._dirty = false;
+            this._flushRetries = 0;
+          } else {
+            this._scheduleFlush();
+          }
           return true;
         } catch (_) {
           this._flushRetries = (this._flushRetries || 0) + 1;
@@ -12224,7 +12240,8 @@ algoBlockChannels: "",
       ".yt-attributed-string",
       ".yt-core-attributed-string",
       "yt-formatted-string#video-title",
-    ];
+    ],
+    Cb_blockSurfaces = "ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,ytd-grid-video-renderer,yt-lockup-view-model,ytd-channel-renderer,ytd-playlist-renderer,ytd-reel-item-renderer,ytm-media-item,ytm-compact-video-renderer,ytm-reel-item-renderer";
   function za(e, t) {
     const a = e.querySelectorAll(
       'a[href*="/@"],a[href^="/@"],a[href*="/channel/"],a[href*="/c/"],a[href*="/user/"],a#channel-name,ytd-channel-name a,#channel-name a,#owner-name a',
@@ -12337,10 +12354,8 @@ algoBlockChannels: "",
         const norm = Cb_norm(trimmed);
         if (!norm) continue;
         if (norm.startsWith("@")) {
-          const handle = norm.slice(1).replace(/["\\]/g, "\\$&");
-          const sel = Fa.map(s =>
-            s + ':has(a[href^="/@' + handle + '" i])'
-          ).join(",");
+          const handle = norm.slice(1).replace(/["\\]/g, "\\$&").slice(0, 100);
+          const sel = ":is(" + Cb_blockSurfaces + '):has(a[href^="/@' + handle + '" i])';
           convertedLines.push("youtube.com##" + sel);
           if (S.channelBlockerHideWatch) {
             convertedLines.push(
@@ -12349,13 +12364,11 @@ algoBlockChannels: "",
           }
         } else {
 
-          const escaped = UBlockEngine.escapeRegex(norm);
+          const escaped = UBlockEngine.escapeRegex(norm).slice(0, 120);
           const scopeSel = S.channelBlockerMatchTitleText
             ? ja.join(",")
-            : "ytd-channel-name a, #channel-name a, #owner-name a, ytd-video-owner-renderer a";
-          const titleSel = Fa.map(s =>
-            s + ':has(:is(' + scopeSel + '):has-text(/' + escaped + '/i))'
-          ).join(",");
+            : "ytd-channel-name a,#channel-name a,#owner-name a,ytd-video-owner-renderer a";
+          const titleSel = ":is(" + Cb_blockSurfaces + '):has(:is(' + scopeSel + '):has-text(/' + escaped + '/i))';
           convertedLines.push("youtube.com##" + titleSel);
         }
       }
@@ -12533,16 +12546,16 @@ algoBlockChannels: "",
       masterKey: "keywordFilterOn",
       keys: ["keywordFilterOn", "keywordFilterList"],
       apply(e) {
-        if (!S.keywordFilterOn) {
-
+        const clearHidden = () => {
           try {
-            document
-              .querySelectorAll("[data-ytb-kw-hidden]")
-              .forEach((el) => {
-                delete el.dataset.ytbKwHidden;
-                el.style.display = "";
-              });
+            document.querySelectorAll("[data-ytb-kw-hidden]").forEach((el) => {
+              delete el.dataset.ytbKwHidden;
+              el.style.display = "";
+            });
           } catch (_kwErr) {}
+        };
+        if (!S.keywordFilterOn) {
+          clearHidden();
           return;
         }
         const t = (S.keywordFilterList || "")
@@ -12605,6 +12618,8 @@ algoBlockChannels: "",
               }),
               e.addTimeout(n, 500));
           }
+        } else {
+          clearHidden();
         }
       },
       settings(e) {
@@ -13796,6 +13811,7 @@ algoBlockChannels: "",
         let a = null;
         let r = 0;
         let o = performance.now();
+        let unsub = null;
         const i = () => {
           if (!S.fpsCounterOn) return;
           const s = S.fpsCounterPos || "tl";
@@ -13855,7 +13871,7 @@ algoBlockChannels: "",
           e.onNav(() => {
             c(0), e.addTimeout(() => c(1), 1200);
           }),
-          So("cfg.changed", ({ key: n }) => {
+          (unsub = So("cfg.changed", ({ key: n }) => {
             "fpsCounterOn" === n
               ? S.fpsCounterOn
                 ? c(1)
@@ -13863,8 +13879,9 @@ algoBlockChannels: "",
                   t && (function () { try { t.remove(); } catch (e) {} })(),
                   (t = null))
               : "fpsCounterPos" === n && t && i();
-          }),
+          })),
           Yt["fps-counter"].push(() => {
+            if (unsub) { unsub(); unsub = null; }
             c(0);
             if (t) {
               try {
@@ -13898,6 +13915,7 @@ algoBlockChannels: "",
         let n = null;
         let r = 0;
         let o = 0;
+        let unsub = null;
         const i = () => {
           if (!S.bufferHealthOn) return;
           const v = ie.el && ie.el();
@@ -14009,7 +14027,7 @@ algoBlockChannels: "",
           e.addTimeout(startInterval, 1500);
           e.addTimeout(bindVideo, 1200);
         });
-        So("cfg.changed", ({ key: k }) => {
+        (unsub = So("cfg.changed", ({ key: k }) => {
           "bufferHealthOn" === k &&
             (S.bufferHealthOn
               ? (startInterval(), i())
@@ -14017,8 +14035,9 @@ algoBlockChannels: "",
                 t && (function () { try { t.remove(); } catch (e) {} })(),
                 (t = null),
                 (o = 0)));
-        });
+        }));
         Yt["buffer-health"].push(() => {
+          if (unsub) { unsub(); unsub = null; }
           stopInterval();
           if (t) {
             try {
@@ -14047,6 +14066,7 @@ algoBlockChannels: "",
         let r = 0;
         let o = performance.now();
         let running = false;
+        let unsub = null;
         const i = () => {
           if (!S.droppedFrameOn) return;
           const p = S.droppedFramePos || "tr";
@@ -14127,7 +14147,7 @@ algoBlockChannels: "",
         e.onNav(() => {
           S.droppedFrameResetOnNav && c();
         });
-        So("cfg.changed", ({ key: k }) => {
+        (unsub = So("cfg.changed", ({ key: k }) => {
           if ("droppedFrameOn" === k) {
             S.droppedFrameOn ? start() : stop();
           } else if ("droppedFramePos" === k && t) {
@@ -14140,8 +14160,11 @@ algoBlockChannels: "",
               (t.style.left = "tl" === p || "bl" === p ? "8px" : ""),
               (t.style.right = "tr" === p || "br" === p ? "8px" : "");
           }
+        }));
+        Yt["dropped-frame-counter"].push(() => {
+          if (unsub) { unsub(); unsub = null; }
+          stop();
         });
-        Yt["dropped-frame-counter"].push(stop);
       },
       settings(e) {
         (e.appendChild(Io("Show dropped-frame counter", "droppedFrameOn")),
@@ -14429,7 +14452,7 @@ algoBlockChannels: "",
           try {
             a.disconnect();
           } catch (e) {}
-          document.querySelectorAll("ytd-shelf-renderer[data-ytb-tlg-hidden]").forEach((e) => {
+          document.querySelectorAll("ytd-shelf-renderer[data-ytb-t-l-g-hidden]").forEach((e) => {
             e.style.display = "";
             delete e.dataset.ytbTLGHidden;
           });
@@ -16634,11 +16657,9 @@ algoBlockChannels: "",
                 (p.querySelector("#thumbnail") || p).prepend(e));
             }
             const h = t || a ? br(p) : 0;
-            if (
-              (t && p.classList.toggle("ytb-extra-long", h >= c),
-              a && p.classList.toggle("ytb-extra-short", h > 0 && h <= s),
-              n || r)
-            ) {
+            p.classList.toggle("ytb-extra-long", t && h >= c);
+            p.classList.toggle("ytb-extra-short", a && h > 0 && h <= s);
+            if (n || r) {
               const e = vr(p);
               (n &&
                 p.classList.toggle(
@@ -16650,9 +16671,10 @@ algoBlockChannels: "",
                     "ytb-extra-premiere",
                     /premiere|premieres/i.test(e),
                   ));
+            } else {
+              p.classList.remove("ytb-extra-live", "ytb-extra-premiere");
             }
-            (u &&
-              o &&
+            if (u && o) {
               (d.has(u) ||
                 d.set(
                   u,
@@ -16670,8 +16692,11 @@ algoBlockChannels: "",
                     "ytb-extra-watched-hide",
                     e && !!S.feedHideWatchedOn,
                   ));
-              })),
-              (l + 1) % 40 == 0 && (await ne()));
+              }));
+            } else if (u) {
+              p.classList.remove("ytb-extra-watched-dim", "ytb-extra-watched-hide");
+            }
+            (l + 1) % 40 == 0 && (await ne());
           }
         } finally {
           Pr = !1;
@@ -17067,7 +17092,10 @@ ytd-video-renderer{margin:2px 0!important}
       masterKey: "hideLiveContentOn",
       keys: ["hideLiveContentOn"],
       apply(e) {
-        S.hideLiveContentOn && (Rr(), e.addInterval(Rr, 2500));
+        S.hideLiveContentOn &&
+          (e.addStyle(".ytb-extra-live{display:none!important}"),
+          Rr(),
+          e.addInterval(Rr, 2500));
       },
       settings() {},
     }),
@@ -17079,7 +17107,10 @@ ytd-video-renderer{margin:2px 0!important}
       masterKey: "hidePremieresOn",
       keys: ["hidePremieresOn"],
       apply(e) {
-        S.hidePremieresOn && (Rr(), e.addInterval(Rr, 2500));
+        S.hidePremieresOn &&
+          (e.addStyle(".ytb-extra-premiere{display:none!important}"),
+          Rr(),
+          e.addInterval(Rr, 2500));
       },
       settings() {},
     }),
@@ -17157,9 +17188,19 @@ ytd-video-renderer{margin:2px 0!important}
       keys: ["feedWatchedMode", "feedDimWatchedOn", "feedHideWatchedOn"],
       isOn: () => !!S.feedWatchedMode && "off" !== S.feedWatchedMode,
       apply(e) {
-        if (!S.feedWatchedMode || "off" === S.feedWatchedMode) return;
+        const cleanup = () => {
+          document.querySelectorAll(".ytb-extra-watched-dim,.ytb-extra-watched-hide").forEach((el) => {
+            el.classList.remove("ytb-extra-watched-dim", "ytb-extra-watched-hide");
+          });
+        };
+        if (!S.feedWatchedMode || "off" === S.feedWatchedMode) { cleanup(); return; }
+        e.addStyle(
+          ".ytb-extra-watched-hide{display:none!important}" +
+          ".ytb-extra-watched-dim{opacity:.45!important}",
+        );
         try { Rr(); } catch (_) {}
         e.addInterval(() => { try { Rr(); } catch (_) {} }, 2500);
+        Yt["feed-watched"].push(cleanup);
       },
       settings(en) {
         en.appendChild(
@@ -23369,6 +23410,9 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
               }
               const t = JSON.parse(jsonText),
                 a = Object.assign({}, S);
+              if (!t || "object" != typeof t || Array.isArray(t) || !t.cfg || "object" != typeof t.cfg || Array.isArray(t.cfg)) {
+                throw new Error("invalid settings file");
+              }
               (t.cfg && j(D(t.cfg)),
 
                 Array.isArray(t.history) &&
@@ -27309,7 +27353,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           };
           ctx.addTimeout(observePaint, 2000);
           ctx.onNav(() => ctx.addTimeout(observePaint, 2000));
-          Yt["perf-mode"].push(() => { try { paintObserver.disconnect(); } catch (e) {} });
+          Yt["perf-mode"].push(() => {
+            try { paintObserver.disconnect(); } catch (e) {}
+            try {
+              document.querySelectorAll("[data-ytb-paint-observed]").forEach((el) => {
+                el.style.contentVisibility = "";
+                delete el.dataset.ytbPaintObserved;
+              });
+            } catch (e) {}
+          });
         } catch (e) {}
       }
       if (on("QualityCap")) {
@@ -30167,6 +30219,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         ".ytb-ui-ryd-label{font:600 10.5px system-ui;color:#aaa;display:flex;gap:8px;align-items:center;justify-content:space-between}",
       );
       const cache = new YourTubeResources.BoundedCache(64, "ytb-ryd", { ttlMs: 6 * 60 * 60 * 1000 });
+      const failed = new YourTubeResources.BoundedCache(64, "ytb-ryd-fail", { ttlMs: 10 * 60 * 1000 });
       let inFlight = 0;
       const format = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n));
       const dislikeButton = () => {
@@ -30222,16 +30275,18 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!videoId) return;
         const cached = cache.get(videoId);
         if (cached) { render(videoId, cached); return; }
+        if (failed.has(videoId)) return;
         if (inFlight >= 2) return;
         inFlight++;
         YourTubeEngine.fetchJson("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId))
           .then((result) => {
             const data = result && result.ok ? result.json : null;
-            if (!data || typeof data.dislikes !== "number") return;
+            if (!data || typeof data.dislikes !== "number") { failed.set(videoId, 1); return; }
             cache.set(videoId, data);
+            failed.delete(videoId);
             if (videoId === (ie.videoId && ie.videoId())) render(videoId, data);
           })
-          .catch(() => {})
+          .catch(() => { failed.set(videoId, 1); })
           .then(() => { inFlight--; });
       };
       const tick = () => {
@@ -30269,6 +30324,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         ".ytb-ui-dearrow-chip:hover{background:rgba(111,168,220,.26)}",
       );
       const cache = new YourTubeResources.BoundedCache(96, "ytb-dearrow", { ttlMs: 12 * 60 * 60 * 1000 });
+      const failed = new YourTubeResources.BoundedCache(96, "ytb-dearrow-fail", { ttlMs: 10 * 60 * 1000 });
       const thumbUrl = (videoId, time) =>
         "https://dearrow-thumb.ajay.app/api/v1/getThumbnail?videoID=" + encodeURIComponent(videoId) +
         "&time=" + encodeURIComponent(time) + "&returnError=true";
@@ -30329,13 +30385,22 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const load = (videoId) => {
         const cached = cache.get(videoId);
         if (cached) return Promise.resolve(cached);
+        if (failed.has(videoId)) return Promise.resolve(null);
         return YourTubeEngine.fetchJson("https://sponsor.ajay.app/api/branding?videoID=" + encodeURIComponent(videoId))
           .then((result) => {
             const data = result && result.ok && result.json && typeof result.json === "object" ? result.json : null;
-            if (data) cache.set(videoId, data);
+            if (data) {
+              cache.set(videoId, data);
+              failed.delete(videoId);
+            } else {
+              failed.set(videoId, 1);
+            }
             return data;
           })
-          .catch(() => null);
+          .catch(() => {
+            failed.set(videoId, 1);
+            return null;
+          });
       };
       const watchTick = () => {
         if (!location.pathname.startsWith("/watch")) return;
@@ -32017,6 +32082,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           try {
             if (generation !== _ytAbsGeneration) return;
             if (!container.isConnected) return;
+            if (_ytAbsWatchId() !== videoId) return;
+            if (container.dataset.ytbAbsWatchVid !== videoId) return;
             const formatted = _ytAbsFormatDate(when);
             if (!formatted) {
               delete container.dataset.ytbAbsWatchVid;

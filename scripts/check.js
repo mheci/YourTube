@@ -119,6 +119,35 @@ for (const file of files) {
     process.stderr.write("check: exact-date formatter test failed: " + (error && error.message ? error.message : error) + "\n");
   }
 })();
+// The update channel is GitHub Releases only. A wrong asset name in either
+// header silently breaks auto-updates even when every other check passes.
+(function validateUpdateChannel() {
+  try {
+    const meta = fs.readFileSync(path.join(root, "yourtube.meta.js"), "utf8");
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    const base = "https://github.com/mheci/YourTube/releases/latest/download/";
+    const read = (name) => {
+      const match = new RegExp("^// @" + name + "\\s+(\\S+)", "m").exec(meta);
+      return match ? match[1] : "";
+    };
+    const version = read("version");
+    const update = read("updateURL");
+    const download = read("downloadURL");
+    const problems = [];
+    if (version !== pkg.version) problems.push(`@version ${version || "missing"} != package ${pkg.version}`);
+    if (update !== base + "yourtube.meta.js") problems.push(`@updateURL is ${update || "missing"}`);
+    if (download !== base + "yourtube.user.js") problems.push(`@downloadURL is ${download || "missing"}`);
+    if (problems.length) {
+      failed++;
+      process.stderr.write("check: update channel is not canonical: " + problems.join("; ") + "\n");
+    } else {
+      console.log("check: update channel points at GitHub Releases.");
+    }
+  } catch (error) {
+    failed++;
+    process.stderr.write("check: update channel test failed: " + (error && error.message ? error.message : error) + "\n");
+  }
+})();
 const bundle = fs.readFileSync(path.join(root, "yourtube.user.js"), "utf8");
 if (hasExplosion(bundle)) {
   failed++;

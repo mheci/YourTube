@@ -3,6 +3,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
 const { spawnSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
@@ -85,6 +86,39 @@ for (const file of files) {
   }
 })();
 
+// The exact-date formatter is the only new parsing branch in 1.10.0. Pull it
+// out of the bundle source and assert the documented tokens still work.
+(function validateDateFormatter() {
+  try {
+    const source = fs.readFileSync(path.join(root, "src", "85-merged-fixes.js"), "utf8");
+    const start = source.indexOf("  const _ytAbsMonths");
+    const end = source.indexOf("  // One shared cache");
+    if (start < 0 || end < 0) throw new Error("date formatter anchors missing");
+    const ctx = { Intl, Date, String, S: { exactDatesFormat: "yyyy-MM-dd" } };
+    vm.createContext(ctx);
+    vm.runInContext(
+      source.slice(start, end) + "\nthis.format = _ytAbsFormatDate;",
+      ctx,
+    );
+    const checks = [
+      [ctx.format("2024-05-03"), "2024-05-03"],
+      [ctx.format("not a date"), ""],
+    ];
+    ctx.S.exactDatesFormat = "dd/MM/yyyy";
+    const named = ctx.format("2024-05-03");
+    if (named !== "03/05/2024") checks.push([named, "dd/MM/yyyy output"]);
+    const bad = checks.find(([got, want]) => got !== want);
+    if (bad) {
+      failed++;
+      process.stderr.write(`check: date formatter returned ${JSON.stringify(bad[0])}, expected ${JSON.stringify(bad[1])}.\n`);
+    } else {
+      console.log("check: exact-date formatter OK.");
+    }
+  } catch (error) {
+    failed++;
+    process.stderr.write("check: exact-date formatter test failed: " + (error && error.message ? error.message : error) + "\n");
+  }
+})();
 const bundle = fs.readFileSync(path.join(root, "yourtube.user.js"), "utf8");
 if (hasExplosion(bundle)) {
   failed++;

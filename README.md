@@ -23,13 +23,20 @@ Latest release: [github.com/mheci/YourTube/releases](https://github.com/mheci/Yo
   individual elements; text and icon colors are contrast-checked against every
   surface they sit on.
 - The dashboard itself has a light and a dark mode, switched from its header.
+- Static header, unclamped titles, fixed player heights, a custom description
+  width and fixed thumbnail sizes for search, the watch sidebar and channel
+  grids, each behind its own toggle.
 
 **Feed and comments**
 
 - Hide watched videos, filter by title or channel keywords, hide Shorts, live
   content, premieres, community posts, AI panels and mix shelves.
 - Anti-Repeat Memory hides videos you have scrolled past before; low-view
-  filtering, views-per-day badges, upload dates and result sorting for search.
+  filtering, views-per-day badges, exact upload dates, upload dates estimated
+  from card metadata and result sorting for search.
+- Exact Upload Dates asks YouTube's own player endpoint for the real date, then
+  renders it on cards and watch pages in a format you choose (default
+  `yyyy-MM-dd`); the relative date can be kept before or after it.
 - Subscriptions-Only Home, channel blocking, comment search, keyword filters,
   creator-reply highlighting, collapsing of long comments.
 
@@ -40,6 +47,8 @@ Latest release: [github.com/mheci/YourTube/releases](https://github.com/mheci/Yo
 - Mouse-wheel volume, seek and speed; volume boost with per-channel memory;
   loudness leveling; sticky live quality; wide player; Shorts speed and
   progress; auto-exit fullscreen.
+- Hide the transcript or description side panel, the double-tap overlay, and
+  Shorts shelves around a video.
 - Screenshot button, copy timestamp, transcript copy and download, frame
   stepper, silence fast-forward, instant replay, sleep timer.
 
@@ -67,6 +76,9 @@ Latest release: [github.com/mheci/YourTube/releases](https://github.com/mheci/Yo
   helpers, playlist resume and shuffle.
 - Watch-time statistics, weekly summary, budget overlay, Shorts limits and
   wind-down prompts.
+- Channel banner scroll or hide, and a preferred landing tab for channel links.
+- Resume timestamps can be stripped from page links, with the red resume bar
+  optionally widened or hidden.
 - Everything is stored locally in IndexedDB and exportable.
 
 ---

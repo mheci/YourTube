@@ -4871,9 +4871,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     };
     const videoIdOf = (node) => {
       try {
-        const link = node.querySelector("a[href*='/watch?v='], a[href*='&v=']");
+        const link = node.querySelector("a[href*='/watch?v='], a[href*='&v='], a[href*='/shorts/']");
         if (!link) return "";
-        const match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(link.getAttribute("href") || "");
+        const href = link.getAttribute("href") || "";
+        const match = /[?&]v=([A-Za-z0-9_-]{11})/.exec(href) || /\/shorts\/([A-Za-z0-9_-]{11})/.exec(href);
         return match ? match[1] : "";
       } catch (_) { return ""; }
     };
@@ -5061,7 +5062,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     id: "card-metadata", name: "Card Metadata",
     summary: "Upload date and views/day badges on feed and search cards.",
       cat: "feed",
-    masterKey: "cardMetaOn", keys: ["cardMetaOn", "cardMetaVelocity", "cardMetaDate"],
+    masterKey: "cardMetaOn", keys: ["cardMetaOn", "cardMetaVelocity", "cardMetaDate", "exactDatesOn", "exactDatesCards"],
     apply(ctx) {
       if (!S.cardMetaOn) return;
       YourTubeEngine.injectCSS();
@@ -5085,7 +5086,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           if (S.cardMetaVelocity && views >= 0 && ageDays > 0.04) {
             parts.push("~" + formatCount(views / ageDays) + "/day");
           }
-          if (S.cardMetaDate && ageDays >= 0) {
+          if (S.cardMetaDate && !(S.exactDatesOn && S.exactDatesCards) && ageDays >= 0) {
             const when = new Date(Date.now() - ageDays * 86400000);
             parts.push(when.toISOString().slice(0, 10));
           }
@@ -5108,7 +5109,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     settings(en) {
       en.appendChild(Io("Show extra card metadata", "cardMetaOn"));
       en.appendChild(Io("Views per day", "cardMetaVelocity"));
-      en.appendChild(Io("Upload date", "cardMetaDate"));
+      en.appendChild(Io("Upload date (estimated from the card)", "cardMetaDate"));
+      en.appendChild(To("div", "ytb-hist-note",
+        "The estimated date is skipped while Exact Upload Dates is on, so cards do not show two dates."));
     },
   });
 

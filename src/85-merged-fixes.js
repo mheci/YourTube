@@ -79,11 +79,16 @@
     return template.replace(/yyyy|yy|MMM|MM|dd|ww|HH|hh|ap|mm|ss/g, (token) => map[token]);
   };
 
+  // Each settings apply gets a generation. A late player response from an
+  // older generation must not overwrite the new format or mode.
+  let _ytAbsGeneration = 0;
+
   // One shared cache for both card and watch-page lookups. Failures back off for
   // ten minutes so a removed or private video is not refetched on every scan.
   const _ytAbsDates = {
     _cache: new Map(),
     _failed: new Map(),
+    _pending: new Map(),
     _page: null,
     _pageAt: 0,
 
@@ -99,7 +104,16 @@
       return this._page;
     },
 
-    async dateFor(videoId) {
+    dateFor(videoId) {
+      if (!videoId) return Promise.resolve("");
+      const pending = this._pending.get(videoId);
+      if (pending) return pending;
+      const task = this._dateFor(videoId).finally(() => this._pending.delete(videoId));
+      this._pending.set(videoId, task);
+      return task;
+    },
+
+    async _dateFor(videoId) {
       if (!videoId) return "";
       if (this._cache.has(videoId)) return this._cache.get(videoId);
       const failedAt = this._failed.get(videoId);
@@ -185,19 +199,23 @@
     return candidate;
   };
 
+  const _ytAbsRestoreElement = (el) => {
+    try {
+      if (el.dataset.ytbAbsOrig !== undefined) {
+        if (el.firstChild && el.firstChild.nodeType === 3) el.firstChild.nodeValue = el.dataset.ytbAbsOrig;
+        else el.textContent = el.dataset.ytbAbsOrig;
+      }
+      if (el.dataset.ytbAbsTitle !== undefined) el.setAttribute("title", el.dataset.ytbAbsTitle);
+      else el.removeAttribute("title");
+      delete el.dataset.ytbAbsCard;
+      delete el.dataset.ytbAbsOrig;
+      delete el.dataset.ytbAbsTitle;
+    } catch (_) {}
+  };
+
   const _ytAbsRestore = () => {
-    document.querySelectorAll("[data-ytb-abs-card]").forEach((el) => {
-      try {
-        const original = el.dataset.ytbAbsOrig;
-        if (original !== undefined) {
-          if (el.firstChild && el.firstChild.nodeType === 3) el.firstChild.nodeValue = original;
-          else el.textContent = original;
-        }
-        el.removeAttribute("title");
-        delete el.dataset.ytbAbsCard;
-        delete el.dataset.ytbAbsOrig;
-      } catch (_) {}
-    });
+    _ytAbsGeneration++;
+    document.querySelectorAll("[data-ytb-abs-card]").forEach(_ytAbsRestoreElement);
     document.querySelectorAll("[data-ytb-abs-pending]").forEach((el) => {
       try { delete el.dataset.ytbAbsPending; } catch (_) {}
     });
@@ -218,26 +236,17 @@
     masterKey: "exactDatesOn",
     keys: ["exactDatesOn", "exactDatesCards", "exactDatesWatch", "exactDatesFormat", "exactDatesMode"],
     apply(ctx) {
+      const generation = ++_ytAbsGeneration;
       if (!S.exactDatesOn || !document.body) return;
       const mode = String(S.exactDatesMode || "replace");
       const separator = " ";
-
-      const restoreCardElement = (el) => {
-        try {
-          if (el.dataset.ytbAbsCard && el.dataset.ytbAbsOrig !== undefined) {
-            if (el.firstChild && el.firstChild.nodeType === 3) el.firstChild.nodeValue = el.dataset.ytbAbsOrig;
-            else el.textContent = el.dataset.ytbAbsOrig;
-          }
-          delete el.dataset.ytbAbsCard;
-          delete el.dataset.ytbAbsOrig;
-        } catch (_) {}
-      };
 
       const applyCardDate = (card, videoId, dateElem) => {
         if (dateElem.dataset.ytbAbsPending) return false;
         dateElem.dataset.ytbAbsPending = videoId;
         _ytAbsDates.dateFor(videoId).then((when) => {
           try {
+            if (generation !== _ytAbsGeneration) return;
             delete dateElem.dataset.ytbAbsPending;
             if (!dateElem.isConnected || !card.isConnected) return;
             if (_ytCardMeta.videoIdOf(card) !== videoId) return;
@@ -254,10 +263,15 @@
                 : original + separator + formatted;
             if (dateElem.firstChild && dateElem.firstChild.nodeType === 3) dateElem.firstChild.nodeValue = text;
             else dateElem.textContent = text;
+            if (dateElem.dataset.ytbAbsTitle === undefined) {
+              const oldTitle = dateElem.getAttribute("title");
+              if (oldTitle !== null) dateElem.dataset.ytbAbsTitle = oldTitle;
+            }
             dateElem.title = formatted;
             card.dataset.ytbAbsCardVid = videoId;
           } catch (_) {}
         }).catch(() => {
+          if (generation !== _ytAbsGeneration) return;
           try { delete dateElem.dataset.ytbAbsPending; } catch (_) {}
         });
         return true;
@@ -278,7 +292,7 @@
             card.dataset.ytbAbsCardVid = videoId;
             continue;
           }
-          if (dateElem.dataset.ytbAbsCard) restoreCardElement(dateElem);
+          if (dateElem.dataset.ytbAbsCard) _ytAbsRestoreElement(dateElem);
           if (applyCardDate(card, videoId, dateElem)) started++;
         }
       };
@@ -301,6 +315,7 @@
         container.dataset.ytbAbsWatchVid = videoId;
         _ytAbsDates.dateFor(videoId).then((when) => {
           try {
+            if (generation !== _ytAbsGeneration) return;
             if (!container.isConnected) return;
             const formatted = _ytAbsFormatDate(when);
             if (!formatted) {
@@ -317,6 +332,7 @@
             else container.append(span);
           } catch (_) {}
         }).catch(() => {
+          if (generation !== _ytAbsGeneration) return;
           try { delete container.dataset.ytbAbsWatchVid; } catch (_) {}
         });
       };
@@ -562,27 +578,28 @@
     keys: ["channelBannerMode"],
     apply(ctx) {
       const mode = String(S.channelBannerMode || "default");
+      const page = 'ytd-browse[page-subtype="channels"] ';
       if ("scroll" === mode) {
         ctx.addStyle(
-          "app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
-          "tp-yt-app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
-          "#page-header-banner.style-scope.ytd-tabbed-page-header," +
-          "ytd-tabbed-page-header #page-header-banner," +
-          "yt-page-header-renderer #page-header-banner," +
-          "yt-image-banner-view-model{" +
+          page + "app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "tp-yt-app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
+          page + "ytd-tabbed-page-header #page-header-banner," +
+          page + "yt-page-header-renderer #page-header-banner," +
+          page + "yt-image-banner-view-model{" +
           "transform:none!important;position:absolute;left:0!important;top:0;margin-top:0}",
         );
       } else if ("hide" === mode) {
         ctx.addStyle(
-          "div#contentContainer.style-scope.app-header-layout{padding-top:148px!important}" +
-          "div#contentContainer.style-scope.app-header{height:148px!important}" +
-          "div.banner-visible-area.style-scope.ytd-c4-tabbed-header-renderer," +
-          "div.page-header-banner.style-scope.ytd-c4-tabbed-header-renderer," +
-          "#page-header-banner.style-scope.ytd-tabbed-page-header," +
-          "ytd-tabbed-page-header #page-header-banner," +
-          "yt-page-header-renderer #page-header-banner," +
-          "yt-image-banner-view-model{display:none!important}" +
-          "tp-yt-app-header#header.ytd-tabbed-page-header{transform:none!important;position:absolute!important;left:0!important;margin-top:0!important}",
+          page + "div#contentContainer.style-scope.app-header-layout{padding-top:148px!important}" +
+          page + "div#contentContainer.style-scope.app-header{height:148px!important}" +
+          page + "div.banner-visible-area.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "div.page-header-banner.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
+          page + "ytd-tabbed-page-header #page-header-banner," +
+          page + "yt-page-header-renderer #page-header-banner," +
+          page + "yt-image-banner-view-model{display:none!important}" +
+          page + "tp-yt-app-header#header.ytd-tabbed-page-header{transform:none!important;position:absolute!important;left:0!important;margin-top:0!important}",
         );
       }
     },
@@ -637,18 +654,18 @@
     name: "Resume Timestamps",
     summary: "Strips YouTube's resume timestamps from links and can restyle the red resume bar.",
     cat: "privacy",
-    masterKey: "stripResumeTimesOn",
+    masterKey: "resumeBarStyle",
     settingsAlways: true,
-    isOn: () => !!S.stripResumeTimesOn || String(S.resumeBarStyle || "0") !== "0",
+    isOn: () => !!S.stripResumeTimesOn || String(S.resumeBarStyle || "default") !== "default",
     keys: ["stripResumeTimesOn", "resumeBarStyle"],
     apply(ctx) {
-      const bar = String(S.resumeBarStyle || "0");
-      if ("1" === bar) {
+      const bar = String(S.resumeBarStyle || "default");
+      if ("full" === bar) {
         ctx.addStyle(
           "div.ytd-thumbnail-overlay-resume-playback-renderer{width:100%!important}" +
           "yt-thumbnail-overlay-progress-bar-view-model{width:100%!important}",
         );
-      } else if ("2" === bar) {
+      } else if ("hide" === bar) {
         ctx.addStyle(
           "ytd-thumbnail-overlay-resume-playback-renderer," +
           "yt-thumbnail-overlay-progress-bar-view-model{display:none!important}",
@@ -694,7 +711,7 @@
     settings(en) {
       en.appendChild(Io("Remove resume timestamps from video links", "stripResumeTimesOn"));
       en.appendChild(Ro("Resume bar", "resumeBarStyle", {
-        0: "Default", 1: "Full thumbnail width", 2: "Hide it",
+        default: "Default", full: "Full thumbnail width", hide: "Hide it",
       }));
       en.appendChild(To("div", "ytb-hist-note",
         "Timestamps in the address bar and shared links are untouched; only link targets on the page are rewritten."));
@@ -741,7 +758,9 @@
           `ytd-browse[page-subtype="channels"] ytd-rich-grid-renderer #contents{display:block!important}` +
           `ytd-browse[page-subtype="channels"] ytd-rich-grid-renderer ytd-rich-grid-row{display:inline!important}` +
           `ytd-browse[page-subtype="channels"] ytd-rich-grid-renderer ytd-rich-grid-row>div{display:inline!important;margin:0!important}` +
-          `ytd-browse[page-subtype="channels"] ytd-rich-grid-renderer ytd-rich-item-renderer{` +
+          `ytd-browse[page-subtype="channels"] ytd-rich-grid-renderer ytd-rich-item-renderer` +
+          `:not([style*="display: none"]):not([style*="display:none"]):not([hidden])` +
+          `:not(.ytb-extra-watched-hide):not(.ytb-extra-live):not(.ytb-extra-premiere){` +
           `display:inline-block!important;width:${channel}px!important;contain:none!important;` +
           `margin-left:calc(var(--ytd-rich-grid-item-margin)/2)!important;margin-right:calc(var(--ytd-rich-grid-item-margin)/2)!important}` +
           `ytd-browse[page-subtype="channels"] div.ytContentMetadataViewModelMetadataRow{flex-wrap:wrap}`,

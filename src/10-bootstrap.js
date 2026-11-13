@@ -1185,7 +1185,7 @@ algoBlockChannels: "",
         channelBannerMode: "default", channelLandingTab: "home",
         hideMetadataRowsOn: !1, hideTranscriptPanelOn: !1, hideDescriptionPanelOn: !1,
         noDoubleTapOverlayOn: !1, hideVideoShelvesOn: !1,
-        stripResumeTimesOn: !1, resumeBarStyle: "0",
+        stripResumeTimesOn: !1, resumeBarStyle: "default",
         thumbnailSizesOn: !1, searchThumbSize: "0", watchSidebarThumbSize: "0", channelGridThumbSize: "0",
         searchFillerOff: !1,
         hideCommunityPostsOn: !1,
@@ -1613,6 +1613,9 @@ algoBlockChannels: "",
       (S.highlightShortVideosOn =
         "short" === S.highlightVideoLengthMode ||
         "both" === S.highlightVideoLengthMode));
+    if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
+    else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
+    else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";
     for (const e of E) delete S[e];
   }
 

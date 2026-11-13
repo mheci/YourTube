@@ -557,7 +557,7 @@
           ((a.onload = async (e) => {
             try {
               const text = String(e.target.result || "");
-              if (text.length > 8388608) throw new Error("import too large");
+              if (text.length > 4194304) throw new Error("import too large");
               let jsonText = text;
               if (
                 text.slice(0, 5) === "ytz1:" &&
@@ -565,6 +565,7 @@
                 LZString.decompressFromBase64
               ) {
                 const dec = LZString.decompressFromBase64(text.slice(5));
+                if (dec && dec.length > 16777216) throw new Error("import expands too far");
                 if (dec) jsonText = dec;
               }
               const t = JSON.parse(jsonText),

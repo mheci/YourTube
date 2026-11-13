@@ -637,8 +637,8 @@
           }
 
           if (a && a.blob) {
-            const staleUrl = URL.createObjectURL(a.blob);
-            Ve.set(e, staleUrl);
+            const staleUrl = YourTubeResources.TrackedBlobURL.create(a.blob, "thumb-stale-" + e);
+            if (staleUrl) Ve.set(e, staleUrl);
           }
         } catch (e) {}
       });

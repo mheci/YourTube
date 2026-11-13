@@ -120,6 +120,8 @@ Two settings deserve a note:
 | Segment view reports | `sponsor.ajay.app` | Segment UUID only |
 | DeArrow | `sponsor.ajay.app`, `dearrow-thumb.ajay.app` | Video ID, cached twelve hours |
 | Return YouTube Dislike | `returnyoutubedislikeapi.com` | Video ID, cached six hours |
+| Exact Upload Dates | `www.youtube.com` | Video ID to YouTube's player endpoint, only when the feature is on |
+| Force Watched / Algorithm Intelligence | `www.youtube.com`, `s.youtube.com` | Synthetic watch signals, only after you acknowledge the notice |
 | Update checks | `github.com` | Nothing; reads the release metadata |
 
 The manager fetches two libraries from `cdn.jsdelivr.net` (lz-string, culori)
@@ -146,7 +148,7 @@ npm run check     # static gate: syntax of bundle, meta and scripts; theme table
 npm run verify    # rebuild and compare sha256 against the committed bundle
 ```
 
-`src/` holds twelve fragment modules concatenated in numeric order
+`src/` holds thirteen fragment modules concatenated in numeric order
 (`00-header` through `90-boot`). The shipped userscript must be byte-identical
 to a rebuild from source: CI enforces that on every push and tag, and a weekly
 workflow rebuilds the tagged release and compares hashes against what the

@@ -1285,6 +1285,7 @@
 
       const getLockCategories = async (videoId, abortSignal) => {
         if (!VIDEO_ID_RE.test(String(videoId || ""))) return [];
+        if (Settings.incognito() || S.sbPrivacy) return [];
         const base = Settings.getServerUrl();
         try {
           Metrics.recordUserInfoRequest();
@@ -1585,6 +1586,7 @@
         cancel.addEventListener("click", () => {
           clearCountdownOverlay();
           State.processedUUIDs.add(uuid);
+          State.undoneUUIDs.add(uuid);
           try { pe("SponsorBlock skip cancelled", 1400, "info"); } catch (_) {}
         });
         overlay.appendChild(text);
@@ -2367,6 +2369,10 @@
           const end = parseFloat(panel.querySelector("#ed-end-val").value);
           if (isNaN(start) || isNaN(end) || start < 0 || end <= start) {
             pe("Invalid segment times", 1800, "error");
+            return;
+          }
+          if (Settings.incognito()) {
+            pe("Incognito mode is on; submission is blocked.", 2200, "info");
             return;
           }
 

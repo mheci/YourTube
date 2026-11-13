@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.10.0
+// @version      1.10.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.10.0", // stamped at build time; was a drifting hard-coded literal
+      "1.10.1", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -6739,6 +6739,7 @@ algoBlockChannels: "",
 
       const getLockCategories = async (videoId, abortSignal) => {
         if (!VIDEO_ID_RE.test(String(videoId || ""))) return [];
+        if (Settings.incognito() || S.sbPrivacy) return [];
         const base = Settings.getServerUrl();
         try {
           Metrics.recordUserInfoRequest();
@@ -7039,6 +7040,7 @@ algoBlockChannels: "",
         cancel.addEventListener("click", () => {
           clearCountdownOverlay();
           State.processedUUIDs.add(uuid);
+          State.undoneUUIDs.add(uuid);
           try { pe("SponsorBlock skip cancelled", 1400, "info"); } catch (_) {}
         });
         overlay.appendChild(text);
@@ -7821,6 +7823,10 @@ algoBlockChannels: "",
           const end = parseFloat(panel.querySelector("#ed-end-val").value);
           if (isNaN(start) || isNaN(end) || start < 0 || end <= start) {
             pe("Invalid segment times", 1800, "error");
+            return;
+          }
+          if (Settings.incognito()) {
+            pe("Incognito mode is on; submission is blocked.", 2200, "info");
             return;
           }
 

@@ -880,7 +880,6 @@
         (e.sbRenderChapters = !0), // renderSegmentsAsChapters
         (e.dashMode = "light"),    // dashboard palette: "light" (Calm paper) | "dark"
         (e.dashLook = "classic"),  // dashboard skin: "classic" or a YT_DASH_LOOKS id
-        (e.dashBrand = "classic"), // dashboard brand: "classic" or a YT_DASH_BRANDS id
         (e.sbRenderChapters = !0), // renderSegmentsAsChapters
         e
       );

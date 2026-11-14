@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.12.1
+// @version      1.11.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.12.1", // stamped at build time; was a drifting hard-coded literal
+      "1.11.0", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -917,7 +917,6 @@
         (e.sbRenderChapters = !0), // renderSegmentsAsChapters
         (e.dashMode = "light"),    // dashboard palette: "light" (Calm paper) | "dark"
         (e.dashLook = "classic"),  // dashboard skin: "classic" or a YT_DASH_LOOKS id
-        (e.dashBrand = "classic"), // dashboard brand: "classic" or a YT_DASH_BRANDS id
         (e.sbRenderChapters = !0), // renderSegmentsAsChapters
         e
       );
@@ -23019,17 +23018,16 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         t.classList.add("ytb-dhandle");
         const r = To("div", "ytb-dtitle");
 
-        const _brandMark = document.createElement("span");
-        _brandMark.className = "ytb-brandmark";
-        _brandMark.setAttribute("aria-hidden", "true");
-        const _brandName = document.createElement("span");
-        _brandName.className = "ytb-brandname";
-        _brandName.textContent = "YourTube, plainly.";
+        const _grip = document.createElement("span");
+        _grip.className = "ytb-dgrip";
+        _grip.setAttribute("aria-hidden", "true");
+        _grip.textContent = "[=]";
+        const _name = document.createTextNode("YourTube, plainly.");
         const _ver = document.createElement("span");
         _ver.className = "ytb-dver";
         _ver.textContent = "v" + n;
-        r.appendChild(_brandMark);
-        r.appendChild(_brandName);
+        r.appendChild(_grip);
+        r.appendChild(_name);
         r.appendChild(_ver);
         const o = To("div", "ytb-dhbtns");
         const _darkBtn = Oo(
@@ -23083,66 +23081,6 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         }
         _lookWrap.appendChild(_lookSel);
         t.appendChild(_lookWrap);
-        const _brandWrap = document.createElement("div");
-        _brandWrap.className = "ytb-lookwrap ytb-brandwrap ytb-no-drag";
-        _brandWrap.appendChild(To("span", "ytb-looklbl", "Brand"));
-        const _brandBtn = document.createElement("button");
-        _brandBtn.type = "button";
-        _brandBtn.className = "ytb-looksel ytb-brandbtn";
-        _brandBtn.title = "Choose a dashboard brand";
-        _brandBtn.setAttribute("aria-haspopup", "dialog");
-        _brandBtn.setAttribute("aria-expanded", "false");
-        const _brandBtnMark = document.createElement("span");
-        _brandBtnMark.className = "ytb-brandbtnmark";
-        _brandBtnMark.setAttribute("aria-hidden", "true");
-        const _brandBtnName = document.createElement("span");
-        _brandBtnName.className = "ytb-brandbtnname";
-        _brandBtnName.textContent = "Classic";
-        const _brandBtnArrow = document.createElement("span");
-        _brandBtnArrow.className = "ytb-brandbtnarrow";
-        _brandBtnArrow.textContent = "\u25be";
-        _brandBtn.appendChild(_brandBtnMark);
-        _brandBtn.appendChild(_brandBtnName);
-        _brandBtn.appendChild(_brandBtnArrow);
-        _brandWrap.appendChild(_brandBtn);
-        t.appendChild(_brandWrap);
-        const _brandPick = document.createElement("div");
-        _brandPick.className = "ytb-brandpick";
-        _brandPick.hidden = true;
-        _brandPick.setAttribute("role", "dialog");
-        _brandPick.setAttribute("aria-label", "Choose a dashboard brand");
-        const _brandPickHead = document.createElement("div");
-        _brandPickHead.className = "ytb-brandpickhead";
-        _brandPickHead.appendChild(To("span", "ytb-brandpicktitle", "Dashboard brand"));
-        const _brandPickClose = document.createElement("button");
-        _brandPickClose.type = "button";
-        _brandPickClose.className = "ytb-brandpickclose";
-        _brandPickClose.textContent = "[x]";
-        _brandPickClose.title = "Close brand picker";
-        _brandPickHead.appendChild(_brandPickClose);
-        _brandPick.appendChild(_brandPickHead);
-        const _brandPickGrid = document.createElement("div");
-        _brandPickGrid.className = "ytb-brandpickgrid";
-        const _mkBrandPick = (id, name, mark) => {
-          const item = document.createElement("button");
-          item.type = "button";
-          item.className = "ytb-brandpickitem";
-          item.dataset.brand = id;
-          const markEl = document.createElement("span");
-          markEl.className = "ytb-brandpickmark";
-          if (mark) markEl.innerHTML = mark;
-          else markEl.textContent = "[=]";
-          const nameEl = document.createElement("span");
-          nameEl.className = "ytb-brandpickname";
-          nameEl.textContent = name;
-          item.appendChild(markEl);
-          item.appendChild(nameEl);
-          item.addEventListener("click", () => { _applyBrand(id, true); _closeBrandPick(); });
-          _brandPickGrid.appendChild(item);
-        };
-        _mkBrandPick("classic", "Classic", "");
-        for (const B of YT_DASH_BRANDS) _mkBrandPick(B.id, B.name, B.mark);
-        _brandPick.appendChild(_brandPickGrid);
         const _applyLook = (lookId, persist) => {
           if (!wo) return;
           const active = YT_applyDashLook(wo, lookId, { persist: persist });
@@ -23155,34 +23093,6 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         _lookSel.addEventListener("change", () => _applyLook(_lookSel.value, true));
         So("cfg.changed", ({ key }) => {
           if (key === "dashLook" && wo) _applyLook(String(S.dashLook || "classic"), false);
-        });
-        const _applyBrand = (brandId, persist) => {
-          if (!wo) return;
-          const active = YT_applyDashBrand(wo, brandId, { persist: persist });
-          const id = active ? active.id : "classic";
-          _brandBtnName.textContent = active ? active.name : "Classic";
-          _brandBtnMark.innerHTML = active ? active.mark : "[=]";
-          _brandPick.querySelectorAll(".ytb-brandpickitem").forEach((el) => {
-            el.classList.toggle("selected", el.dataset.brand === id);
-          });
-        };
-        const _openBrandPick = () => {
-          _brandPick.hidden = false;
-          _brandBtn.setAttribute("aria-expanded", "true");
-          const selected = _brandPick.querySelector(".ytb-brandpickitem.selected") || _brandPick.querySelector(".ytb-brandpickitem");
-          if (selected) selected.focus();
-        };
-        const _closeBrandPick = () => {
-          if (_brandPick.hidden) return;
-          _brandPick.hidden = true;
-          _brandBtn.setAttribute("aria-expanded", "false");
-          _brandBtn.focus();
-        };
-        _brandBtn.addEventListener("click", () => { _brandPick.hidden ? _openBrandPick() : _closeBrandPick(); });
-        _brandPickClose.addEventListener("click", _closeBrandPick);
-        _brandPick.addEventListener("click", (ev) => { if (ev.target === _brandPick) _closeBrandPick(); });
-        So("cfg.changed", ({ key }) => {
-          if (key === "dashBrand" && wo) _applyBrand(String(S.dashBrand || "classic"), false);
         });
         const c = document.createElement("input");
         ((c.type = "search"),
@@ -23422,10 +23332,8 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
                 ),
               ));
             wo.appendChild(t);
-            _applyBrand(String(S.dashBrand || "classic"), false);
             wo.appendChild(_main);
             wo.appendChild(y);
-            wo.appendChild(_brandPick);
           })(),
           document.body.appendChild(wo),
           (function () {
@@ -23442,11 +23350,6 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
           (function () {
             const _esc = (ev) => {
               if (ev.key !== "Escape") return;
-              if (wo && wo.querySelector(".ytb-brandpick:not([hidden])")) {
-                ev.preventDefault();
-                _closeBrandPick();
-                return;
-              }
               const tag = ((ev.target && ev.target.tagName) || "").toUpperCase();
               if (tag === "INPUT" || tag === "TEXTAREA" || (ev.target && ev.target.isContentEditable)) return;
               ev.preventDefault();
@@ -24901,6 +24804,7 @@ ${s} .ytb-corecell{background:var(--panel2);border:1px solid var(--line);border-
     extra: (s) => `
 ${s}{background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px);background-size:100% 3px}
 ${s} .ytb-dtitle::before{content:"> ";color:var(--ink3)}
+${s} .ytb-dgrip{display:none}
 ${s} .ytb-nav{border-bottom-style:dashed}
 ${s} .ytb-nav-item.active{background:var(--acc);color:#07100a;border-bottom-color:var(--acc);font-weight:700}
 ${s} .ytb-nav-item.active .ytb-nav-count{color:#07100a}
@@ -24930,6 +24834,7 @@ ${s} .ytb-looksel{border-radius:0;background-color:#050806}
     },
     extra: (s) => `
 ${s} .ytb-dhdr{border-bottom:2px solid var(--ink)}
+${s} .ytb-dgrip{display:none}
 ${s} .ytb-dtitle{font-weight:400}
 ${s} .ytb-dver{font-style:italic;background:transparent;border:0}
 ${s} .ytb-nav-item{color:var(--ink2);border-bottom:1px dotted transparent}
@@ -25137,6 +25042,7 @@ ${s} .ytb-search{border:1px solid var(--line);border-radius:999px;background:rgb
     },
     extra: (s) => `
 ${s} .ytb-dhdr{border-bottom:1px solid var(--ink)}
+${s} .ytb-dgrip{display:none}
 ${s} .ytb-nav{border-bottom:1px solid var(--line);padding:9px 16px}
 ${s} .ytb-nav-item{border-left:1px solid var(--line);padding:3px 9px}
 ${s} .ytb-nav-item:first-child{border-left:0}
@@ -25286,6 +25192,7 @@ ${s} .ytb-name{font-weight:500}
     swx: { bg: "transparent", on: "rgba(214,179,106,.16)", knobOn: "#d6b36a" },
     extra: (s) => `
 ${s} .ytb-dhdr{border-bottom:1px solid var(--line2)}
+${s} .ytb-dgrip{display:none}
 ${s} .ytb-nav{border-right:1px solid var(--line)}
 ${s} .ytb-nav-item{border-bottom:1px solid transparent;padding:7px 0}
 ${s} .ytb-nav-item.active{background:transparent;color:var(--acc);border-left-color:transparent;border-bottom-color:var(--line2)}
@@ -25355,6 +25262,7 @@ ${s} .ytb-looksel{border:2px solid;border-color:#404040 #fff #fff #404040;border
     swx: { bg: "transparent", on: "#7a5c3e", knobOn: "#faf9f6" },
     extra: (s) => `
 ${s} .ytb-dhdr{border-bottom:1px solid var(--line);padding:16px 20px 8px}
+${s} .ytb-dgrip{display:none}
 ${s} .ytb-nav{border-bottom:1px solid var(--line);padding:10px 20px}
 ${s} .ytb-nav-item{padding:3px 0;border-bottom:1px solid transparent}
 ${s} .ytb-nav-item.active{color:var(--ink);border-bottom-color:var(--acc);font-weight:400}
@@ -25384,6 +25292,7 @@ ${s} .ytb-foot{border-top:1px solid var(--line)}
     swx: { on: "#ff3b30", knobOn: "#fff", bg: "#fff" },
     extra: (s) => `
 ${s} .ytb-dhdr{border-bottom:2px solid var(--ink);padding:14px 16px 10px}
+${s} .ytb-dgrip{display:none}
 ${s} .ytb-nav{border-bottom:2px solid var(--ink);padding:8px 16px}
 ${s} .ytb-nav-item{border-left:1px solid var(--line);padding:3px 9px}
 ${s} .ytb-nav-item:first-child{border-left:0}
@@ -25430,7 +25339,7 @@ ${s} .ytb-key{color:#6ee7ff}
 const YT_LOOK_BASE = `
 .ytb-dash .ytb-lookwrap{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;margin:0 6px 0 10px;cursor:pointer}
 .ytb-dash .ytb-looklbl{font:600 9px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
-.ytb-dash .ytb-looksel{appearance:none;-webkit-appearance:none;max-width:160px;padding:4px 20px 4px 7px;background-color:var(--panel2);background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 12px) 50%,calc(100% - 8px) 50%;background-size:4px 4px,4px 4px;background-repeat:no-repeat;color:var(--ink);border:1px solid var(--line2);border-radius:6px;font:10.5px/1.2 "Segoe UI",system-ui,sans-serif;outline:none}
+.ytb-dash .ytb-looksel{appearance:none;-webkit-appearance:none;max-width:170px;padding:4px 20px 4px 7px;background-color:var(--panel2);background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 12px) 50%,calc(100% - 8px) 50%;background-size:4px 4px,4px 4px;background-repeat:no-repeat;color:var(--ink);border:1px solid var(--line2);border-radius:6px;font:10.5px/1.2 "Segoe UI",system-ui,sans-serif;outline:none}
 .ytb-dash .ytb-looksel:focus{border-color:var(--acc)}
 `;
 
@@ -25485,6 +25394,7 @@ ${s}{
 ${s} .ytb-dhdr{align-items:center;gap:10px;padding:${o.hpad || "13px 16px 8px"};border-bottom:${o.ruleW} solid var(--line);background:${o.headerBg};flex-wrap:wrap}
 ${s} .ytb-dtitle{font-family:${o.titleFont || o.font};font-size:${o.titleSize};font-weight:${o.titleWeight};letter-spacing:${o.titleSpace};text-transform:${o.titleCase};color:${o.headerInk || "var(--ink)"};white-space:normal}
 ${s} .ytb-dver{font:400 10px/1 var(--mono);color:${o.headerMuted || "var(--ink3)"};background:transparent;border:0;padding:0 0 0 4px;margin-left:6px}
+${s} .ytb-dgrip{color:${o.headerMuted || "var(--ink3)"};font-family:var(--mono)}
 ${s} .ytb-search{flex:1;min-width:135px;margin:0;padding:${o.searchPad || "4px 2px 5px"};background:${o.searchBg || "transparent"};color:var(--ink);border:${o.searchBorder || "0"};border-bottom:1px solid var(--line2);border-radius:${o.searchR || "0"};font-family:${o.font};font-size:12px;outline:none}
 ${s} .ytb-search::placeholder{color:var(--ink3);font-family:${o.font};font-size:12px}
 ${s} .ytb-search:focus{border-color:var(--acc);box-shadow:none}
@@ -25551,145 +25461,6 @@ function YT_applyDashLook(dash, id, opts) {
     try { Ta("dashLook", look ? look.id : "classic"); } catch (_) {}
   }
   return look;
-}
-
-const YT_DASH_BRANDS = [
-  {
-    id: "signal", name: "Signal Play", word: "YourTube, plainly.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M10 8.5l6 3.5-6 3.5z" fill="currentColor" stroke="none"/></svg>`,
-  },
-  {
-    id: "bento", name: "Bento Bloom", word: "YourTube, softly.",
-    mark: `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2" opacity=".45"/><rect x="3" y="13" width="8" height="8" rx="2" opacity=".45"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>`,
-  },
-  {
-    id: "prompt", name: "Prompt", word: "YourTube, tuned.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l5 5-5 5"/><path d="M12 17h7"/></svg>`,
-  },
-  {
-    id: "ledger", name: "Ledger Seal", word: "YourTube, on paper.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><text x="12" y="16.2" text-anchor="middle" font-family="Georgia,serif" font-size="11" fill="currentColor" stroke="none">Y</text></svg>`,
-  },
-  {
-    id: "bolt", name: "Bolt", word: "YourTube, louder.",
-    mark: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>`,
-  },
-  {
-    id: "squircle", name: "Squircle", word: "YourTube, at home.",
-    mark: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 8.5l6 3.5-6 3.5z" fill="currentColor"/></svg>`,
-  },
-  {
-    id: "window", name: "Window", word: "YourTube, in focus.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M12 4v16M3 12h18"/></svg>`,
-  },
-  {
-    id: "petal", name: "Petal", word: "YourTube, in tone.",
-    mark: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c3.4 3.4 3.4 6.6 0 10-3.4-3.4-3.4-6.6 0-10z"/><path d="M22 12c-3.4 3.4-6.6 3.4-10 0 3.4-3.4 6.6-3.4 10 0z"/><path d="M12 22c-3.4-3.4-3.4-6.6 0-10 3.4 3.4 3.4 6.6 0 10z"/><path d="M2 12c3.4-3.4 6.6-3.4 10 0-3.4 3.4-6.6 3.4-10 0z"/></svg>`,
-  },
-  {
-    id: "reticle", name: "Reticle", word: "YourTube, in control.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>`,
-  },
-  {
-    id: "leaf", name: "Leaf", word: "YourTube, gently.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 4C13 4 6 8 6 15c0 2 1 4 3 5 7 0 11-7 11-16z"/><path d="M4 21c3-6 7-9 12-11"/></svg>`,
-  },
-  {
-    id: "folio", name: "Folio", word: "YourTube, edited.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 6C9 4 6 4 3 5v13c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1z"/><path d="M12 6v13"/></svg>`,
-  },
-  {
-    id: "pixel", name: "Pixel", word: "YourTube, 8-bit.",
-    mark: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h4v4H4zM16 6h4v4h-4zM6 10h12v4H6zM8 14h8v4H8zM10 18h4v3h-4z"/></svg>`,
-  },
-  {
-    id: "bars", name: "Bars", word: "YourTube, measured.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 19v-7M9 19V5M14 19v-9M19 19v-5"/></svg>`,
-  },
-  {
-    id: "spark", name: "Spark", word: "YourTube, offbeat.",
-    mark: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z"/></svg>`,
-  },
-  {
-    id: "compass", name: "Compass", word: "YourTube, drafted.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><path d="M11 7l-4 12M13 7l4 12M9 15h6"/></svg>`,
-  },
-  {
-    id: "monogram", name: "Monogram", word: "YourTube, after dark.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l9 10-9 10L3 12z"/><text x="12" y="16.5" text-anchor="middle" font-family="Georgia,serif" font-size="11" fill="currentColor" stroke="none">Y</text></svg>`,
-  },
-  {
-    id: "bevel", name: "Bevel", word: "YourTube, 1997.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 8h18"/><rect x="6" y="11" width="5" height="5" fill="currentColor"/></svg>`,
-  },
-  {
-    id: "dot", name: "Dot", word: "YourTube, less.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/></svg>`,
-  },
-  {
-    id: "glyph", name: "Glyph", word: "YourTube, set large.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4l7 8 7-8M12 12v9"/></svg>`,
-  },
-  {
-    id: "node", name: "Node", word: "YourTube, assembled.",
-    mark: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 2l8 5v10l-8 5-8-5V7z"/><path d="M10 9l5 3-5 3z" fill="currentColor" stroke="none"/></svg>`,
-  },
-];
-
-const YT_BRAND_BASE = `
-.ytb-dash .ytb-brandmark{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-right:8px;flex-shrink:0;color:inherit;font:700 11px/1 var(--mono);letter-spacing:-.04em}
-.ytb-dash:not([data-look]) .ytb-brandmark{color:var(--acc)}
-.ytb-dash .ytb-brandmark svg{width:20px;height:20px;display:block;overflow:visible}
-.ytb-dash .ytb-brandname{min-width:0}
-.ytb-dash.ytb-narrow .ytb-dver{display:none}
-.ytb-dash .ytb-brandwrap{position:relative}
-.ytb-dash .ytb-brandbtn.ytb-looksel{display:inline-flex;align-items:center;gap:6px;max-width:150px;min-width:0;padding:4px 8px;background-image:none;appearance:none;text-align:left;cursor:pointer}
-.ytb-dash .ytb-brandbtnmark{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex-shrink:0;color:var(--acc);font:700 8px/1 var(--mono)}
-.ytb-dash .ytb-brandbtnmark svg{width:15px;height:15px;display:block}
-.ytb-dash .ytb-brandbtnname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ytb-dash .ytb-brandbtnarrow{flex-shrink:0;color:var(--ink3);font-size:9px}
-.ytb-dash .ytb-brandpick{position:absolute;inset:0;z-index:60;display:flex;flex-direction:column;gap:10px;background:var(--panel);color:var(--ink);padding:14px 16px}
-.ytb-dash .ytb-brandpick[hidden]{display:none}
-.ytb-dash .ytb-brandpickhead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
-.ytb-dash .ytb-brandpicktitle{font-size:15px;font-weight:700}
-.ytb-dash .ytb-brandpickclose{appearance:none;border:0;background:transparent;color:var(--ink2);font:11px/1 var(--mono);cursor:pointer;padding:4px 6px}
-.ytb-dash .ytb-brandpickgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;overflow-y:auto;padding:2px 2px 8px;scrollbar-width:thin}
-.ytb-dash.ytb-narrow .ytb-brandpickgrid{grid-template-columns:1fr 1fr}
-.ytb-dash .ytb-brandpickitem{display:flex;align-items:center;gap:7px;min-width:0;padding:7px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--ink);cursor:pointer;font:inherit;text-align:left}
-.ytb-dash .ytb-brandpickitem:hover{border-color:var(--acc)}
-.ytb-dash .ytb-brandpickitem.selected{border-color:var(--acc);background:var(--acc-dim)}
-.ytb-dash .ytb-brandpickmark{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex-shrink:0;color:var(--acc);font:700 10px/1 var(--mono)}
-.ytb-dash .ytb-brandpickmark svg{width:20px;height:20px;display:block}
-.ytb-dash .ytb-brandpickname{font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ytb-dash .ytb-brandpickitem:focus-visible,.ytb-dash .ytb-brandbtn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
-`;
-
-function YT_applyDashBrand(dash, id, opts) {
-  if (!dash) return null;
-  const brand = YT_DASH_BRANDS.find((entry) => entry.id === id) || null;
-  const mark = dash.querySelector(".ytb-brandmark");
-  const name = dash.querySelector(".ytb-brandname");
-  if (!mark || !name) return null;
-  if (brand) {
-    mark.innerHTML = brand.mark;
-    name.textContent = brand.word;
-    dash.setAttribute("data-brand", brand.id);
-  } else {
-    mark.textContent = "[=]";
-    name.textContent = "YourTube, plainly.";
-    dash.removeAttribute("data-brand");
-  }
-  let style = document.getElementById("ytb-brand-style");
-  if (!style) {
-    style = document.createElement("style");
-    style.id = "ytb-brand-style";
-    style.textContent = YT_BRAND_BASE;
-    (document.head || document.documentElement).appendChild(style);
-  }
-  if (opts && opts.persist) {
-    try { Ta("dashBrand", brand ? brand.id : "classic"); } catch (_) {}
-  }
-  return brand;
 }
 
   //  YourTubeEngine Ecosystem v3.0

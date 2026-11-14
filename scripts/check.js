@@ -228,37 +228,6 @@ for (const file of files) {
     process.stderr.write("check: dashboard looks test failed: " + (error && error.message ? error.message : error) + "\n");
   }
 })();
-(function validateDashboardBrands() {
-  try {
-    const source = fs.readFileSync(path.join(root, "src/77-brands.js"), "utf8");
-    const ctx = { document: { getElementById() { return null; } }, Ta() {} };
-    vm.createContext(ctx);
-    vm.runInContext(
-      source + "\nthis.brands = YT_DASH_BRANDS; this.base = YT_BRAND_BASE;",
-      ctx,
-    );
-    const brands = ctx.brands;
-    const problems = [];
-    if (brands.length !== 20) problems.push("expected 20 brands, got " + brands.length);
-    if (new Set(brands.map((brand) => brand.id)).size !== brands.length) problems.push("duplicate brand ids");
-    if (new Set(brands.map((brand) => brand.name)).size !== brands.length) problems.push("duplicate brand names");
-    for (const brand of brands) {
-      if (!/^[a-z][a-z0-9-]*$/.test(brand.id)) problems.push("bad id: " + brand.id);
-      if (!brand.mark.includes("<svg")) problems.push(brand.id + ": mark is not SVG");
-      if (!brand.word || brand.word.includes("undefined")) problems.push(brand.id + ": wordmark missing");
-    }
-    if (!ctx.base.includes(".ytb-brandmark")) problems.push("brand mark base style missing");
-    if (problems.length) {
-      failed++;
-      process.stderr.write("check: dashboard brands failed: " + problems.join("; ") + "\n");
-    } else {
-      console.log("check: 20 dashboard brands OK.");
-    }
-  } catch (error) {
-    failed++;
-    process.stderr.write("check: dashboard brands test failed: " + (error && error.message ? error.message : error) + "\n");
-  }
-})();
 const bundle = fs.readFileSync(path.join(root, "yourtube.user.js"), "utf8");
 
 // A master switch must reapply its own card. If the master key is missing from

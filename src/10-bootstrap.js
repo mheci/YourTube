@@ -1467,6 +1467,21 @@ algoBlockChannels: "",
         : [],
     );
   }
+  function _idbCount(e) {
+    return b().then((t) =>
+      t
+        ? new Promise((a) => {
+            try {
+              const n = t.transaction(e, "readonly").objectStore(e).count();
+              ((n.onsuccess = () => a(n.result || 0)),
+                (n.onerror = () => a(null)));
+            } catch (e) {
+              a(null);
+            }
+          })
+        : null,
+    );
+  }
   function C(e) {
     return b().then((t) =>
       t

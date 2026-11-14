@@ -4297,14 +4297,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const render = async () => {
         out.textContent = "Counting…";
         const lines = [];
-        try { const est = await navigator.storage.estimate(); if (est) lines.push("Browser quota used: ~" + fmtBytes(est.usage || 0) + " of " + fmtBytes(est.quota || 0)); } catch (_) {}
+        let est = null;
+        try { est = await navigator.storage.estimate(); } catch (_) {}
+        lines.push(est && est.quota
+          ? "Browser quota used: ~" + fmtBytes(est.usage || 0) + " of " + fmtBytes(est.quota || 0)
+          : "Storage estimate unavailable; showing row counts only.");
+        // count() avoids deserializing every record; total bytes come from storage.estimate().
         for (const storeName of ["kv", "history", "thumbCache", "replay"]) {
-          try {
-            const rows = await w(storeName);
-            let bytes = 0;
-            for (const r of (rows || [])) { try { bytes += JSON.stringify(r).length; } catch (_) {} }
-            lines.push(storeName + ": " + (rows ? rows.length : 0) + " rows ≈ " + fmtBytes(bytes));
-          } catch (_) { lines.push(storeName + ": unavailable"); }
+          const count = await _idbCount(storeName);
+          lines.push(storeName + ": " + (count === null ? "unavailable" : count + " rows"));
         }
         out.innerHTML = Xy("");
         const pre = document.createElement("div");

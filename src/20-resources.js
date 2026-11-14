@@ -206,6 +206,12 @@
                 for (const k of Object.keys(value)) {
                   if (!Object.prototype.hasOwnProperty.call(this._data, k)) this._data[k] = value[k];
                 }
+              } else if (Array.isArray(this._data) && Array.isArray(value)) {
+                // Keep local edits; append stored entries the local copy does not
+                // already hold, so a write before load cannot drop stored items.
+                for (const item of value) {
+                  if (!this._data.includes(item)) this._data.push(item);
+                }
               }
             }
           } catch (_) {

@@ -1369,7 +1369,10 @@ algoBlockChannels: "",
             if (_settled) return;
             _settled = !0;
             try { clearTimeout(_stall); } catch (_) {}
-            e(t.result);
+            const _db = t.result;
+            // Release the handle so a newer tab's schema upgrade is not blocked.
+            try { _db.onversionchange = () => _db.close(); } catch (_) {}
+            e(_db);
           }),
           (t.onerror = () => _finish(null, "IDB open failed", t.error)),
           (t.onblocked = () => {
@@ -1465,6 +1468,21 @@ algoBlockChannels: "",
             }
           })
         : [],
+    );
+  }
+  function _idbCount(e) {
+    return b().then((t) =>
+      t
+        ? new Promise((a) => {
+            try {
+              const n = t.transaction(e, "readonly").objectStore(e).count();
+              ((n.onsuccess = () => a(n.result || 0)),
+                (n.onerror = () => a(null)));
+            } catch (e) {
+              a(null);
+            }
+          })
+        : null,
     );
   }
   function C(e) {

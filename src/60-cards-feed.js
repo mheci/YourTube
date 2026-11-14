@@ -361,21 +361,24 @@
         ublockStyle.id = "ytb-ublock-css";
         (document.head || document.documentElement).appendChild(ublockStyle);
       }
-      const rebuildCSS = () => {
-        try { ublockStyle.textContent = UBlockEngine.generateCSS(parsed.cssFilters); } catch (_) {}
-      };
-      rebuildCSS();
-
-
+      // Bound per-scan procedural work: the block list is user-supplied and unbounded.
+      const MAX_SCAN_FILTERS = 100;
+      const scanProc = parsed.procFilters.slice(0, MAX_SCAN_FILTERS);
+      const scanPaths = parsed.pathFilters.slice(0, MAX_SCAN_FILTERS);
       let procRunning = false;
       const runProcedural = async () => {
         if (procRunning || _a()) return;
         procRunning = true;
         try {
-          UBlockEngine.applyProcedural(parsed.procFilters, parsed.pathFilters);
+          UBlockEngine.applyProcedural(scanProc, scanPaths);
         } catch (_) {}
         procRunning = false;
       };
+      const rebuildCSS = () => {
+        try { ublockStyle.textContent = UBlockEngine.generateCSS(parsed.cssFilters); } catch (_) {}
+        if (scanProc.length > 0 || scanPaths.length > 0) runProcedural();
+      };
+      rebuildCSS();
 
 
       const checkPathBlock = () => {
@@ -424,14 +427,11 @@
               }
             }
           }
-
-          if (parsed.procFilters.length > 0 || parsed.pathFilters.length > 0) {
-            await runProcedural();
-          }
         } finally { scanning = false; }
       };
-      e.addTimeout(scanDOM, 600);
-      e.addInterval(() => { e.addTimeout(scanDOM, 800); }, 3000);
+      const tickScan = async () => { await scanDOM(); await runProcedural(); };
+      e.addTimeout(tickScan, 600);
+      e.addInterval(() => { e.addTimeout(tickScan, 800); }, 3000);
 
 
       if (document.body) {
@@ -5664,7 +5664,8 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
     _brCss = "",
     _brTools = null,
     _brLastScan = 0,
-    _brKey = "";
+    _brKey = "",
+    _brTokens = null;
   const _BR_BUDGET = 30;
   const _BR_MIN_GAP = 400;
   const _BR_SCAN_WINDOW = 20000;
@@ -5712,7 +5713,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
   const _BR_DARK_LAYER = /^rgba\(0,0,0,0\.?(0?5|1|15)\)$/;
   const _BR_LIGHT_LAYER = /^rgba\(255,255,255,0?\.?(0?5|1|15|2|3)\)$/;
   function _brCollect() {
-
+    if (_brTokens) return _brTokens;
     const out = new Map();
     let sheets;
     try {
@@ -5770,6 +5771,8 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         walk(rules);
       } catch (e) {}
     }
+    // The stylesheet observer clears this when a sheet node lands, so repeated scans reuse one walk.
+    if (out.size) _brTokens = out;
     return out;
   }
   function _brRgba(hex, alpha) {
@@ -5899,6 +5902,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
     _brTools = null;
     _brCss = "";
     _brKey = "";
+    _brTokens = null;
     _brScans = 0;
     _brLastScan = 0;
     if (_brMO) { try { _brMO.disconnect(); } catch (e) {} _brMO = null; }
@@ -5926,6 +5930,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
       _brScans = 0;
       _brLastScan = 0;
       _brKey = key;
+      _brTokens = null;
     }
     _brEnsureMounted();
     _brScan();
@@ -5943,6 +5948,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
           try { _brMO.disconnect(); } catch (e) {}
           observedHead = document.head;
           try { _brMO.observe(observedHead, { childList: true }); } catch (e) {}
+          _brTokens = null;
           _brSchedule(true);
           return;
         }
@@ -5953,6 +5959,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
               (node.tagName === "LINK" || node.tagName === "STYLE" ||
                 (node.querySelector && node.querySelector("link,style"))))
               stylesheetAdded = true;
+        if (stylesheetAdded) _brTokens = null;
         if (!_brEl || !_brEl.isConnected || stylesheetAdded)
           _brSchedule(stylesheetAdded);
       });
@@ -6094,7 +6101,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
     }
   }
   function Xr() {
-    Yr || ((Yr = !0), Gr());
+    if (!Yr || !document.getElementById(Wr)) ((Yr = !0), Gr());
   }
   function Zr() {
     Yr = !1;

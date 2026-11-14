@@ -260,7 +260,6 @@
         try {
           window.addEventListener("beforeunload", (ev) => {
             try { Ze(); } catch (e2) {}
-            try { YourTubeResources.cleanup(); } catch (e2) {}
             e(ev);
           }, { capture: !0 });
         } catch (e) {}
@@ -272,6 +271,7 @@
             "pagehide",
             () => {
               try { if (typeof YourTubeEngine !== "undefined" && YourTubeEngine.flushStores) YourTubeEngine.flushStores(); } catch (_) {}
+              try { YourTubeResources.cleanup(); } catch (_) {}
               YourTubeResources.TrackedBlobURL.revokeAll();
               Ve.clear();
             },

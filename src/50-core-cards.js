@@ -1430,12 +1430,24 @@
       "sessionReplay", "apiExplorer", "apiExplorerMutations",
       "netMonitorBadge", "diagConsole", "statsOverlay",
     ];
-    for (const k of OFF_STEALTH) S[k] = false;
-    if ("maximum" === S.privacyPreset) {
+    const off = [];
+    for (const k of OFF_STEALTH)
+      if (S[k]) {
+        S[k] = false;
+        off.push(k);
+      }
+    if ("maximum" === S.privacyPreset && S.updateCheckOn) {
       // Also nothing that phones home: update checks are additionally gated at
       // runtime in Fu(); SponsorBlock/RYD/DeArrow are gated in he()/fetchJson().
       S.updateCheckOn = false;
+      off.push("updateCheckOn");
     }
+    // Flipping the keys alone leaves the running cards up, since each one tears
+    // its meters, patches and listeners down only when applied with its key false.
+    const ids = new Set();
+    for (const k of off)
+      for (const c of ka.get(k) || []) ids.add(c.id);
+    for (const id of ids) xa.apply(id);
   };
   const _FORBIDDEN_CFG_KEYS = { __proto__: 1, constructor: 1, prototype: 1 };
   function Ta(e, t) {

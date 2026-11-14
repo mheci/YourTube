@@ -287,7 +287,7 @@
       clearTimeout(le),
       (le = setTimeout(() => {
         se && (se.className = "ytb-t-" + (a || "info"));
-      }, t || 1800)));
+      }, t || 4000)));
   }
   function ue() {
     if (!document.body) return;

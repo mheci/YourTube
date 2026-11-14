@@ -474,24 +474,6 @@
       m("applySilentClass", e);
     }
     _applyOnce();
-    try {
-      if (_riskyActiveNow() && !_riskyAckedNow()) {
-        _riskyPrompt();
-      }
-      try {
-        g.on("cfg.changed", ({ key }) => {
-          if (
-            "forceWatchedAccountHistory" === key ||
-            "algoIntelligenceOn" === key ||
-            "algoAutoTrain" === key ||
-            "algoBoostOn" === key ||
-            "algoAutoLikeOn" === key
-          ) {
-            if (_riskyActiveNow() && !_riskyAckedNow()) _riskyPrompt();
-          }
-        });
-      } catch (_) {}
-    } catch (e) {}
     ae(() => {
       try {
         S.sessionRestoreOn && Ge();

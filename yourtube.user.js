@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.10.6
+// @version      1.10.7
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.10.6", // stamped at build time; was a drifting hard-coded literal
+      "1.10.7", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -2515,8 +2515,7 @@ algoBlockChannels: "",
                   if (!Object.prototype.hasOwnProperty.call(this._data, k)) this._data[k] = value[k];
                 }
               } else if (Array.isArray(this._data) && Array.isArray(value)) {
-                // Keep local edits; append stored entries the local copy does not
-                // already hold, so a write before load cannot drop stored items.
+                // A write before load must not drop stored items.
                 for (const item of value) {
                   if (!this._data.includes(item)) this._data.push(item);
                 }
@@ -4988,7 +4987,7 @@ algoBlockChannels: "",
           e > 0 && e < 60 && (r.totalWatchTime = (r.totalWatchTime || 0) + e);
 
           try {
-            if (S.algoIntelligenceOn && typeof AlgoEngine !== "undefined" && (typeof _riskyGate !== "function" || _riskyGate())) {
+            if (S.algoIntelligenceOn && typeof AlgoEngine !== "undefined") {
               AlgoEngine.SignalTracker.trackWatch(r.videoId, a, n);
             }
           } catch (_) {}
@@ -6361,30 +6360,25 @@ algoBlockChannels: "",
       };
 
       const extractSegmentArray = (payload, videoId, fullHash) => {
-        const wantHash = fullHash ? String(fullHash).toLowerCase() : null;
-        const hashMatches = (value) =>
-          !!wantHash && typeof value === "string" && value.toLowerCase() === wantHash;
         if (Array.isArray(payload)) {
           if (!payload.length) return { segments: [], matched: true, prefixed: false, valid: true };
           const prefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
           if (prefixed) {
-            // A privacy lookup proves ownership with the full hash on each
-            // entry; the direct lookup has no hash echo to compare against.
+            // The hash-prefix endpoint returns one entry per matching video, each
+            // tagged with its own videoID. The official client filters on videoID.
             const hit = payload.find((entry) =>
-              entry && Array.isArray(entry.segments) && (
-                wantHash ? hashMatches(entry.hash) : entry.videoID === videoId
-              ));
+              entry && Array.isArray(entry.segments) && entry.videoID === videoId
+            );
             return { segments: hit ? hit.segments : [], matched: !!hit, prefixed: true, valid: true };
           }
-          // A bare array is the direct endpoint's answer to videoID=, so the
-          // request binds it; a privacy lookup has no such binding.
+          // The direct endpoint answers videoID= with a bare array.
           return { segments: fullHash ? [] : payload, matched: !fullHash, prefixed: false, valid: true };
         }
         if (payload && Array.isArray(payload.segments)) {
-          // An anonymous wrapper proves nothing about which video it describes.
+          // A wrapper without videoID cannot be attributed to the requested video.
           return {
             segments: payload.segments,
-            matched: wantHash ? hashMatches(payload.hash) : payload.videoID === videoId,
+            matched: payload.videoID === videoId,
             prefixed: !!payload.videoID,
             valid: true,
           };
@@ -9001,38 +8995,6 @@ algoBlockChannels: "",
     return window;
   }
   function _fwExport(fn) { try { if (typeof exportFunction === "function") return exportFunction(fn); } catch (e) {} return fn; }
-  const _RISKY_ACK_KEY = "yourtube_risky_warn_v1";
-  const _riskyAckedNow = () => {
-    try {
-      if (typeof GM_getValue === "function" && GM_getValue(_RISKY_ACK_KEY)) return true;
-    } catch (e) {}
-    try { if (typeof localStorage !== "undefined" && localStorage.getItem(_RISKY_ACK_KEY)) return true; } catch (e) {}
-    return false;
-  };
-  const _riskyActiveNow = () => {
-    try {
-      return !!S.forceWatchedAccountHistory ||
-        !!(S.algoIntelligenceOn || S.algoAutoTrain || S.algoBoostOn || S.algoAutoLikeOn);
-    } catch (e) { return false; }
-  };
-  const _riskyFlag = () => {
-    try { if (typeof GM_setValue === "function") GM_setValue(_RISKY_ACK_KEY, 1); } catch (e) {}
-    try { localStorage.setItem(_RISKY_ACK_KEY, "1"); } catch (e) {}
-  };
-  let _riskyPrompted = false;
-  const _riskyPrompt = () => {
-    try {
-      pe("YourTube: Force Watched / Algorithm Intelligence sends synthetic watch signals to YouTube. Use only on your own account. (click to acknowledge)", 15000, "info");
-      pe_bindClick(_riskyFlag);
-    } catch (e) { _riskyFlag(); }
-  };
-  const _riskyGate = () => {
-    if (_riskyAckedNow()) return true;
-    if (!_riskyPrompted) { _riskyPrompted = true; _riskyPrompt(); }
-    else { try { pe("Acknowledge the Force Watched / Algorithm Intelligence notice first (click the notice).", 2600, "info"); } catch (e) {} }
-    return false;
-  };
-
   function _fwDisarm(expectedVideoId) {
     try {
       const pw = _fwPageWin();
@@ -9161,7 +9123,6 @@ algoBlockChannels: "",
     if (e - zt < 400) return;
     zt = e;
     try { if (typeof _isLiveStream !== "undefined" && _isLiveStream && _isLiveStream()) return void pe("Live streams can't be marked as watched.", 2000, "info"); } catch(_) {}
-    if (typeof _riskyGate === "function" && !_riskyGate()) return;
     const t = ie.el(),
       a = ie.api(),
       n = ie.videoId();
@@ -10078,8 +10039,7 @@ algoBlockChannels: "",
       S.updateCheckOn = false;
       off.push("updateCheckOn");
     }
-    // Flipping the keys alone leaves the running cards up, since each one tears
-    // its meters, patches and listeners down only when applied with its key false.
+    // Cards tear down only when applied; flipping the keys alone leaves them running.
     const ids = new Set();
     for (const k of off)
       for (const c of ka.get(k) || []) ids.add(c.id);
@@ -27016,10 +26976,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         AlgoEngine.stopMonitoring();
         return;
       }
-      if (typeof _riskyGate === "function" && !_riskyGate()) {
-        AlgoEngine.stopMonitoring();
-        return;
-      }
 
       AlgoEngine.applyStrength(S.algoStrength || "balanced");
 
@@ -29024,7 +28980,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         lines.push(est && est.quota
           ? "Browser quota used: ~" + fmtBytes(est.usage || 0) + " of " + fmtBytes(est.quota || 0)
           : "Storage estimate unavailable; showing row counts only.");
-        // count() avoids deserializing every record; total bytes come from storage.estimate().
+        // count() avoids deserializing every record.
         for (const storeName of ["kv", "history", "thumbCache", "replay"]) {
           const count = await _idbCount(storeName);
           lines.push(storeName + ": " + (count === null ? "unavailable" : count + " rows"));
@@ -30475,8 +30431,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!location.pathname.startsWith("/watch")) return;
         const videoId = ie.videoId && ie.videoId();
         if (!videoId) return;
-        // YouTube reuses the actions row across navigations. Drop the previous
-        // video's count and bar even if this video's request is slow or fails.
+        // Drop the previous video's count and bar even if this video's request is slow or fails.
         document.querySelectorAll(".ytb-ui-ryd-count, .ytb-ui-ryd-bar").forEach((el) => {
           if (el.dataset.ytbRydFor !== videoId) el.remove();
         });
@@ -33215,24 +33170,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       m("applySilentClass", e);
     }
     _applyOnce();
-    try {
-      if (_riskyActiveNow() && !_riskyAckedNow()) {
-        _riskyPrompt();
-      }
-      try {
-        g.on("cfg.changed", ({ key }) => {
-          if (
-            "forceWatchedAccountHistory" === key ||
-            "algoIntelligenceOn" === key ||
-            "algoAutoTrain" === key ||
-            "algoBoostOn" === key ||
-            "algoAutoLikeOn" === key
-          ) {
-            if (_riskyActiveNow() && !_riskyAckedNow()) _riskyPrompt();
-          }
-        });
-      } catch (_) {}
-    } catch (e) {}
     ae(() => {
       try {
         S.sessionRestoreOn && Ge();

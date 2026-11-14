@@ -2309,10 +2309,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         AlgoEngine.stopMonitoring();
         return;
       }
-      if (typeof _riskyGate === "function" && !_riskyGate()) {
-        AlgoEngine.stopMonitoring();
-        return;
-      }
 
       AlgoEngine.applyStrength(S.algoStrength || "balanced");
 
@@ -4317,7 +4313,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         lines.push(est && est.quota
           ? "Browser quota used: ~" + fmtBytes(est.usage || 0) + " of " + fmtBytes(est.quota || 0)
           : "Storage estimate unavailable; showing row counts only.");
-        // count() avoids deserializing every record; total bytes come from storage.estimate().
+        // count() avoids deserializing every record.
         for (const storeName of ["kv", "history", "thumbCache", "replay"]) {
           const count = await _idbCount(storeName);
           lines.push(storeName + ": " + (count === null ? "unavailable" : count + " rows"));
@@ -5768,8 +5764,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!location.pathname.startsWith("/watch")) return;
         const videoId = ie.videoId && ie.videoId();
         if (!videoId) return;
-        // YouTube reuses the actions row across navigations. Drop the previous
-        // video's count and bar even if this video's request is slow or fails.
+        // Drop the previous video's count and bar even if this video's request is slow or fails.
         document.querySelectorAll(".ytb-ui-ryd-count, .ytb-ui-ryd-bar").forEach((el) => {
           if (el.dataset.ytbRydFor !== videoId) el.remove();
         });

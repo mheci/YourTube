@@ -365,38 +365,6 @@
     return window;
   }
   function _fwExport(fn) { try { if (typeof exportFunction === "function") return exportFunction(fn); } catch (e) {} return fn; }
-  const _RISKY_ACK_KEY = "yourtube_risky_warn_v1";
-  const _riskyAckedNow = () => {
-    try {
-      if (typeof GM_getValue === "function" && GM_getValue(_RISKY_ACK_KEY)) return true;
-    } catch (e) {}
-    try { if (typeof localStorage !== "undefined" && localStorage.getItem(_RISKY_ACK_KEY)) return true; } catch (e) {}
-    return false;
-  };
-  const _riskyActiveNow = () => {
-    try {
-      return !!S.forceWatchedAccountHistory ||
-        !!(S.algoIntelligenceOn || S.algoAutoTrain || S.algoBoostOn || S.algoAutoLikeOn);
-    } catch (e) { return false; }
-  };
-  const _riskyFlag = () => {
-    try { if (typeof GM_setValue === "function") GM_setValue(_RISKY_ACK_KEY, 1); } catch (e) {}
-    try { localStorage.setItem(_RISKY_ACK_KEY, "1"); } catch (e) {}
-  };
-  let _riskyPrompted = false;
-  const _riskyPrompt = () => {
-    try {
-      pe("YourTube: Force Watched / Algorithm Intelligence sends synthetic watch signals to YouTube. Use only on your own account. (click to acknowledge)", 15000, "info");
-      pe_bindClick(_riskyFlag);
-    } catch (e) { _riskyFlag(); }
-  };
-  const _riskyGate = () => {
-    if (_riskyAckedNow()) return true;
-    if (!_riskyPrompted) { _riskyPrompted = true; _riskyPrompt(); }
-    else { try { pe("Acknowledge the Force Watched / Algorithm Intelligence notice first (click the notice).", 2600, "info"); } catch (e) {} }
-    return false;
-  };
-
   function _fwDisarm(expectedVideoId) {
     try {
       const pw = _fwPageWin();
@@ -525,7 +493,6 @@
     if (e - zt < 400) return;
     zt = e;
     try { if (typeof _isLiveStream !== "undefined" && _isLiveStream && _isLiveStream()) return void pe("Live streams can't be marked as watched.", 2000, "info"); } catch(_) {}
-    if (typeof _riskyGate === "function" && !_riskyGate()) return;
     const t = ie.el(),
       a = ie.api(),
       n = ie.videoId();
@@ -1442,8 +1409,7 @@
       S.updateCheckOn = false;
       off.push("updateCheckOn");
     }
-    // Flipping the keys alone leaves the running cards up, since each one tears
-    // its meters, patches and listeners down only when applied with its key false.
+    // Cards tear down only when applied; flipping the keys alone leaves them running.
     const ids = new Set();
     for (const k of off)
       for (const c of ka.get(k) || []) ids.add(c.id);

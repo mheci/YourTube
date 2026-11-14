@@ -157,6 +157,42 @@ for (const file of files) {
     process.stderr.write("check: update channel test failed: " + (error && error.message ? error.message : error) + "\n");
   }
 })();
+// SponsorBlock privacy lookups return one entry per matching hash prefix, each
+// tagged with its own videoID. A hash-only match silently returns zero segments.
+(function validateSponsorBlockPrivacyMatch() {
+  try {
+    const source = fs.readFileSync(path.join(root, "src", "40-sponsorblock.js"), "utf8");
+    const start = source.indexOf("      const extractSegmentArray =");
+    const end = source.indexOf("      const normalizeSegments", start);
+    if (start < 0 || end < 0) throw new Error("extractSegmentArray anchors missing");
+    const ctx = { Array, String };
+    vm.createContext(ctx);
+    vm.runInContext(source.slice(start, end) + "\nthis.extract = extractSegmentArray;", ctx);
+    const checks = [];
+    const own = ctx.extract([{ videoID: "good", segments: [{ a: 1 }] }], "good", "abc");
+    checks.push(["privacy entry match", own.matched === true && own.segments.length === 1]);
+    const other = ctx.extract([{ videoID: "other", segments: [{ a: 1 }] }], "good", "abc");
+    checks.push(["privacy entry mismatch", other.matched === false && other.segments.length === 0]);
+    const barePrivacy = ctx.extract([{ a: 1 }], "good", "abc");
+    checks.push(["privacy bare array rejected", barePrivacy.matched === false && barePrivacy.segments.length === 0]);
+    const direct = ctx.extract([{ a: 1 }], "good", null);
+    checks.push(["direct bare array accepted", direct.matched === true && direct.segments.length === 1]);
+    const wrapped = ctx.extract({ videoID: "good", segments: [{ a: 1 }] }, "good", null);
+    checks.push(["direct wrapped match", wrapped.matched === true && wrapped.segments.length === 1]);
+    const anonymous = ctx.extract({ segments: [{ a: 1 }] }, "good", null);
+    checks.push(["anonymous wrapper rejected", anonymous.matched === false]);
+    const bad = checks.find(([, ok]) => !ok);
+    if (bad) {
+      failed++;
+      process.stderr.write("check: SponsorBlock privacy match failed: " + bad[0] + ".\n");
+    } else {
+      console.log("check: SponsorBlock privacy match OK.");
+    }
+  } catch (error) {
+    failed++;
+    process.stderr.write("check: SponsorBlock privacy match test failed: " + (error && error.message ? error.message : error) + "\n");
+  }
+})();
 const bundle = fs.readFileSync(path.join(root, "yourtube.user.js"), "utf8");
 
 // A master switch must reapply its own card. If the master key is missing from

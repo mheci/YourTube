@@ -848,30 +848,25 @@
       };
 
       const extractSegmentArray = (payload, videoId, fullHash) => {
-        const wantHash = fullHash ? String(fullHash).toLowerCase() : null;
-        const hashMatches = (value) =>
-          !!wantHash && typeof value === "string" && value.toLowerCase() === wantHash;
         if (Array.isArray(payload)) {
           if (!payload.length) return { segments: [], matched: true, prefixed: false, valid: true };
           const prefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
           if (prefixed) {
-            // A privacy lookup proves ownership with the full hash on each
-            // entry; the direct lookup has no hash echo to compare against.
+            // The hash-prefix endpoint returns one entry per matching video, each
+            // tagged with its own videoID. The official client filters on videoID.
             const hit = payload.find((entry) =>
-              entry && Array.isArray(entry.segments) && (
-                wantHash ? hashMatches(entry.hash) : entry.videoID === videoId
-              ));
+              entry && Array.isArray(entry.segments) && entry.videoID === videoId
+            );
             return { segments: hit ? hit.segments : [], matched: !!hit, prefixed: true, valid: true };
           }
-          // A bare array is the direct endpoint's answer to videoID=, so the
-          // request binds it; a privacy lookup has no such binding.
+          // The direct endpoint answers videoID= with a bare array.
           return { segments: fullHash ? [] : payload, matched: !fullHash, prefixed: false, valid: true };
         }
         if (payload && Array.isArray(payload.segments)) {
-          // An anonymous wrapper proves nothing about which video it describes.
+          // A wrapper without videoID cannot be attributed to the requested video.
           return {
             segments: payload.segments,
-            matched: wantHash ? hashMatches(payload.hash) : payload.videoID === videoId,
+            matched: payload.videoID === videoId,
             prefixed: !!payload.videoID,
             valid: true,
           };

@@ -1088,7 +1088,7 @@
           e > 0 && e < 60 && (r.totalWatchTime = (r.totalWatchTime || 0) + e);
 
           try {
-            if (S.algoIntelligenceOn && typeof AlgoEngine !== "undefined" && (typeof _riskyGate !== "function" || _riskyGate())) {
+            if (S.algoIntelligenceOn && typeof AlgoEngine !== "undefined") {
               AlgoEngine.SignalTracker.trackWatch(r.videoId, a, n);
             }
           } catch (_) {}

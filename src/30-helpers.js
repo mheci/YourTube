@@ -195,12 +195,14 @@
     },
 
     de = new YourTubeResources.BoundedCache(512, "time-format");
+  // History thumbnails are imported data: only YouTube's image host or local image URLs may load.
+  const _safeThumbRe = /^(?:https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/|data:image\/|blob:)/i;
   function sanitizeUrlForCSS(url) {
     if (!url || typeof url !== "string") return "";
     try {
 
       const trimmed = url.trim();
-      if (/^(https?:|data:image\/|blob:)/i.test(trimmed)) {
+      if (_safeThumbRe.test(trimmed)) {
 
         return trimmed.replace(/['"\\()\n\r]/g, "");
       }
@@ -645,6 +647,7 @@
     if (e)
       return Fe("put:" + e, async () => {
         try {
+          if ("string" == typeof t && t && !_safeThumbRe.test(t.trim())) t = "";
           const a = await v("thumbCache", e);
           if (a && a.blob && Date.now() - a.ts < 6048e5) return;
           const n =

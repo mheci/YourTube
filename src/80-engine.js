@@ -2536,30 +2536,45 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       if (!S.screenWakeOn) return;
       if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") return;
       let lock = null;
+      let wanted = false;
+      let disposed = false;
       const release = () => {
+        wanted = false;
         if (!lock) return;
         try { lock.release().catch(() => {}); } catch (_) {}
         lock = null;
       };
       const acquire = () => {
-        if (lock) return;
-        navigator.wakeLock.request("screen").then((l) => { lock = l; }).catch(() => {});
+        if (wanted) return;
+        wanted = true;
+        navigator.wakeLock.request("screen").then((l) => {
+          // The request can resolve after teardown, pause or navigation; a lock
+          // nobody wants anymore must not stay held.
+          if (disposed || !wanted) { try { l.release().catch(() => {}); } catch (_) {} return; }
+          lock = l;
+        }).catch(() => { wanted = false; });
       };
       const onState = () => {
         const vid = ie.el();
         if (vid && !vid.paused && !vid.ended && document.visibilityState === "visible") acquire();
         else release();
       };
-      const vid = ie.el();
-      if (vid) {
+      const boundTo = new WeakSet();
+      const bind = () => {
+        const vid = ie.el();
+        if (!vid || boundTo.has(vid)) return;
+        boundTo.add(vid);
         ctx.addListener(vid, "play", onState);
         ctx.addListener(vid, "pause", onState);
         ctx.addListener(vid, "ended", onState);
-      }
+      };
+      bind();
       ctx.addListener(document, "visibilitychange", onState);
-      ctx.addListener(document, "yt-navigate-finish", () => { release(); onState(); });
+      // The player element is replaced on SPA navigation, so rebind to the new
+      // one and refresh the lock once it exists.
+      ctx.addListener(document, "yt-navigate-finish", () => { release(); ctx.addTimeout(() => { bind(); onState(); }, 1200); });
       ctx.addTimeout(onState, 500);
-      Yt["screen-wake"].push(() => release());
+      Yt["screen-wake"].push(() => { disposed = true; release(); });
     },
     settings(en) { en.appendChild(Io("Keep the screen awake while playing", "screenWakeOn")); } });
 
@@ -5701,6 +5716,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           button.appendChild(count);
         }
         count.textContent = format(data.dislikes);
+        count.dataset.ytbRydFor = videoId;
         count.title = "Dislike count from the Return YouTube Dislike API";
         if (!S.returnDislikeBar) return;
         const host = button.closest("ytd-menu-renderer, #top-row, #actions-inner") || button.parentElement;
@@ -5750,7 +5766,14 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
       const tick = () => {
         if (!location.pathname.startsWith("/watch")) return;
-        load(ie.videoId && ie.videoId());
+        const videoId = ie.videoId && ie.videoId();
+        if (!videoId) return;
+        // YouTube reuses the actions row across navigations. Drop the previous
+        // video's count and bar even if this video's request is slow or fails.
+        document.querySelectorAll(".ytb-ui-ryd-count, .ytb-ui-ryd-bar").forEach((el) => {
+          if (el.dataset.ytbRydFor !== videoId) el.remove();
+        });
+        load(videoId);
       };
       ctx.addInterval(tick, 2500);
       ctx.onNav(() => ctx.addTimeout(tick, 1200));

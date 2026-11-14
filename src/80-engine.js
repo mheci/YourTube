@@ -5545,7 +5545,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     id: "sticky-quality", name: "Live Quality Lock",
     summary: "Re-applies the preferred quality on live streams.",
       cat: "playback",
-    masterKey: "stickyQualityOn", keys: ["stickyQualityOn"],
+    masterKey: "stickyQualityOn", keys: ["stickyQualityOn", "qualityPref"],
     apply(ctx) {
       if (!S.stickyQualityOn) return;
       const reassert = () => {
@@ -5555,38 +5555,26 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           if (!el || el.paused) return;
           const levels = ie.levels();
           if (!levels || !levels.length) return;
-          const want = S.qualityPref;
-          const available = levels.filter((l) => l && l !== "auto");
-          if (!available.length) return;
+          const target = ie.qualityTarget(S.qualityPref);
+          if (!target) return;
           // Skip when the player is already on the target: re-asserting every
-          // 15s fights YouTube's own adaptation for no reason.
+          // 5s fights YouTube's own adaptation for no reason.
           const current = (() => {
             try {
               const api = ie.api && ie.api();
               return api && typeof api.getPlaybackQuality === "function" ? api.getPlaybackQuality() : "";
             } catch (_) { return ""; }
           })();
-          let target = available.indexOf(want) !== -1 ? want : "";
-          if (!target) {
-            // Prefer the closest level at or below the preference rather than
-            // whatever happens to be first in the list.
-            const wantHeight = parseInt(String(want || "").replace(/[^\d]/g, ""), 10) || 0;
-            const byHeight = available
-              .map((l) => ({ l, h: parseInt(String(l).replace(/[^\d]/g, ""), 10) || 0 }))
-              .sort((a, b) => a.h - b.h);
-            const below = byHeight.filter((entry) => entry.h <= wantHeight).pop();
-            target = (below && below.l) || byHeight[0].l;
-          }
-          if (target && current !== target) ie.setQuality(target);
+          if (current !== target) ie.setQuality(target);
         } catch (_) {}
       };
-      ctx.addInterval(reassert, 15000);
-      ctx.onNav(() => ctx.addTimeout(reassert, 4000));
+      ctx.addInterval(reassert, 5000);
+      ctx.onNav(() => ctx.addTimeout(reassert, 2500));
     },
     settings(en) {
       en.appendChild(Io("Keep my quality on livestreams", "stickyQualityOn"));
       en.appendChild(To("div", "ytb-hist-note",
-        "Re-asserts the same preference used by 'Always Use My Preferred Quality'. YouTube can still adapt on its own."));
+        "Re-asserts the same preference used by 'Preferred Quality Lock' every five seconds on live streams."));
     },
   });
 

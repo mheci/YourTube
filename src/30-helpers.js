@@ -162,6 +162,35 @@
           ? e.getAvailableQualityLevels()
           : [];
       },
+      currentQuality() {
+        try {
+          const p = ie.api();
+          return p && typeof p.getPlaybackQuality === "function"
+            ? String(p.getPlaybackQuality() || "")
+            : "";
+        } catch (_) { return ""; }
+      },
+      qualityTarget(want) {
+        const wanted = String(want || "") === "highres" ? "hd2160" : String(want || "");
+        if (!wanted || wanted === "auto") return "";
+        const levels = ie.levels().filter((level) => level && level !== "auto");
+        if (!levels.length) return "";
+        const pairs = levels.map((label, index) => ({
+          label,
+          index,
+          norm: label === "highres" ? "hd2160" : label,
+        }));
+        const exact = pairs.find((pair) => pair.norm === wanted);
+        if (exact) return exact.label;
+        const rank = ["hd2160", "hd1440", "hd1080", "hd720", "large", "medium", "small", "tiny"];
+        const wantIndex = rank.indexOf(wanted);
+        if (wantIndex < 0) return levels[0];
+        const ordered = pairs
+          .filter((pair) => rank.indexOf(pair.norm) >= 0)
+          .sort((a, b) => rank.indexOf(a.norm) - rank.indexOf(b.norm));
+        const atOrBelow = ordered.find((pair) => rank.indexOf(pair.norm) >= wantIndex);
+        return (atOrBelow || ordered[0] || pairs[0]).label;
+      },
       isAd: () => !!document.querySelector(".ad-showing,.ad-interrupting"),
     },
 

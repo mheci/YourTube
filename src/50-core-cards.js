@@ -1709,44 +1709,110 @@
     xa.register({
       id: "auto-hd",
       name: "Preferred Quality Lock",
-      summary: "Re-asserts your chosen resolution whenever YouTube downgrades it.",
+      summary: "Locks the chosen resolution and codecs, then re-asserts them while YouTube adapts.",
       cat: "playback",
       masterKey: "autoHD",
-      keys: ["autoHD", "qualityPref"],
+      keys: ["autoHD", "qualityPref", "qualityLockStrict", "videoCodecPref", "audioCodecPref"],
       apply(e) {
         if (!S.autoHD) return;
-        const t = () => {
-          const e = ie.levels();
-          if (!e.length) return;
-          const lv = e.filter((q) => q && "auto" !== q);
-          let t = S.qualityPref;
-          if (-1 === e.indexOf(t)) {
-            const rank = ["hd2160", "hd1440", "hd1080", "hd720", "large", "medium", "small", "tiny"];
-            const want = rank.indexOf(t);
-            const ordered = rank.filter((r) => lv.indexOf(r) !== -1);
-            const atOrBelow = want >= 0 ? ordered.filter((r) => rank.indexOf(r) >= want) : [];
-            t = atOrBelow[0] || ordered[0] || lv[0] || t;
+        let lastVid = "";
+        let lastCodecKey = "";
+        const bound = new WeakSet();
+
+        const wantedCodec = (value) => String(value || "auto").toLowerCase();
+
+        const filterFormats = (formats, muxed) => {
+          if (!Array.isArray(formats) || !formats.length) return false;
+          const videoPref = wantedCodec(S.videoCodecPref);
+          const audioPref = wantedCodec(S.audioCodecPref);
+          const matchVideo = (format) => {
+            if (videoPref === "auto") return true;
+            const text = String(format.codecs || format.mimeType || "").toLowerCase();
+            if (videoPref === "av1") return text.includes("av01");
+            if (videoPref === "vp9") return text.includes("vp09") || text.includes("vp9");
+            if (videoPref === "avc") return text.includes("avc1");
+            return true;
+          };
+          const matchAudio = (format) => {
+            if (audioPref === "auto") return true;
+            const text = String(format.codecs || format.mimeType || "").toLowerCase();
+            if (audioPref === "opus") return text.includes("opus");
+            if (audioPref === "aac") return text.includes("mp4a");
+            return true;
+          };
+          const keep = formats.filter((format) => {
+            const mime = String(format.mimeType || "").toLowerCase();
+            if (mime.startsWith("video/")) return matchVideo(format);
+            if (mime.startsWith("audio/")) return matchAudio(format);
+            return muxed ? matchVideo(format) || matchAudio(format) : true;
+          });
+          if (!keep.length || keep.length === formats.length) return false;
+          formats.splice(0, formats.length, ...keep);
+          return true;
+        };
+
+        const applyCodecs = () => {
+          const key = wantedCodec(S.videoCodecPref) + "|" + wantedCodec(S.audioCodecPref);
+          if (key === "auto|auto") { lastCodecKey = key; return false; }
+          if (key === lastCodecKey) return false;
+          const api = ie.api();
+          const response = api && typeof api.getPlayerResponse === "function" ? api.getPlayerResponse() : null;
+          const streaming = response && response.streamingData;
+          if (!streaming) return false;
+          let changed = false;
+          if (Array.isArray(streaming.adaptiveFormats)) changed = filterFormats(streaming.adaptiveFormats, false) || changed;
+          if (Array.isArray(streaming.formats)) changed = filterFormats(streaming.formats, true) || changed;
+          lastCodecKey = key;
+          return changed;
+        };
+
+        const enforce = () => {
+          if (!S.autoHD || ie.isAd()) return;
+          const videoId = (ie.videoId && ie.videoId()) || "";
+          if (videoId !== lastVid) {
+            lastVid = videoId;
+            lastCodecKey = "";
           }
-          try {
-            ie.setQuality(t);
-          } catch (e) {}
+          const codecChanged = applyCodecs();
+          const target = ie.qualityTarget(S.qualityPref);
+          if (!target) return;
+          if (ie.currentQuality() === target && !codecChanged) return;
+          ie.setQuality(target);
         };
-        t();
-        const boundEls = new WeakSet();
-        const a = () => {
-          const a = ie.el();
-          a && !boundEls.has(a) &&
-            (boundEls.add(a),
-            e.addListener(a, "loadedmetadata", t),
-            e.addListener(a, "loadeddata", t));
+
+        const bind = () => {
+          const video = ie.el();
+          if (!video || bound.has(video)) return;
+          bound.add(video);
+          ["playing", "canplay", "loadedmetadata", "loadeddata", "seeking", "ratechange"].forEach((event) => {
+            e.addListener(video, event, enforce);
+          });
         };
-        (a(),
-          e.onNav(() => {
-            (e.addTimeout(t, 1500), e.addTimeout(a, 1500));
-          }));
+
+        enforce();
+        bind();
+        if (S.qualityLockStrict !== false) {
+          e.addInterval(enforce, 1500, { pauseWhenHidden: true });
+        }
+        e.addListener(document, "visibilitychange", enforce, { passive: true });
+        e.onNav(() => {
+          lastVid = "";
+          lastCodecKey = "";
+          e.addTimeout(enforce, 300);
+          e.addTimeout(bind, 800);
+        });
       },
       settings(e) {
         e.appendChild(Ro("Quality", "qualityPref", d));
+        e.appendChild(Io("Strict lock (re-assert while YouTube adapts)", "qualityLockStrict"));
+        e.appendChild(Ro("Video codec", "videoCodecPref", {
+          auto: "Auto", av1: "AV1", vp9: "VP9", avc: "H.264",
+        }));
+        e.appendChild(Ro("Audio codec", "audioCodecPref", {
+          auto: "Auto", opus: "Opus", aac: "AAC",
+        }));
+        e.appendChild(To("div", "ytb-hist-note",
+          "Strict lock re-checks every 1.5 seconds while a video plays. Codec choice filters the player's stream list. YouTube may keep the current stream until the next load, and it has no public audio-codec switch."));
       },
     }),
 

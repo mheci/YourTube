@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.10.2
+// @version      1.10.3
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.10.2", // stamped at build time; was a drifting hard-coded literal
+      "1.10.3", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -977,6 +977,9 @@ algoBlockChannels: "",
         abB: -1,
         autoHD: !1,
         qualityPref: "hd1080",
+        qualityLockStrict: !0,
+        videoCodecPref: "auto",
+        audioCodecPref: "auto",
         forceCC: !1,
         forceCCLang: "",
         ccNativePrefs: !1,
@@ -4034,6 +4037,35 @@ algoBlockChannels: "",
         return e && e.getAvailableQualityLevels
           ? e.getAvailableQualityLevels()
           : [];
+      },
+      currentQuality() {
+        try {
+          const p = ie.api();
+          return p && typeof p.getPlaybackQuality === "function"
+            ? String(p.getPlaybackQuality() || "")
+            : "";
+        } catch (_) { return ""; }
+      },
+      qualityTarget(want) {
+        const wanted = String(want || "") === "highres" ? "hd2160" : String(want || "");
+        if (!wanted || wanted === "auto") return "";
+        const levels = ie.levels().filter((level) => level && level !== "auto");
+        if (!levels.length) return "";
+        const pairs = levels.map((label, index) => ({
+          label,
+          index,
+          norm: label === "highres" ? "hd2160" : label,
+        }));
+        const exact = pairs.find((pair) => pair.norm === wanted);
+        if (exact) return exact.label;
+        const rank = ["hd2160", "hd1440", "hd1080", "hd720", "large", "medium", "small", "tiny"];
+        const wantIndex = rank.indexOf(wanted);
+        if (wantIndex < 0) return levels[0];
+        const ordered = pairs
+          .filter((pair) => rank.indexOf(pair.norm) >= 0)
+          .sort((a, b) => rank.indexOf(a.norm) - rank.indexOf(b.norm));
+        const atOrBelow = ordered.find((pair) => rank.indexOf(pair.norm) >= wantIndex);
+        return (atOrBelow || ordered[0] || pairs[0]).label;
       },
       isAd: () => !!document.querySelector(".ad-showing,.ad-interrupting"),
     },
@@ -10273,44 +10305,110 @@ algoBlockChannels: "",
     xa.register({
       id: "auto-hd",
       name: "Preferred Quality Lock",
-      summary: "Re-asserts your chosen resolution whenever YouTube downgrades it.",
+      summary: "Locks the chosen resolution and codecs, then re-asserts them while YouTube adapts.",
       cat: "playback",
       masterKey: "autoHD",
-      keys: ["autoHD", "qualityPref"],
+      keys: ["autoHD", "qualityPref", "qualityLockStrict", "videoCodecPref", "audioCodecPref"],
       apply(e) {
         if (!S.autoHD) return;
-        const t = () => {
-          const e = ie.levels();
-          if (!e.length) return;
-          const lv = e.filter((q) => q && "auto" !== q);
-          let t = S.qualityPref;
-          if (-1 === e.indexOf(t)) {
-            const rank = ["hd2160", "hd1440", "hd1080", "hd720", "large", "medium", "small", "tiny"];
-            const want = rank.indexOf(t);
-            const ordered = rank.filter((r) => lv.indexOf(r) !== -1);
-            const atOrBelow = want >= 0 ? ordered.filter((r) => rank.indexOf(r) >= want) : [];
-            t = atOrBelow[0] || ordered[0] || lv[0] || t;
+        let lastVid = "";
+        let lastCodecKey = "";
+        const bound = new WeakSet();
+
+        const wantedCodec = (value) => String(value || "auto").toLowerCase();
+
+        const filterFormats = (formats, muxed) => {
+          if (!Array.isArray(formats) || !formats.length) return false;
+          const videoPref = wantedCodec(S.videoCodecPref);
+          const audioPref = wantedCodec(S.audioCodecPref);
+          const matchVideo = (format) => {
+            if (videoPref === "auto") return true;
+            const text = String(format.codecs || format.mimeType || "").toLowerCase();
+            if (videoPref === "av1") return text.includes("av01");
+            if (videoPref === "vp9") return text.includes("vp09") || text.includes("vp9");
+            if (videoPref === "avc") return text.includes("avc1");
+            return true;
+          };
+          const matchAudio = (format) => {
+            if (audioPref === "auto") return true;
+            const text = String(format.codecs || format.mimeType || "").toLowerCase();
+            if (audioPref === "opus") return text.includes("opus");
+            if (audioPref === "aac") return text.includes("mp4a");
+            return true;
+          };
+          const keep = formats.filter((format) => {
+            const mime = String(format.mimeType || "").toLowerCase();
+            if (mime.startsWith("video/")) return matchVideo(format);
+            if (mime.startsWith("audio/")) return matchAudio(format);
+            return muxed ? matchVideo(format) || matchAudio(format) : true;
+          });
+          if (!keep.length || keep.length === formats.length) return false;
+          formats.splice(0, formats.length, ...keep);
+          return true;
+        };
+
+        const applyCodecs = () => {
+          const key = wantedCodec(S.videoCodecPref) + "|" + wantedCodec(S.audioCodecPref);
+          if (key === "auto|auto") { lastCodecKey = key; return false; }
+          if (key === lastCodecKey) return false;
+          const api = ie.api();
+          const response = api && typeof api.getPlayerResponse === "function" ? api.getPlayerResponse() : null;
+          const streaming = response && response.streamingData;
+          if (!streaming) return false;
+          let changed = false;
+          if (Array.isArray(streaming.adaptiveFormats)) changed = filterFormats(streaming.adaptiveFormats, false) || changed;
+          if (Array.isArray(streaming.formats)) changed = filterFormats(streaming.formats, true) || changed;
+          lastCodecKey = key;
+          return changed;
+        };
+
+        const enforce = () => {
+          if (!S.autoHD || ie.isAd()) return;
+          const videoId = (ie.videoId && ie.videoId()) || "";
+          if (videoId !== lastVid) {
+            lastVid = videoId;
+            lastCodecKey = "";
           }
-          try {
-            ie.setQuality(t);
-          } catch (e) {}
+          const codecChanged = applyCodecs();
+          const target = ie.qualityTarget(S.qualityPref);
+          if (!target) return;
+          if (ie.currentQuality() === target && !codecChanged) return;
+          ie.setQuality(target);
         };
-        t();
-        const boundEls = new WeakSet();
-        const a = () => {
-          const a = ie.el();
-          a && !boundEls.has(a) &&
-            (boundEls.add(a),
-            e.addListener(a, "loadedmetadata", t),
-            e.addListener(a, "loadeddata", t));
+
+        const bind = () => {
+          const video = ie.el();
+          if (!video || bound.has(video)) return;
+          bound.add(video);
+          ["playing", "canplay", "loadedmetadata", "loadeddata", "seeking", "ratechange"].forEach((event) => {
+            e.addListener(video, event, enforce);
+          });
         };
-        (a(),
-          e.onNav(() => {
-            (e.addTimeout(t, 1500), e.addTimeout(a, 1500));
-          }));
+
+        enforce();
+        bind();
+        if (S.qualityLockStrict !== false) {
+          e.addInterval(enforce, 1500, { pauseWhenHidden: true });
+        }
+        e.addListener(document, "visibilitychange", enforce, { passive: true });
+        e.onNav(() => {
+          lastVid = "";
+          lastCodecKey = "";
+          e.addTimeout(enforce, 300);
+          e.addTimeout(bind, 800);
+        });
       },
       settings(e) {
         e.appendChild(Ro("Quality", "qualityPref", d));
+        e.appendChild(Io("Strict lock (re-assert while YouTube adapts)", "qualityLockStrict"));
+        e.appendChild(Ro("Video codec", "videoCodecPref", {
+          auto: "Auto", av1: "AV1", vp9: "VP9", avc: "H.264",
+        }));
+        e.appendChild(Ro("Audio codec", "audioCodecPref", {
+          auto: "Auto", opus: "Opus", aac: "AAC",
+        }));
+        e.appendChild(To("div", "ytb-hist-note",
+          "Strict lock re-checks every 1.5 seconds while a video plays. Codec choice filters the player's stream list. YouTube may keep the current stream until the next load, and it has no public audio-codec switch."));
       },
     }),
 
@@ -30083,7 +30181,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     id: "sticky-quality", name: "Live Quality Lock",
     summary: "Re-applies the preferred quality on live streams.",
       cat: "playback",
-    masterKey: "stickyQualityOn", keys: ["stickyQualityOn"],
+    masterKey: "stickyQualityOn", keys: ["stickyQualityOn", "qualityPref"],
     apply(ctx) {
       if (!S.stickyQualityOn) return;
       const reassert = () => {
@@ -30093,38 +30191,26 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           if (!el || el.paused) return;
           const levels = ie.levels();
           if (!levels || !levels.length) return;
-          const want = S.qualityPref;
-          const available = levels.filter((l) => l && l !== "auto");
-          if (!available.length) return;
+          const target = ie.qualityTarget(S.qualityPref);
+          if (!target) return;
           // Skip when the player is already on the target: re-asserting every
-          // 15s fights YouTube's own adaptation for no reason.
+          // 5s fights YouTube's own adaptation for no reason.
           const current = (() => {
             try {
               const api = ie.api && ie.api();
               return api && typeof api.getPlaybackQuality === "function" ? api.getPlaybackQuality() : "";
             } catch (_) { return ""; }
           })();
-          let target = available.indexOf(want) !== -1 ? want : "";
-          if (!target) {
-            // Prefer the closest level at or below the preference rather than
-            // whatever happens to be first in the list.
-            const wantHeight = parseInt(String(want || "").replace(/[^\d]/g, ""), 10) || 0;
-            const byHeight = available
-              .map((l) => ({ l, h: parseInt(String(l).replace(/[^\d]/g, ""), 10) || 0 }))
-              .sort((a, b) => a.h - b.h);
-            const below = byHeight.filter((entry) => entry.h <= wantHeight).pop();
-            target = (below && below.l) || byHeight[0].l;
-          }
-          if (target && current !== target) ie.setQuality(target);
+          if (current !== target) ie.setQuality(target);
         } catch (_) {}
       };
-      ctx.addInterval(reassert, 15000);
-      ctx.onNav(() => ctx.addTimeout(reassert, 4000));
+      ctx.addInterval(reassert, 5000);
+      ctx.onNav(() => ctx.addTimeout(reassert, 2500));
     },
     settings(en) {
       en.appendChild(Io("Keep my quality on livestreams", "stickyQualityOn"));
       en.appendChild(To("div", "ytb-hist-note",
-        "Re-asserts the same preference used by 'Always Use My Preferred Quality'. YouTube can still adapt on its own."));
+        "Re-asserts the same preference used by 'Preferred Quality Lock' every five seconds on live streams."));
     },
   });
 

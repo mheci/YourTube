@@ -26,10 +26,10 @@
       disabled: "Off"
     };
 
-    const CACHE_VERSION = 5;
+    const CACHE_VERSION = 6;
     const CACHE_TTL_MS = 60 * 60 * 1000;
-    const PERSIST_TTL_MS = 24 * 60 * 60 * 1000;
     const STALE_GRACE_MS = 12 * 60 * 60 * 1000;
+    const PERSIST_TTL_MS = CACHE_TTL_MS + STALE_GRACE_MS;
     const MAX_CACHE_ENTRIES = 128;
     const API_TIMEOUT_MS = 8000;
     const MAX_RETRIES = 2;
@@ -572,13 +572,13 @@
               Metrics.recordCacheHit();
               return { data: entry.segments, fresh: true };
             }
-            if (allowStale && entry.expiresAt + STALE_GRACE_MS > now) {
+            if (allowStale && runtimeExpiresAt + STALE_GRACE_MS > now) {
               memCache.set(cacheKey, runtimeEntry(entry));
               evictIfNeeded();
               Metrics.recordStaleServed();
               return { data: entry.segments, fresh: false };
             }
-            if (entry.expiresAt + STALE_GRACE_MS < now) {
+            if (runtimeExpiresAt + STALE_GRACE_MS < now) {
               await x("kv", "cache:" + cacheKey);
             }
           }
@@ -848,24 +848,30 @@
       };
 
       const extractSegmentArray = (payload, videoId, fullHash) => {
+        const wantHash = fullHash ? String(fullHash).toLowerCase() : null;
+        const hashMatches = (value) =>
+          !!wantHash && typeof value === "string" && value.toLowerCase() === wantHash;
         if (Array.isArray(payload)) {
           if (!payload.length) return { segments: [], matched: true, prefixed: false, valid: true };
           const prefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
           if (prefixed) {
-            const wantHash = fullHash ? String(fullHash).toLowerCase() : null;
+            // A privacy lookup proves ownership with the full hash on each
+            // entry; the direct lookup has no hash echo to compare against.
             const hit = payload.find((entry) =>
               entry && Array.isArray(entry.segments) && (
-                (wantHash && typeof entry.hash === "string" && entry.hash.toLowerCase() === wantHash) ||
-                (entry.videoID === videoId)
+                wantHash ? hashMatches(entry.hash) : entry.videoID === videoId
               ));
             return { segments: hit ? hit.segments : [], matched: !!hit, prefixed: true, valid: true };
           }
-          return { segments: payload, matched: true, prefixed: false, valid: true };
+          // A bare array is the direct endpoint's answer to videoID=, so the
+          // request binds it; a privacy lookup has no such binding.
+          return { segments: fullHash ? [] : payload, matched: !fullHash, prefixed: false, valid: true };
         }
         if (payload && Array.isArray(payload.segments)) {
+          // An anonymous wrapper proves nothing about which video it describes.
           return {
             segments: payload.segments,
-            matched: !payload.videoID || payload.videoID === videoId,
+            matched: wantHash ? hashMatches(payload.hash) : payload.videoID === videoId,
             prefixed: !!payload.videoID,
             valid: true,
           };
@@ -1005,7 +1011,12 @@
               throw malformed;
             }
 
-            if (plan.privacy && normalized.prefixed && !normalized.matched) {
+            if (!normalized.matched) {
+              if (!plan.privacy) {
+                const mismatch = new Error("SponsorBlock response did not match the requested video");
+                mismatch.status = response.status;
+                throw mismatch;
+              }
               trace.push({ plan: plan.id, status: response.status, count: 0, matched: false });
               privacyNoMatch = true;
               lastError = new Error("Privacy response did not contain requested video");
@@ -2637,15 +2648,17 @@
       } catch (_) {}
       // Advanced skip rules run at apply time too: a rule that resolves to
       // 'seekbar' or 'disabled' suppresses the auto-skip for the matching
-      // segments while keeping them visible on the timeline.
+      // segments while keeping them visible on the timeline. Segment objects
+      // are shared with the cache, so clear the derived action before reapplying.
       try {
-        if (Settings.rules().length) {
-          const ctx = ruleCtx();
-          for (const sg of State.segments) {
-            if (!sg) continue;
-            const r = Settings.rulesActionFor(sg, ctx);
-            if (r) sg._ruleAction = r;
-          }
+        const ruleList = Settings.rules();
+        const ctx = ruleList.length ? ruleCtx() : null;
+        for (const sg of State.segments) {
+          if (!sg) continue;
+          delete sg._ruleAction;
+          if (!ruleList.length) continue;
+          const r = Settings.rulesActionFor(sg, ctx);
+          if (r) sg._ruleAction = r;
         }
       } catch (_) {}
       if (hidden) {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.10.5
+// @version      1.10.6
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.10.5", // stamped at build time; was a drifting hard-coded literal
+      "1.10.6", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -1406,7 +1406,10 @@ algoBlockChannels: "",
             if (_settled) return;
             _settled = !0;
             try { clearTimeout(_stall); } catch (_) {}
-            e(t.result);
+            const _db = t.result;
+            // Release the handle so a newer tab's schema upgrade is not blocked.
+            try { _db.onversionchange = () => _db.close(); } catch (_) {}
+            e(_db);
           }),
           (t.onerror = () => _finish(null, "IDB open failed", t.error)),
           (t.onblocked = () => {
@@ -1502,6 +1505,21 @@ algoBlockChannels: "",
             }
           })
         : [],
+    );
+  }
+  function _idbCount(e) {
+    return b().then((t) =>
+      t
+        ? new Promise((a) => {
+            try {
+              const n = t.transaction(e, "readonly").objectStore(e).count();
+              ((n.onsuccess = () => a(n.result || 0)),
+                (n.onerror = () => a(null)));
+            } catch (e) {
+              a(null);
+            }
+          })
+        : null,
     );
   }
   function C(e) {
@@ -2495,6 +2513,12 @@ algoBlockChannels: "",
 
                 for (const k of Object.keys(value)) {
                   if (!Object.prototype.hasOwnProperty.call(this._data, k)) this._data[k] = value[k];
+                }
+              } else if (Array.isArray(this._data) && Array.isArray(value)) {
+                // Keep local edits; append stored entries the local copy does not
+                // already hold, so a write before load cannot drop stored items.
+                for (const item of value) {
+                  if (!this._data.includes(item)) this._data.push(item);
                 }
               }
             }
@@ -4071,12 +4095,14 @@ algoBlockChannels: "",
     },
 
     de = new YourTubeResources.BoundedCache(512, "time-format");
+  // History thumbnails are imported data: only YouTube's image host or local image URLs may load.
+  const _safeThumbRe = /^(?:https:\/\/i\.ytimg\.com\/vi\/[A-Za-z0-9_-]{11}\/|data:image\/|blob:)/i;
   function sanitizeUrlForCSS(url) {
     if (!url || typeof url !== "string") return "";
     try {
 
       const trimmed = url.trim();
-      if (/^(https?:|data:image\/|blob:)/i.test(trimmed)) {
+      if (_safeThumbRe.test(trimmed)) {
 
         return trimmed.replace(/['"\\()\n\r]/g, "");
       }
@@ -4521,6 +4547,7 @@ algoBlockChannels: "",
     if (e)
       return Fe("put:" + e, async () => {
         try {
+          if ("string" == typeof t && t && !_safeThumbRe.test(t.trim())) t = "";
           const a = await v("thumbCache", e);
           if (a && a.blob && Date.now() - a.ts < 6048e5) return;
           const n =
@@ -5512,10 +5539,10 @@ algoBlockChannels: "",
       disabled: "Off"
     };
 
-    const CACHE_VERSION = 5;
+    const CACHE_VERSION = 6;
     const CACHE_TTL_MS = 60 * 60 * 1000;
-    const PERSIST_TTL_MS = 24 * 60 * 60 * 1000;
     const STALE_GRACE_MS = 12 * 60 * 60 * 1000;
+    const PERSIST_TTL_MS = CACHE_TTL_MS + STALE_GRACE_MS;
     const MAX_CACHE_ENTRIES = 128;
     const API_TIMEOUT_MS = 8000;
     const MAX_RETRIES = 2;
@@ -6058,13 +6085,13 @@ algoBlockChannels: "",
               Metrics.recordCacheHit();
               return { data: entry.segments, fresh: true };
             }
-            if (allowStale && entry.expiresAt + STALE_GRACE_MS > now) {
+            if (allowStale && runtimeExpiresAt + STALE_GRACE_MS > now) {
               memCache.set(cacheKey, runtimeEntry(entry));
               evictIfNeeded();
               Metrics.recordStaleServed();
               return { data: entry.segments, fresh: false };
             }
-            if (entry.expiresAt + STALE_GRACE_MS < now) {
+            if (runtimeExpiresAt + STALE_GRACE_MS < now) {
               await x("kv", "cache:" + cacheKey);
             }
           }
@@ -6334,24 +6361,30 @@ algoBlockChannels: "",
       };
 
       const extractSegmentArray = (payload, videoId, fullHash) => {
+        const wantHash = fullHash ? String(fullHash).toLowerCase() : null;
+        const hashMatches = (value) =>
+          !!wantHash && typeof value === "string" && value.toLowerCase() === wantHash;
         if (Array.isArray(payload)) {
           if (!payload.length) return { segments: [], matched: true, prefixed: false, valid: true };
           const prefixed = payload.some((entry) => entry && Array.isArray(entry.segments));
           if (prefixed) {
-            const wantHash = fullHash ? String(fullHash).toLowerCase() : null;
+            // A privacy lookup proves ownership with the full hash on each
+            // entry; the direct lookup has no hash echo to compare against.
             const hit = payload.find((entry) =>
               entry && Array.isArray(entry.segments) && (
-                (wantHash && typeof entry.hash === "string" && entry.hash.toLowerCase() === wantHash) ||
-                (entry.videoID === videoId)
+                wantHash ? hashMatches(entry.hash) : entry.videoID === videoId
               ));
             return { segments: hit ? hit.segments : [], matched: !!hit, prefixed: true, valid: true };
           }
-          return { segments: payload, matched: true, prefixed: false, valid: true };
+          // A bare array is the direct endpoint's answer to videoID=, so the
+          // request binds it; a privacy lookup has no such binding.
+          return { segments: fullHash ? [] : payload, matched: !fullHash, prefixed: false, valid: true };
         }
         if (payload && Array.isArray(payload.segments)) {
+          // An anonymous wrapper proves nothing about which video it describes.
           return {
             segments: payload.segments,
-            matched: !payload.videoID || payload.videoID === videoId,
+            matched: wantHash ? hashMatches(payload.hash) : payload.videoID === videoId,
             prefixed: !!payload.videoID,
             valid: true,
           };
@@ -6491,7 +6524,12 @@ algoBlockChannels: "",
               throw malformed;
             }
 
-            if (plan.privacy && normalized.prefixed && !normalized.matched) {
+            if (!normalized.matched) {
+              if (!plan.privacy) {
+                const mismatch = new Error("SponsorBlock response did not match the requested video");
+                mismatch.status = response.status;
+                throw mismatch;
+              }
               trace.push({ plan: plan.id, status: response.status, count: 0, matched: false });
               privacyNoMatch = true;
               lastError = new Error("Privacy response did not contain requested video");
@@ -8123,15 +8161,17 @@ algoBlockChannels: "",
       } catch (_) {}
       // Advanced skip rules run at apply time too: a rule that resolves to
       // 'seekbar' or 'disabled' suppresses the auto-skip for the matching
-      // segments while keeping them visible on the timeline.
+      // segments while keeping them visible on the timeline. Segment objects
+      // are shared with the cache, so clear the derived action before reapplying.
       try {
-        if (Settings.rules().length) {
-          const ctx = ruleCtx();
-          for (const sg of State.segments) {
-            if (!sg) continue;
-            const r = Settings.rulesActionFor(sg, ctx);
-            if (r) sg._ruleAction = r;
-          }
+        const ruleList = Settings.rules();
+        const ctx = ruleList.length ? ruleCtx() : null;
+        for (const sg of State.segments) {
+          if (!sg) continue;
+          delete sg._ruleAction;
+          if (!ruleList.length) continue;
+          const r = Settings.rulesActionFor(sg, ctx);
+          if (r) sg._ruleAction = r;
         }
       } catch (_) {}
       if (hidden) {
@@ -10026,12 +10066,24 @@ algoBlockChannels: "",
       "sessionReplay", "apiExplorer", "apiExplorerMutations",
       "netMonitorBadge", "diagConsole", "statsOverlay",
     ];
-    for (const k of OFF_STEALTH) S[k] = false;
-    if ("maximum" === S.privacyPreset) {
+    const off = [];
+    for (const k of OFF_STEALTH)
+      if (S[k]) {
+        S[k] = false;
+        off.push(k);
+      }
+    if ("maximum" === S.privacyPreset && S.updateCheckOn) {
       // Also nothing that phones home: update checks are additionally gated at
       // runtime in Fu(); SponsorBlock/RYD/DeArrow are gated in he()/fetchJson().
       S.updateCheckOn = false;
+      off.push("updateCheckOn");
     }
+    // Flipping the keys alone leaves the running cards up, since each one tears
+    // its meters, patches and listeners down only when applied with its key false.
+    const ids = new Set();
+    for (const k of off)
+      for (const c of ka.get(k) || []) ids.add(c.id);
+    for (const id of ids) xa.apply(id);
   };
   const _FORBIDDEN_CFG_KEYS = { __proto__: 1, constructor: 1, prototype: 1 };
   function Ta(e, t) {
@@ -12486,21 +12538,24 @@ algoBlockChannels: "",
         ublockStyle.id = "ytb-ublock-css";
         (document.head || document.documentElement).appendChild(ublockStyle);
       }
-      const rebuildCSS = () => {
-        try { ublockStyle.textContent = UBlockEngine.generateCSS(parsed.cssFilters); } catch (_) {}
-      };
-      rebuildCSS();
-
-
+      // Bound per-scan procedural work: the block list is user-supplied and unbounded.
+      const MAX_SCAN_FILTERS = 100;
+      const scanProc = parsed.procFilters.slice(0, MAX_SCAN_FILTERS);
+      const scanPaths = parsed.pathFilters.slice(0, MAX_SCAN_FILTERS);
       let procRunning = false;
       const runProcedural = async () => {
         if (procRunning || _a()) return;
         procRunning = true;
         try {
-          UBlockEngine.applyProcedural(parsed.procFilters, parsed.pathFilters);
+          UBlockEngine.applyProcedural(scanProc, scanPaths);
         } catch (_) {}
         procRunning = false;
       };
+      const rebuildCSS = () => {
+        try { ublockStyle.textContent = UBlockEngine.generateCSS(parsed.cssFilters); } catch (_) {}
+        if (scanProc.length > 0 || scanPaths.length > 0) runProcedural();
+      };
+      rebuildCSS();
 
 
       const checkPathBlock = () => {
@@ -12549,14 +12604,11 @@ algoBlockChannels: "",
               }
             }
           }
-
-          if (parsed.procFilters.length > 0 || parsed.pathFilters.length > 0) {
-            await runProcedural();
-          }
         } finally { scanning = false; }
       };
-      e.addTimeout(scanDOM, 600);
-      e.addInterval(() => { e.addTimeout(scanDOM, 800); }, 3000);
+      const tickScan = async () => { await scanDOM(); await runProcedural(); };
+      e.addTimeout(tickScan, 600);
+      e.addInterval(() => { e.addTimeout(tickScan, 800); }, 3000);
 
 
       if (document.body) {
@@ -17789,7 +17841,8 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
     _brCss = "",
     _brTools = null,
     _brLastScan = 0,
-    _brKey = "";
+    _brKey = "",
+    _brTokens = null;
   const _BR_BUDGET = 30;
   const _BR_MIN_GAP = 400;
   const _BR_SCAN_WINDOW = 20000;
@@ -17837,7 +17890,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
   const _BR_DARK_LAYER = /^rgba\(0,0,0,0\.?(0?5|1|15)\)$/;
   const _BR_LIGHT_LAYER = /^rgba\(255,255,255,0?\.?(0?5|1|15|2|3)\)$/;
   function _brCollect() {
-
+    if (_brTokens) return _brTokens;
     const out = new Map();
     let sheets;
     try {
@@ -17895,6 +17948,8 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         walk(rules);
       } catch (e) {}
     }
+    // The stylesheet observer clears this when a sheet node lands, so repeated scans reuse one walk.
+    if (out.size) _brTokens = out;
     return out;
   }
   function _brRgba(hex, alpha) {
@@ -18024,6 +18079,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
     _brTools = null;
     _brCss = "";
     _brKey = "";
+    _brTokens = null;
     _brScans = 0;
     _brLastScan = 0;
     if (_brMO) { try { _brMO.disconnect(); } catch (e) {} _brMO = null; }
@@ -18051,6 +18107,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
       _brScans = 0;
       _brLastScan = 0;
       _brKey = key;
+      _brTokens = null;
     }
     _brEnsureMounted();
     _brScan();
@@ -18068,6 +18125,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
           try { _brMO.disconnect(); } catch (e) {}
           observedHead = document.head;
           try { _brMO.observe(observedHead, { childList: true }); } catch (e) {}
+          _brTokens = null;
           _brSchedule(true);
           return;
         }
@@ -18078,6 +18136,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
               (node.tagName === "LINK" || node.tagName === "STYLE" ||
                 (node.querySelector && node.querySelector("link,style"))))
               stylesheetAdded = true;
+        if (stylesheetAdded) _brTokens = null;
         if (!_brEl || !_brEl.isConnected || stylesheetAdded)
           _brSchedule(stylesheetAdded);
       });
@@ -18219,7 +18278,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
     }
   }
   function Xr() {
-    Yr || ((Yr = !0), Gr());
+    if (!Yr || !document.getElementById(Wr)) ((Yr = !0), Gr());
   }
   function Zr() {
     Yr = !1;
@@ -27184,30 +27243,45 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       if (!S.screenWakeOn) return;
       if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") return;
       let lock = null;
+      let wanted = false;
+      let disposed = false;
       const release = () => {
+        wanted = false;
         if (!lock) return;
         try { lock.release().catch(() => {}); } catch (_) {}
         lock = null;
       };
       const acquire = () => {
-        if (lock) return;
-        navigator.wakeLock.request("screen").then((l) => { lock = l; }).catch(() => {});
+        if (wanted) return;
+        wanted = true;
+        navigator.wakeLock.request("screen").then((l) => {
+          // The request can resolve after teardown, pause or navigation; a lock
+          // nobody wants anymore must not stay held.
+          if (disposed || !wanted) { try { l.release().catch(() => {}); } catch (_) {} return; }
+          lock = l;
+        }).catch(() => { wanted = false; });
       };
       const onState = () => {
         const vid = ie.el();
         if (vid && !vid.paused && !vid.ended && document.visibilityState === "visible") acquire();
         else release();
       };
-      const vid = ie.el();
-      if (vid) {
+      const boundTo = new WeakSet();
+      const bind = () => {
+        const vid = ie.el();
+        if (!vid || boundTo.has(vid)) return;
+        boundTo.add(vid);
         ctx.addListener(vid, "play", onState);
         ctx.addListener(vid, "pause", onState);
         ctx.addListener(vid, "ended", onState);
-      }
+      };
+      bind();
       ctx.addListener(document, "visibilitychange", onState);
-      ctx.addListener(document, "yt-navigate-finish", () => { release(); onState(); });
+      // The player element is replaced on SPA navigation, so rebind to the new
+      // one and refresh the lock once it exists.
+      ctx.addListener(document, "yt-navigate-finish", () => { release(); ctx.addTimeout(() => { bind(); onState(); }, 1200); });
       ctx.addTimeout(onState, 500);
-      Yt["screen-wake"].push(() => release());
+      Yt["screen-wake"].push(() => { disposed = true; release(); });
     },
     settings(en) { en.appendChild(Io("Keep the screen awake while playing", "screenWakeOn")); } });
 
@@ -28945,14 +29019,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const render = async () => {
         out.textContent = "Counting…";
         const lines = [];
-        try { const est = await navigator.storage.estimate(); if (est) lines.push("Browser quota used: ~" + fmtBytes(est.usage || 0) + " of " + fmtBytes(est.quota || 0)); } catch (_) {}
+        let est = null;
+        try { est = await navigator.storage.estimate(); } catch (_) {}
+        lines.push(est && est.quota
+          ? "Browser quota used: ~" + fmtBytes(est.usage || 0) + " of " + fmtBytes(est.quota || 0)
+          : "Storage estimate unavailable; showing row counts only.");
+        // count() avoids deserializing every record; total bytes come from storage.estimate().
         for (const storeName of ["kv", "history", "thumbCache", "replay"]) {
-          try {
-            const rows = await w(storeName);
-            let bytes = 0;
-            for (const r of (rows || [])) { try { bytes += JSON.stringify(r).length; } catch (_) {} }
-            lines.push(storeName + ": " + (rows ? rows.length : 0) + " rows ≈ " + fmtBytes(bytes));
-          } catch (_) { lines.push(storeName + ": unavailable"); }
+          const count = await _idbCount(storeName);
+          lines.push(storeName + ": " + (count === null ? "unavailable" : count + " rows"));
         }
         out.innerHTML = Xy("");
         const pre = document.createElement("div");
@@ -30348,6 +30423,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           button.appendChild(count);
         }
         count.textContent = format(data.dislikes);
+        count.dataset.ytbRydFor = videoId;
         count.title = "Dislike count from the Return YouTube Dislike API";
         if (!S.returnDislikeBar) return;
         const host = button.closest("ytd-menu-renderer, #top-row, #actions-inner") || button.parentElement;
@@ -30397,7 +30473,14 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
       const tick = () => {
         if (!location.pathname.startsWith("/watch")) return;
-        load(ie.videoId && ie.videoId());
+        const videoId = ie.videoId && ie.videoId();
+        if (!videoId) return;
+        // YouTube reuses the actions row across navigations. Drop the previous
+        // video's count and bar even if this video's request is slow or fails.
+        document.querySelectorAll(".ytb-ui-ryd-count, .ytb-ui-ryd-bar").forEach((el) => {
+          if (el.dataset.ytbRydFor !== videoId) el.remove();
+        });
+        load(videoId);
       };
       ctx.addInterval(tick, 2500);
       ctx.onNav(() => ctx.addTimeout(tick, 1200));
@@ -32918,7 +33001,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         try {
           window.addEventListener("beforeunload", (ev) => {
             try { Ze(); } catch (e2) {}
-            try { YourTubeResources.cleanup(); } catch (e2) {}
             e(ev);
           }, { capture: !0 });
         } catch (e) {}
@@ -32930,6 +33012,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             "pagehide",
             () => {
               try { if (typeof YourTubeEngine !== "undefined" && YourTubeEngine.flushStores) YourTubeEngine.flushStores(); } catch (_) {}
+              try { YourTubeResources.cleanup(); } catch (_) {}
               YourTubeResources.TrackedBlobURL.revokeAll();
               Ve.clear();
             },

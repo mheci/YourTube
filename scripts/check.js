@@ -67,10 +67,19 @@ for (const file of files) {
     const text = fs.readFileSync(path.join(root, "src", mod), "utf8");
     assembled += (assembled ? "\n" : "") + text;
   }
-  const tmp = path.join(require("os").tmpdir(), `yt-check-${process.pid}.js`);
-  fs.writeFileSync(tmp, assembled);
-  const result = spawnSync(process.execPath, ["--check", tmp], { encoding: "utf8" });
-  try { fs.unlinkSync(tmp); } catch (_) {}
+  let result = { status: 0, stderr: "" };
+  if (isBun) {
+    try {
+      bunTranspiler.transformSync(assembled);
+    } catch (error) {
+      result = { status: 1, stderr: String((error && error.message) || error) };
+    }
+  } else {
+    const tmp = path.join(require("os").tmpdir(), `yt-check-${process.pid}.js`);
+    fs.writeFileSync(tmp, assembled);
+    result = spawnSync(process.execPath, ["--check", tmp], { encoding: "utf8" });
+    try { fs.unlinkSync(tmp); } catch (_) {}
+  }
   if (result.status !== 0) {
     const m = /:(\d+)/.exec(result.stderr || "");
     let where = "";

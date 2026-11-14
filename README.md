@@ -148,6 +148,8 @@ npm run check     # static gate: syntax of bundle, meta and scripts; theme table
 npm run verify    # rebuild and compare sha256 against the committed bundle
 ```
 
+Bun 1.4 or newer can run the same scripts faster: `bun scripts/build-userscript.js`, `bun scripts/check.js`, and `bun scripts/verify-bundle.js`.
+
 `src/` holds thirteen fragment modules concatenated in numeric order
 (`00-header` through `90-boot`). The shipped userscript must be byte-identical
 to a rebuild from source: CI enforces that on every push and tag, and a weekly

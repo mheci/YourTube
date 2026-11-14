@@ -4605,7 +4605,8 @@
       document.body.appendChild(r),
       (gr.notesPanel = r));
   }
-  let Pr = !1;
+  let Pr = !1,
+    _feedWatched = { at: 0, ids: null };
   async function Ir() {
     if (Pr || !Xt.visible) return;
     const e = !!S.numberSearchResultsOn,
@@ -4624,9 +4625,27 @@
                 "ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,ytd-grid-video-renderer",
               ),
             ),
-            d = new Map(),
             c = Number(S.longVideoMinSec) || 1200,
             s = Number(S.shortVideoMaxSec) || 60;
+          let watched = null;
+          if (o) {
+            if (!_feedWatched.ids || Date.now() - _feedWatched.at > 15000) {
+              try {
+                const rows = await Ie();
+                _feedWatched = {
+                  at: Date.now(),
+                  ids: new Set(
+                    (rows || [])
+                      .filter((row) => row && row.videoId && (row.completed || (row.progress || 0) > 90))
+                      .map((row) => row.videoId),
+                  ),
+                };
+              } catch (_) {
+                _feedWatched = { at: Date.now(), ids: new Set() };
+              }
+            }
+            watched = _feedWatched.ids;
+          }
           for (let l = 0; l < i.length; l++) {
             const p = i[l],
               u = fr(p);
@@ -4654,25 +4673,10 @@
             } else {
               p.classList.remove("ytb-extra-live", "ytb-extra-premiere");
             }
-            if (u && o) {
-              (d.has(u) ||
-                d.set(
-                  u,
-                  Ee(u).then(
-                    (e) => !(!e || !(e.completed || (e.progress || 0) > 90)),
-                  ),
-                ),
-              d.get(u).then((e) => {
-                p.isConnected &&
-                  (p.classList.toggle(
-                    "ytb-extra-watched-dim",
-                    e && !!S.feedDimWatchedOn,
-                  ),
-                  p.classList.toggle(
-                    "ytb-extra-watched-hide",
-                    e && !!S.feedHideWatchedOn,
-                  ));
-              }));
+            if (u && o && watched) {
+              const isWatched = watched.has(u);
+              p.classList.toggle("ytb-extra-watched-dim", isWatched && !!S.feedDimWatchedOn);
+              p.classList.toggle("ytb-extra-watched-hide", isWatched && !!S.feedHideWatchedOn);
             } else if (u) {
               p.classList.remove("ytb-extra-watched-dim", "ytb-extra-watched-hide");
             }
@@ -4683,7 +4687,15 @@
         }
       }
   }
-  const Rr = () => ae(Ir, 1200);
+  let _feedScanPending = 0;
+  const Rr = () => {
+    if (_feedScanPending) return;
+    _feedScanPending = 1;
+    ae(() => {
+      _feedScanPending = 0;
+      Ir();
+    }, 1200);
+  };
   (xa.register({
     id: "auto-pause",
     name: "Auto Pause",

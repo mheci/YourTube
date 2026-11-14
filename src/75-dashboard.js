@@ -41,16 +41,17 @@
         t.classList.add("ytb-dhandle");
         const r = To("div", "ytb-dtitle");
 
-        const _grip = document.createElement("span");
-        _grip.className = "ytb-dgrip";
-        _grip.setAttribute("aria-hidden", "true");
-        _grip.textContent = "[=]";
-        const _name = document.createTextNode("YourTube, plainly.");
+        const _brandMark = document.createElement("span");
+        _brandMark.className = "ytb-brandmark";
+        _brandMark.setAttribute("aria-hidden", "true");
+        const _brandName = document.createElement("span");
+        _brandName.className = "ytb-brandname";
+        _brandName.textContent = "YourTube, plainly.";
         const _ver = document.createElement("span");
         _ver.className = "ytb-dver";
         _ver.textContent = "v" + n;
-        r.appendChild(_grip);
-        r.appendChild(_name);
+        r.appendChild(_brandMark);
+        r.appendChild(_brandName);
         r.appendChild(_ver);
         const o = To("div", "ytb-dhbtns");
         const _darkBtn = Oo(
@@ -104,6 +105,26 @@
         }
         _lookWrap.appendChild(_lookSel);
         t.appendChild(_lookWrap);
+        const _brandWrap = document.createElement("label");
+        _brandWrap.className = "ytb-lookwrap ytb-brandwrap ytb-no-drag";
+        _brandWrap.title = "Dashboard brand";
+        _brandWrap.appendChild(To("span", "ytb-looklbl", "Brand"));
+        const _brandSel = document.createElement("select");
+        _brandSel.className = "ytb-looksel ytb-brandsel";
+        _brandSel.setAttribute("aria-label", "Dashboard brand");
+        const _brandClassicOpt = document.createElement("option");
+        _brandClassicOpt.value = "classic";
+        _brandClassicOpt.textContent = "Classic (current)";
+        _brandSel.appendChild(_brandClassicOpt);
+        for (let bi = 0; bi < YT_DASH_BRANDS.length; bi++) {
+          const B = YT_DASH_BRANDS[bi];
+          const opt = document.createElement("option");
+          opt.value = B.id;
+          opt.textContent = (bi < 9 ? "0" : "") + (bi + 1) + " \u00b7 " + B.name;
+          _brandSel.appendChild(opt);
+        }
+        _brandWrap.appendChild(_brandSel);
+        t.appendChild(_brandWrap);
         const _applyLook = (lookId, persist) => {
           if (!wo) return;
           const active = YT_applyDashLook(wo, lookId, { persist: persist });
@@ -116,6 +137,15 @@
         _lookSel.addEventListener("change", () => _applyLook(_lookSel.value, true));
         So("cfg.changed", ({ key }) => {
           if (key === "dashLook" && wo) _applyLook(String(S.dashLook || "classic"), false);
+        });
+        const _applyBrand = (brandId, persist) => {
+          if (!wo) return;
+          const active = YT_applyDashBrand(wo, brandId, { persist: persist });
+          _brandSel.value = active ? active.id : "classic";
+        };
+        _brandSel.addEventListener("change", () => _applyBrand(_brandSel.value, true));
+        So("cfg.changed", ({ key }) => {
+          if (key === "dashBrand" && wo) _applyBrand(String(S.dashBrand || "classic"), false);
         });
         const c = document.createElement("input");
         ((c.type = "search"),
@@ -355,6 +385,7 @@
                 ),
               ));
             wo.appendChild(t);
+            _applyBrand(String(S.dashBrand || "classic"), false);
             wo.appendChild(_main);
             wo.appendChild(y);
           })(),

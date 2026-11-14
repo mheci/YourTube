@@ -361,21 +361,24 @@
         ublockStyle.id = "ytb-ublock-css";
         (document.head || document.documentElement).appendChild(ublockStyle);
       }
-      const rebuildCSS = () => {
-        try { ublockStyle.textContent = UBlockEngine.generateCSS(parsed.cssFilters); } catch (_) {}
-      };
-      rebuildCSS();
-
-
+      // Bound per-scan procedural work: the block list is user-supplied and unbounded.
+      const MAX_SCAN_FILTERS = 100;
+      const scanProc = parsed.procFilters.slice(0, MAX_SCAN_FILTERS);
+      const scanPaths = parsed.pathFilters.slice(0, MAX_SCAN_FILTERS);
       let procRunning = false;
       const runProcedural = async () => {
         if (procRunning || _a()) return;
         procRunning = true;
         try {
-          UBlockEngine.applyProcedural(parsed.procFilters, parsed.pathFilters);
+          UBlockEngine.applyProcedural(scanProc, scanPaths);
         } catch (_) {}
         procRunning = false;
       };
+      const rebuildCSS = () => {
+        try { ublockStyle.textContent = UBlockEngine.generateCSS(parsed.cssFilters); } catch (_) {}
+        if (scanProc.length > 0 || scanPaths.length > 0) runProcedural();
+      };
+      rebuildCSS();
 
 
       const checkPathBlock = () => {
@@ -424,14 +427,11 @@
               }
             }
           }
-
-          if (parsed.procFilters.length > 0 || parsed.pathFilters.length > 0) {
-            await runProcedural();
-          }
         } finally { scanning = false; }
       };
-      e.addTimeout(scanDOM, 600);
-      e.addInterval(() => { e.addTimeout(scanDOM, 800); }, 3000);
+      const tickScan = async () => { await scanDOM(); await runProcedural(); };
+      e.addTimeout(tickScan, 600);
+      e.addInterval(() => { e.addTimeout(tickScan, 800); }, 3000);
 
 
       if (document.body) {

@@ -5664,7 +5664,8 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
     _brCss = "",
     _brTools = null,
     _brLastScan = 0,
-    _brKey = "";
+    _brKey = "",
+    _brTokens = null;
   const _BR_BUDGET = 30;
   const _BR_MIN_GAP = 400;
   const _BR_SCAN_WINDOW = 20000;
@@ -5712,7 +5713,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
   const _BR_DARK_LAYER = /^rgba\(0,0,0,0\.?(0?5|1|15)\)$/;
   const _BR_LIGHT_LAYER = /^rgba\(255,255,255,0?\.?(0?5|1|15|2|3)\)$/;
   function _brCollect() {
-
+    if (_brTokens) return _brTokens;
     const out = new Map();
     let sheets;
     try {
@@ -5770,6 +5771,8 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         walk(rules);
       } catch (e) {}
     }
+    // The stylesheet observer clears this when a sheet node lands, so repeated scans reuse one walk.
+    if (out.size) _brTokens = out;
     return out;
   }
   function _brRgba(hex, alpha) {
@@ -5899,6 +5902,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
     _brTools = null;
     _brCss = "";
     _brKey = "";
+    _brTokens = null;
     _brScans = 0;
     _brLastScan = 0;
     if (_brMO) { try { _brMO.disconnect(); } catch (e) {} _brMO = null; }
@@ -5926,6 +5930,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
       _brScans = 0;
       _brLastScan = 0;
       _brKey = key;
+      _brTokens = null;
     }
     _brEnsureMounted();
     _brScan();
@@ -5943,6 +5948,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
           try { _brMO.disconnect(); } catch (e) {}
           observedHead = document.head;
           try { _brMO.observe(observedHead, { childList: true }); } catch (e) {}
+          _brTokens = null;
           _brSchedule(true);
           return;
         }
@@ -5953,6 +5959,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
               (node.tagName === "LINK" || node.tagName === "STYLE" ||
                 (node.querySelector && node.querySelector("link,style"))))
               stylesheetAdded = true;
+        if (stylesheetAdded) _brTokens = null;
         if (!_brEl || !_brEl.isConnected || stylesheetAdded)
           _brSchedule(stylesheetAdded);
       });
@@ -6094,7 +6101,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
     }
   }
   function Xr() {
-    Yr || ((Yr = !0), Gr());
+    if (!Yr || !document.getElementById(Wr)) ((Yr = !0), Gr());
   }
   function Zr() {
     Yr = !1;

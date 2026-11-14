@@ -86,6 +86,27 @@ const YT_BRAND_BASE = `
 .ytb-dash:not([data-look]) .ytb-brandmark{color:var(--acc)}
 .ytb-dash .ytb-brandmark svg{width:20px;height:20px;display:block;overflow:visible}
 .ytb-dash .ytb-brandname{min-width:0}
+.ytb-dash.ytb-narrow .ytb-dver{display:none}
+.ytb-dash .ytb-brandwrap{position:relative}
+.ytb-dash .ytb-brandbtn.ytb-looksel{display:inline-flex;align-items:center;gap:6px;max-width:150px;min-width:0;padding:4px 8px;background-image:none;appearance:none;text-align:left;cursor:pointer}
+.ytb-dash .ytb-brandbtnmark{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex-shrink:0;color:var(--acc);font:700 8px/1 var(--mono)}
+.ytb-dash .ytb-brandbtnmark svg{width:15px;height:15px;display:block}
+.ytb-dash .ytb-brandbtnname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ytb-dash .ytb-brandbtnarrow{flex-shrink:0;color:var(--ink3);font-size:9px}
+.ytb-dash .ytb-brandpick{position:absolute;inset:0;z-index:60;display:flex;flex-direction:column;gap:10px;background:var(--panel);color:var(--ink);padding:14px 16px}
+.ytb-dash .ytb-brandpick[hidden]{display:none}
+.ytb-dash .ytb-brandpickhead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.ytb-dash .ytb-brandpicktitle{font-size:15px;font-weight:700}
+.ytb-dash .ytb-brandpickclose{appearance:none;border:0;background:transparent;color:var(--ink2);font:11px/1 var(--mono);cursor:pointer;padding:4px 6px}
+.ytb-dash .ytb-brandpickgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;overflow-y:auto;padding:2px 2px 8px;scrollbar-width:thin}
+.ytb-dash.ytb-narrow .ytb-brandpickgrid{grid-template-columns:1fr 1fr}
+.ytb-dash .ytb-brandpickitem{display:flex;align-items:center;gap:7px;min-width:0;padding:7px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--ink);cursor:pointer;font:inherit;text-align:left}
+.ytb-dash .ytb-brandpickitem:hover{border-color:var(--acc)}
+.ytb-dash .ytb-brandpickitem.selected{border-color:var(--acc);background:var(--acc-dim)}
+.ytb-dash .ytb-brandpickmark{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex-shrink:0;color:var(--acc);font:700 10px/1 var(--mono)}
+.ytb-dash .ytb-brandpickmark svg{width:20px;height:20px;display:block}
+.ytb-dash .ytb-brandpickname{font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ytb-dash .ytb-brandpickitem:focus-visible,.ytb-dash .ytb-brandbtn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 `;
 
 function YT_applyDashBrand(dash, id, opts) {

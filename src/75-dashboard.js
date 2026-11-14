@@ -105,26 +105,66 @@
         }
         _lookWrap.appendChild(_lookSel);
         t.appendChild(_lookWrap);
-        const _brandWrap = document.createElement("label");
+        const _brandWrap = document.createElement("div");
         _brandWrap.className = "ytb-lookwrap ytb-brandwrap ytb-no-drag";
-        _brandWrap.title = "Dashboard brand";
         _brandWrap.appendChild(To("span", "ytb-looklbl", "Brand"));
-        const _brandSel = document.createElement("select");
-        _brandSel.className = "ytb-looksel ytb-brandsel";
-        _brandSel.setAttribute("aria-label", "Dashboard brand");
-        const _brandClassicOpt = document.createElement("option");
-        _brandClassicOpt.value = "classic";
-        _brandClassicOpt.textContent = "Classic (current)";
-        _brandSel.appendChild(_brandClassicOpt);
-        for (let bi = 0; bi < YT_DASH_BRANDS.length; bi++) {
-          const B = YT_DASH_BRANDS[bi];
-          const opt = document.createElement("option");
-          opt.value = B.id;
-          opt.textContent = (bi < 9 ? "0" : "") + (bi + 1) + " \u00b7 " + B.name;
-          _brandSel.appendChild(opt);
-        }
-        _brandWrap.appendChild(_brandSel);
+        const _brandBtn = document.createElement("button");
+        _brandBtn.type = "button";
+        _brandBtn.className = "ytb-looksel ytb-brandbtn";
+        _brandBtn.title = "Choose a dashboard brand";
+        _brandBtn.setAttribute("aria-haspopup", "dialog");
+        _brandBtn.setAttribute("aria-expanded", "false");
+        const _brandBtnMark = document.createElement("span");
+        _brandBtnMark.className = "ytb-brandbtnmark";
+        _brandBtnMark.setAttribute("aria-hidden", "true");
+        const _brandBtnName = document.createElement("span");
+        _brandBtnName.className = "ytb-brandbtnname";
+        _brandBtnName.textContent = "Classic";
+        const _brandBtnArrow = document.createElement("span");
+        _brandBtnArrow.className = "ytb-brandbtnarrow";
+        _brandBtnArrow.textContent = "\u25be";
+        _brandBtn.appendChild(_brandBtnMark);
+        _brandBtn.appendChild(_brandBtnName);
+        _brandBtn.appendChild(_brandBtnArrow);
+        _brandWrap.appendChild(_brandBtn);
         t.appendChild(_brandWrap);
+        const _brandPick = document.createElement("div");
+        _brandPick.className = "ytb-brandpick";
+        _brandPick.hidden = true;
+        _brandPick.setAttribute("role", "dialog");
+        _brandPick.setAttribute("aria-label", "Choose a dashboard brand");
+        const _brandPickHead = document.createElement("div");
+        _brandPickHead.className = "ytb-brandpickhead";
+        _brandPickHead.appendChild(To("span", "ytb-brandpicktitle", "Dashboard brand"));
+        const _brandPickClose = document.createElement("button");
+        _brandPickClose.type = "button";
+        _brandPickClose.className = "ytb-brandpickclose";
+        _brandPickClose.textContent = "[x]";
+        _brandPickClose.title = "Close brand picker";
+        _brandPickHead.appendChild(_brandPickClose);
+        _brandPick.appendChild(_brandPickHead);
+        const _brandPickGrid = document.createElement("div");
+        _brandPickGrid.className = "ytb-brandpickgrid";
+        const _mkBrandPick = (id, name, mark) => {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "ytb-brandpickitem";
+          item.dataset.brand = id;
+          const markEl = document.createElement("span");
+          markEl.className = "ytb-brandpickmark";
+          if (mark) markEl.innerHTML = mark;
+          else markEl.textContent = "[=]";
+          const nameEl = document.createElement("span");
+          nameEl.className = "ytb-brandpickname";
+          nameEl.textContent = name;
+          item.appendChild(markEl);
+          item.appendChild(nameEl);
+          item.addEventListener("click", () => { _applyBrand(id, true); _closeBrandPick(); });
+          _brandPickGrid.appendChild(item);
+        };
+        _mkBrandPick("classic", "Classic", "");
+        for (const B of YT_DASH_BRANDS) _mkBrandPick(B.id, B.name, B.mark);
+        _brandPick.appendChild(_brandPickGrid);
         const _applyLook = (lookId, persist) => {
           if (!wo) return;
           const active = YT_applyDashLook(wo, lookId, { persist: persist });
@@ -141,9 +181,28 @@
         const _applyBrand = (brandId, persist) => {
           if (!wo) return;
           const active = YT_applyDashBrand(wo, brandId, { persist: persist });
-          _brandSel.value = active ? active.id : "classic";
+          const id = active ? active.id : "classic";
+          _brandBtnName.textContent = active ? active.name : "Classic";
+          _brandBtnMark.innerHTML = active ? active.mark : "[=]";
+          _brandPick.querySelectorAll(".ytb-brandpickitem").forEach((el) => {
+            el.classList.toggle("selected", el.dataset.brand === id);
+          });
         };
-        _brandSel.addEventListener("change", () => _applyBrand(_brandSel.value, true));
+        const _openBrandPick = () => {
+          _brandPick.hidden = false;
+          _brandBtn.setAttribute("aria-expanded", "true");
+          const selected = _brandPick.querySelector(".ytb-brandpickitem.selected") || _brandPick.querySelector(".ytb-brandpickitem");
+          if (selected) selected.focus();
+        };
+        const _closeBrandPick = () => {
+          if (_brandPick.hidden) return;
+          _brandPick.hidden = true;
+          _brandBtn.setAttribute("aria-expanded", "false");
+          _brandBtn.focus();
+        };
+        _brandBtn.addEventListener("click", () => { _brandPick.hidden ? _openBrandPick() : _closeBrandPick(); });
+        _brandPickClose.addEventListener("click", _closeBrandPick);
+        _brandPick.addEventListener("click", (ev) => { if (ev.target === _brandPick) _closeBrandPick(); });
         So("cfg.changed", ({ key }) => {
           if (key === "dashBrand" && wo) _applyBrand(String(S.dashBrand || "classic"), false);
         });
@@ -388,6 +447,7 @@
             _applyBrand(String(S.dashBrand || "classic"), false);
             wo.appendChild(_main);
             wo.appendChild(y);
+            wo.appendChild(_brandPick);
           })(),
           document.body.appendChild(wo),
           (function () {
@@ -404,6 +464,11 @@
           (function () {
             const _esc = (ev) => {
               if (ev.key !== "Escape") return;
+              if (wo && wo.querySelector(".ytb-brandpick:not([hidden])")) {
+                ev.preventDefault();
+                _closeBrandPick();
+                return;
+              }
               const tag = ((ev.target && ev.target.tagName) || "").toUpperCase();
               if (tag === "INPUT" || tag === "TEXTAREA" || (ev.target && ev.target.isContentEditable)) return;
               ev.preventDefault();

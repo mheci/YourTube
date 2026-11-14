@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.12.0
+// @version      1.12.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.12.0", // stamped at build time; was a drifting hard-coded literal
+      "1.12.1", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -23083,26 +23083,66 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         }
         _lookWrap.appendChild(_lookSel);
         t.appendChild(_lookWrap);
-        const _brandWrap = document.createElement("label");
+        const _brandWrap = document.createElement("div");
         _brandWrap.className = "ytb-lookwrap ytb-brandwrap ytb-no-drag";
-        _brandWrap.title = "Dashboard brand";
         _brandWrap.appendChild(To("span", "ytb-looklbl", "Brand"));
-        const _brandSel = document.createElement("select");
-        _brandSel.className = "ytb-looksel ytb-brandsel";
-        _brandSel.setAttribute("aria-label", "Dashboard brand");
-        const _brandClassicOpt = document.createElement("option");
-        _brandClassicOpt.value = "classic";
-        _brandClassicOpt.textContent = "Classic (current)";
-        _brandSel.appendChild(_brandClassicOpt);
-        for (let bi = 0; bi < YT_DASH_BRANDS.length; bi++) {
-          const B = YT_DASH_BRANDS[bi];
-          const opt = document.createElement("option");
-          opt.value = B.id;
-          opt.textContent = (bi < 9 ? "0" : "") + (bi + 1) + " \u00b7 " + B.name;
-          _brandSel.appendChild(opt);
-        }
-        _brandWrap.appendChild(_brandSel);
+        const _brandBtn = document.createElement("button");
+        _brandBtn.type = "button";
+        _brandBtn.className = "ytb-looksel ytb-brandbtn";
+        _brandBtn.title = "Choose a dashboard brand";
+        _brandBtn.setAttribute("aria-haspopup", "dialog");
+        _brandBtn.setAttribute("aria-expanded", "false");
+        const _brandBtnMark = document.createElement("span");
+        _brandBtnMark.className = "ytb-brandbtnmark";
+        _brandBtnMark.setAttribute("aria-hidden", "true");
+        const _brandBtnName = document.createElement("span");
+        _brandBtnName.className = "ytb-brandbtnname";
+        _brandBtnName.textContent = "Classic";
+        const _brandBtnArrow = document.createElement("span");
+        _brandBtnArrow.className = "ytb-brandbtnarrow";
+        _brandBtnArrow.textContent = "\u25be";
+        _brandBtn.appendChild(_brandBtnMark);
+        _brandBtn.appendChild(_brandBtnName);
+        _brandBtn.appendChild(_brandBtnArrow);
+        _brandWrap.appendChild(_brandBtn);
         t.appendChild(_brandWrap);
+        const _brandPick = document.createElement("div");
+        _brandPick.className = "ytb-brandpick";
+        _brandPick.hidden = true;
+        _brandPick.setAttribute("role", "dialog");
+        _brandPick.setAttribute("aria-label", "Choose a dashboard brand");
+        const _brandPickHead = document.createElement("div");
+        _brandPickHead.className = "ytb-brandpickhead";
+        _brandPickHead.appendChild(To("span", "ytb-brandpicktitle", "Dashboard brand"));
+        const _brandPickClose = document.createElement("button");
+        _brandPickClose.type = "button";
+        _brandPickClose.className = "ytb-brandpickclose";
+        _brandPickClose.textContent = "[x]";
+        _brandPickClose.title = "Close brand picker";
+        _brandPickHead.appendChild(_brandPickClose);
+        _brandPick.appendChild(_brandPickHead);
+        const _brandPickGrid = document.createElement("div");
+        _brandPickGrid.className = "ytb-brandpickgrid";
+        const _mkBrandPick = (id, name, mark) => {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "ytb-brandpickitem";
+          item.dataset.brand = id;
+          const markEl = document.createElement("span");
+          markEl.className = "ytb-brandpickmark";
+          if (mark) markEl.innerHTML = mark;
+          else markEl.textContent = "[=]";
+          const nameEl = document.createElement("span");
+          nameEl.className = "ytb-brandpickname";
+          nameEl.textContent = name;
+          item.appendChild(markEl);
+          item.appendChild(nameEl);
+          item.addEventListener("click", () => { _applyBrand(id, true); _closeBrandPick(); });
+          _brandPickGrid.appendChild(item);
+        };
+        _mkBrandPick("classic", "Classic", "");
+        for (const B of YT_DASH_BRANDS) _mkBrandPick(B.id, B.name, B.mark);
+        _brandPick.appendChild(_brandPickGrid);
         const _applyLook = (lookId, persist) => {
           if (!wo) return;
           const active = YT_applyDashLook(wo, lookId, { persist: persist });
@@ -23119,9 +23159,28 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         const _applyBrand = (brandId, persist) => {
           if (!wo) return;
           const active = YT_applyDashBrand(wo, brandId, { persist: persist });
-          _brandSel.value = active ? active.id : "classic";
+          const id = active ? active.id : "classic";
+          _brandBtnName.textContent = active ? active.name : "Classic";
+          _brandBtnMark.innerHTML = active ? active.mark : "[=]";
+          _brandPick.querySelectorAll(".ytb-brandpickitem").forEach((el) => {
+            el.classList.toggle("selected", el.dataset.brand === id);
+          });
         };
-        _brandSel.addEventListener("change", () => _applyBrand(_brandSel.value, true));
+        const _openBrandPick = () => {
+          _brandPick.hidden = false;
+          _brandBtn.setAttribute("aria-expanded", "true");
+          const selected = _brandPick.querySelector(".ytb-brandpickitem.selected") || _brandPick.querySelector(".ytb-brandpickitem");
+          if (selected) selected.focus();
+        };
+        const _closeBrandPick = () => {
+          if (_brandPick.hidden) return;
+          _brandPick.hidden = true;
+          _brandBtn.setAttribute("aria-expanded", "false");
+          _brandBtn.focus();
+        };
+        _brandBtn.addEventListener("click", () => { _brandPick.hidden ? _openBrandPick() : _closeBrandPick(); });
+        _brandPickClose.addEventListener("click", _closeBrandPick);
+        _brandPick.addEventListener("click", (ev) => { if (ev.target === _brandPick) _closeBrandPick(); });
         So("cfg.changed", ({ key }) => {
           if (key === "dashBrand" && wo) _applyBrand(String(S.dashBrand || "classic"), false);
         });
@@ -23366,6 +23425,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
             _applyBrand(String(S.dashBrand || "classic"), false);
             wo.appendChild(_main);
             wo.appendChild(y);
+            wo.appendChild(_brandPick);
           })(),
           document.body.appendChild(wo),
           (function () {
@@ -23382,6 +23442,11 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
           (function () {
             const _esc = (ev) => {
               if (ev.key !== "Escape") return;
+              if (wo && wo.querySelector(".ytb-brandpick:not([hidden])")) {
+                ev.preventDefault();
+                _closeBrandPick();
+                return;
+              }
               const tag = ((ev.target && ev.target.tagName) || "").toUpperCase();
               if (tag === "INPUT" || tag === "TEXTAREA" || (ev.target && ev.target.isContentEditable)) return;
               ev.preventDefault();
@@ -25366,7 +25431,6 @@ const YT_LOOK_BASE = `
 .ytb-dash .ytb-lookwrap{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;margin:0 6px 0 10px;cursor:pointer}
 .ytb-dash .ytb-looklbl{font:600 9px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
 .ytb-dash .ytb-looksel{appearance:none;-webkit-appearance:none;max-width:160px;padding:4px 20px 4px 7px;background-color:var(--panel2);background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 12px) 50%,calc(100% - 8px) 50%;background-size:4px 4px,4px 4px;background-repeat:no-repeat;color:var(--ink);border:1px solid var(--line2);border-radius:6px;font:10.5px/1.2 "Segoe UI",system-ui,sans-serif;outline:none}
-.ytb-dash .ytb-brandsel{max-width:140px}
 .ytb-dash .ytb-looksel:focus{border-color:var(--acc)}
 `;
 
@@ -25577,6 +25641,27 @@ const YT_BRAND_BASE = `
 .ytb-dash:not([data-look]) .ytb-brandmark{color:var(--acc)}
 .ytb-dash .ytb-brandmark svg{width:20px;height:20px;display:block;overflow:visible}
 .ytb-dash .ytb-brandname{min-width:0}
+.ytb-dash.ytb-narrow .ytb-dver{display:none}
+.ytb-dash .ytb-brandwrap{position:relative}
+.ytb-dash .ytb-brandbtn.ytb-looksel{display:inline-flex;align-items:center;gap:6px;max-width:150px;min-width:0;padding:4px 8px;background-image:none;appearance:none;text-align:left;cursor:pointer}
+.ytb-dash .ytb-brandbtnmark{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex-shrink:0;color:var(--acc);font:700 8px/1 var(--mono)}
+.ytb-dash .ytb-brandbtnmark svg{width:15px;height:15px;display:block}
+.ytb-dash .ytb-brandbtnname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ytb-dash .ytb-brandbtnarrow{flex-shrink:0;color:var(--ink3);font-size:9px}
+.ytb-dash .ytb-brandpick{position:absolute;inset:0;z-index:60;display:flex;flex-direction:column;gap:10px;background:var(--panel);color:var(--ink);padding:14px 16px}
+.ytb-dash .ytb-brandpick[hidden]{display:none}
+.ytb-dash .ytb-brandpickhead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.ytb-dash .ytb-brandpicktitle{font-size:15px;font-weight:700}
+.ytb-dash .ytb-brandpickclose{appearance:none;border:0;background:transparent;color:var(--ink2);font:11px/1 var(--mono);cursor:pointer;padding:4px 6px}
+.ytb-dash .ytb-brandpickgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;overflow-y:auto;padding:2px 2px 8px;scrollbar-width:thin}
+.ytb-dash.ytb-narrow .ytb-brandpickgrid{grid-template-columns:1fr 1fr}
+.ytb-dash .ytb-brandpickitem{display:flex;align-items:center;gap:7px;min-width:0;padding:7px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--ink);cursor:pointer;font:inherit;text-align:left}
+.ytb-dash .ytb-brandpickitem:hover{border-color:var(--acc)}
+.ytb-dash .ytb-brandpickitem.selected{border-color:var(--acc);background:var(--acc-dim)}
+.ytb-dash .ytb-brandpickmark{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex-shrink:0;color:var(--acc);font:700 10px/1 var(--mono)}
+.ytb-dash .ytb-brandpickmark svg{width:20px;height:20px;display:block}
+.ytb-dash .ytb-brandpickname{font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ytb-dash .ytb-brandpickitem:focus-visible,.ytb-dash .ytb-brandbtn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 `;
 
 function YT_applyDashBrand(dash, id, opts) {

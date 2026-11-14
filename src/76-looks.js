@@ -624,7 +624,6 @@ const YT_LOOK_BASE = `
 .ytb-dash .ytb-lookwrap{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;margin:0 6px 0 10px;cursor:pointer}
 .ytb-dash .ytb-looklbl{font:600 9px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
 .ytb-dash .ytb-looksel{appearance:none;-webkit-appearance:none;max-width:160px;padding:4px 20px 4px 7px;background-color:var(--panel2);background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 12px) 50%,calc(100% - 8px) 50%;background-size:4px 4px,4px 4px;background-repeat:no-repeat;color:var(--ink);border:1px solid var(--line2);border-radius:6px;font:10.5px/1.2 "Segoe UI",system-ui,sans-serif;outline:none}
-.ytb-dash .ytb-brandsel{max-width:140px}
 .ytb-dash .ytb-looksel:focus{border-color:var(--acc)}
 `;
 

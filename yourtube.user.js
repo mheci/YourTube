@@ -31183,10 +31183,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const host = button.closest("ytd-menu-renderer, #top-row, #actions-inner") || button.parentElement;
         if (!host) return;
         const existing = host.querySelector(".ytb-ui-ryd-bar");
-        // The actions row is reused across navigations; a bar left over from a
-        // previous video must be replaced, not treated as current.
-        if (existing && existing.dataset.ytbRydFor === videoId) return;
-        if (existing) existing.remove();
+        // The actions row is reused across navigations and YouTube can move the
+        // button between hosts; keep exactly one bar for the current video.
+        if (existing && existing.dataset.ytbRydFor === videoId) {
+          document.querySelectorAll(".ytb-ui-ryd-bar").forEach((el) => {
+            if (el !== existing) el.remove();
+          });
+          return;
+        }
+        document.querySelectorAll(".ytb-ui-ryd-bar").forEach((el) => el.remove());
         const total = (data.likes || 0) + (data.dislikes || 0);
         if (!total) return;
         const likePct = Math.round(((data.likes || 0) / total) * 100);

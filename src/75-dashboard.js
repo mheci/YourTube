@@ -34,10 +34,9 @@
           wo.setAttribute("role", "dialog"),
           wo.setAttribute("aria-label", "YourTube dashboard"));
         wo.classList.toggle("ytb-dark", String(S.dashMode || "light") === "dark");
-        const _unsubDashMode = g.on("cfg.changed", ({ key }) => {
+        So("cfg.changed", ({ key }) => {
           if (key === "dashMode" && wo) wo.classList.toggle("ytb-dark", String(S.dashMode || "light") === "dark");
         });
-        "function" == typeof _unsubDashMode && typeof Co !== "undefined" && Co.push(() => { try { _unsubDashMode(); } catch (_) {} });
         const t = To("div", "ytb-dhdr");
         t.classList.add("ytb-dhandle");
         const r = To("div", "ytb-dtitle");
@@ -85,6 +84,39 @@
           o.appendChild(d),
           t.appendChild(r),
           t.appendChild(o));
+        const _lookWrap = document.createElement("label");
+        _lookWrap.className = "ytb-lookwrap ytb-no-drag";
+        _lookWrap.title = "Dashboard look";
+        _lookWrap.appendChild(To("span", "ytb-looklbl", "Look"));
+        const _lookSel = document.createElement("select");
+        _lookSel.className = "ytb-looksel";
+        _lookSel.setAttribute("aria-label", "Dashboard look");
+        const _classicOpt = document.createElement("option");
+        _classicOpt.value = "classic";
+        _classicOpt.textContent = "Classic (current)";
+        _lookSel.appendChild(_classicOpt);
+        for (let li = 0; li < YT_DASH_LOOKS.length; li++) {
+          const L = YT_DASH_LOOKS[li];
+          const opt = document.createElement("option");
+          opt.value = L.id;
+          opt.textContent = (li < 9 ? "0" : "") + (li + 1) + " \u00b7 " + L.name;
+          _lookSel.appendChild(opt);
+        }
+        _lookWrap.appendChild(_lookSel);
+        t.appendChild(_lookWrap);
+        const _applyLook = (lookId, persist) => {
+          if (!wo) return;
+          const active = YT_applyDashLook(wo, lookId, { persist: persist });
+          if (active) wo.classList.remove("ytb-dark");
+          else wo.classList.toggle("ytb-dark", String(S.dashMode || "light") === "dark");
+          if (_darkBtn) _darkBtn.style.display = active ? "none" : "";
+          _lookSel.value = active ? active.id : "classic";
+        };
+        _applyLook(String(S.dashLook || "classic"), false);
+        _lookSel.addEventListener("change", () => _applyLook(_lookSel.value, true));
+        So("cfg.changed", ({ key }) => {
+          if (key === "dashLook" && wo) _applyLook(String(S.dashLook || "classic"), false);
+        });
         const c = document.createElement("input");
         ((c.type = "search"),
           (c.className = "ytb-search ytb-no-drag"),
@@ -261,14 +293,13 @@
             // pages for core view hold only the core grid (p is shared)
             _applyCat(_activeCat);
             let _syncQueued = !1;
-            const _unsubCfg = g.on("cfg.changed", () => {
+            So("cfg.changed", () => {
               if (_syncQueued || !wo) return;
               _syncQueued = !0;
               const sync = () => { _syncQueued = !1; if (wo) _updateCounts(); };
               if (typeof requestAnimationFrame === "function") requestAnimationFrame(sync);
               else setTimeout(sync, 60);
             });
-            "function" == typeof _unsubCfg && Co.push(() => { try { _unsubCfg(); } catch (_) {} });
             // Live text filter overrides the active category while searching.
             c.addEventListener(
               "input",
@@ -328,6 +359,17 @@
             wo.appendChild(y);
           })(),
           document.body.appendChild(wo),
+          (function () {
+            const _syncNarrow = () => {
+              if (wo) wo.classList.toggle("ytb-narrow", wo.offsetWidth > 0 && wo.offsetWidth < 620);
+            };
+            _syncNarrow();
+            if (typeof ResizeObserver === "function") {
+              const _ro = new ResizeObserver(_syncNarrow);
+              _ro.observe(wo);
+              Co.push(() => _ro.disconnect());
+            }
+          })(),
           (function () {
             const _esc = (ev) => {
               if (ev.key !== "Escape") return;

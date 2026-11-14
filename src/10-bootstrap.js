@@ -879,6 +879,7 @@
         (e.sbTimeWithSkips = !0),  // showTimeWithSkips
         (e.sbRenderChapters = !0), // renderSegmentsAsChapters
         (e.dashMode = "light"),    // dashboard palette: "light" (Calm paper) | "dark"
+        (e.dashLook = "classic"),  // dashboard skin: "classic" or a YT_DASH_LOOKS id
         (e.sbRenderChapters = !0), // renderSegmentsAsChapters
         e
       );

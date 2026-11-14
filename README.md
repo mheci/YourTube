@@ -22,7 +22,9 @@ Latest release: [github.com/mheci/YourTube/releases](https://github.com/mheci/Yo
 - A theme engine that rewrites YouTube's design tokens rather than patching
   individual elements; text and icon colors are contrast-checked against every
   surface they sit on.
-- The dashboard itself has a light and a dark mode, switched from its header.
+- The dashboard itself has a light and a dark mode, plus a Classic option and 20
+  switchable visual looks (Swiss, terminal, pixel, noir and the rest), chosen
+  from its header and remembered locally.
 - Static header, unclamped titles, fixed player heights, a custom description
   width and fixed thumbnail sizes for search, the watch sidebar and channel
   grids, each behind its own toggle.

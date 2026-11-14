@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.10.1
+// @version      1.10.2
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.10.1", // stamped at build time; was a drifting hard-coded literal
+      "1.10.2", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -14711,6 +14711,7 @@ algoBlockChannels: "",
       masterKey: "flipVideoOn",
       keys: ["flipVideoOn", "flipVideoH", "flipVideoV", "videoFiltersOn"],
       apply(e) {
+        if (!S.flipVideoOn) return;
         if (!S.videoFiltersOn) {
           e.addStyle("video.html5-main-video,#movie_player video{transform:scaleX(var(--ytb-flip-h,1)) scaleY(var(--ytb-flip-v,1))!important}");
         }
@@ -15756,9 +15757,9 @@ algoBlockChannels: "",
       };
       (a(),
         So("net.updated", ee(a, 500)),
-        So("cfg.changed", (e) => {
-          "netMonitorRange" === e.key && a();
-        }));
+        So("cfg.changed", ee((e) => {
+          if (["netMonitorRange", "netBudgetOn", "netBudgetGB", "netQualityAttribOn"].includes(e.key)) a();
+        }, 200)));
     },
   }),
     xa.register({
@@ -24524,6 +24525,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         pausedDialogConfirmBtn: _ytbPausedDialogConfirmBtn,
 
         apply: (id) => xa.apply(id),
+        set: (key, value) => Ta(key, value),
         quarantined: () => Array.from(va.keys()).filter((id) => xa.isQuarantined(id)),
         resources: () => YourTubeResources.stats(),
         get cfg() { return S; },
@@ -31576,7 +31578,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     id: "sub-group-add", name: "Assign to Group",
     summary: "Adds the open channel to one of your groups.",
       cat: "channels",
-    masterKey: "subGroupsOn", keys: [],
+    masterKey: "subGroupsOn", keys: ["subGroupsOn"],
     apply(ctx) {
       if (!S.subGroupsOn) return;
       const store = YourTubeEngine.createStore("__yourtube_groups__", {});

@@ -1678,6 +1678,7 @@
         pausedDialogConfirmBtn: _ytbPausedDialogConfirmBtn,
 
         apply: (id) => xa.apply(id),
+        set: (key, value) => Ta(key, value),
         quarantined: () => Array.from(va.keys()).filter((id) => xa.isQuarantined(id)),
         resources: () => YourTubeResources.stats(),
         get cfg() { return S; },

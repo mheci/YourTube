@@ -149,6 +149,22 @@ for (const file of files) {
   }
 })();
 const bundle = fs.readFileSync(path.join(root, "yourtube.user.js"), "utf8");
+
+// A master switch must reapply its own card. If the master key is missing from
+// the card's keys list, clicking the switch changes S but never calls apply.
+(function validateMasterKeys() {
+  const re = /masterKey:\s*"([^"]+)"\s*,\s*keys:\s*\[([^\]]*)\]/g;
+  const bad = [];
+  for (const match of bundle.matchAll(re)) {
+    if (!match[2].includes('"' + match[1] + '"')) bad.push(match[1]);
+  }
+  if (bad.length) {
+    failed++;
+    process.stderr.write("check: master keys missing from their own keys list: " + bad.join(", ") + "\n");
+  } else {
+    console.log("check: every master switch is in its own keys list.");
+  }
+})();
 if (hasExplosion(bundle)) {
   failed++;
   process.stderr.write("check: yourtube.user.js contains a character-exploded line run (corruption).\n");

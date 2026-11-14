@@ -7040,7 +7040,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     id: "sub-group-add", name: "Assign to Group",
     summary: "Adds the open channel to one of your groups.",
       cat: "channels",
-    masterKey: "subGroupsOn", keys: [],
+    masterKey: "subGroupsOn", keys: ["subGroupsOn"],
     apply(ctx) {
       if (!S.subGroupsOn) return;
       const store = YourTubeEngine.createStore("__yourtube_groups__", {});

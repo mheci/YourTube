@@ -2684,6 +2684,7 @@
       masterKey: "flipVideoOn",
       keys: ["flipVideoOn", "flipVideoH", "flipVideoV", "videoFiltersOn"],
       apply(e) {
+        if (!S.flipVideoOn) return;
         if (!S.videoFiltersOn) {
           e.addStyle("video.html5-main-video,#movie_player video{transform:scaleX(var(--ytb-flip-h,1)) scaleY(var(--ytb-flip-v,1))!important}");
         }
@@ -3729,9 +3730,9 @@
       };
       (a(),
         So("net.updated", ee(a, 500)),
-        So("cfg.changed", (e) => {
-          "netMonitorRange" === e.key && a();
-        }));
+        So("cfg.changed", ee((e) => {
+          if (["netMonitorRange", "netBudgetOn", "netBudgetGB", "netQualityAttribOn"].includes(e.key)) a();
+        }, 200)));
     },
   }),
     xa.register({

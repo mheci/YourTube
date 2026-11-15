@@ -1013,8 +1013,9 @@ algoBlockChannels: "",
         sbSeekbar: !0,
         sbHud: !1,
         sessionRestoreOn: !1,
-        sessionResumeMode: "silent",
+        sessionResumeMode: "card",
         sessionResumeDesign: "default",
+        sessionResumePromptMigrated: !1,
         fpsCounterOn: !1,
         fpsCounterPos: "tl",
         bufferHealthOn: !1,
@@ -1673,6 +1674,10 @@ algoBlockChannels: "",
       (S.highlightShortVideosOn =
         "short" === S.highlightVideoLengthMode ||
         "both" === S.highlightVideoLengthMode));
+    if (!S.sessionResumePromptMigrated && "silent" === S.sessionResumeMode) {
+      S.sessionResumeMode = "card";
+    }
+    S.sessionResumePromptMigrated = !0;
     if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
     else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
     else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";
@@ -4585,12 +4590,11 @@ algoBlockChannels: "",
       Te = null;
     }
     Ze();
+    Qe();
   }
   async function Ke() {
     if (!S.sessionRestoreOn) return;
 
-    Ma.awaitingResume = !1;
-    Ma.awaitingResumeVid = null;
     if (!Ke._gateInstalled) {
       Ke._gateInstalled = !0;
       try {
@@ -4621,6 +4625,10 @@ algoBlockChannels: "",
 
     const e = ie.videoId();
     if (!e || e === ke) return;
+    Ma.awaitingResume = !1;
+    Ma.awaitingResumeVid = null;
+    Ze();
+    Qe();
     if (((ke = e), (xe = !1), (we = Date.now()), clearInterval(ve), Te)) {
       try {
         Te();
@@ -4631,7 +4639,7 @@ algoBlockChannels: "",
       _a() || document.hidden || Ye();
     }, 5e3);
 
-    window.__ytbZeTimer = setTimeout(() => { try { Ze(); } catch (e) {} }, 30000);
+    window.__ytbZeTimer = setTimeout(() => { try { Qe(); Ze(); } catch (e) {} }, 30000);
     const t = Date.now();
     let a = await Ee(e);
     (a
@@ -4686,6 +4694,10 @@ algoBlockChannels: "",
               a.thumbnail && We(e, a.thumbnail),
               g.emit("history.updated", { videoId: e })));
         }));
+    if (!a.completed && !(a.lastPosition > 0) && a.progress > 1 && a.duration > 0) {
+      a.lastPosition = Math.min(a.duration, Math.round((a.progress / 100) * a.duration));
+      await Be(a);
+    }
     const n = (() => {
       try {
         const e = location.href.match(/[?&#]t=([0-9]+)/);
@@ -4810,19 +4822,29 @@ algoBlockChannels: "",
                   try {
                     o.disconnect();
                   } catch (e) {}
-              }, 8e3);
+              }, 2e4);
             })(a)
-          : setTimeout(() => {
-              const e = ie.el();
-              e &&
-                isFinite(e.duration) &&
+          : (function () {
+              let _cardTries = 40;
+              const _showCard = () => {
+                const e = ie.el();
+                if (!(e && isFinite(e.duration) && e.duration > 0)) {
+                  if (--_cardTries > 0 && ie.videoId() === a.videoId) setTimeout(_showCard, 500);
+                  return;
+                }
                 (function (e, t) {
+                  Ze();
+                  if (!document.body) return;
                   if (e) {
                     Ma.awaitingResume = !0;
                     Ma.awaitingResumeVid = e.videoId || null;
                     Ma.awaitingResumeSince = Date.now();
+                    try {
+                      const v = ie.el();
+                      if (v && e.lastPosition > 0 && isFinite(e.lastPosition)) v.currentTime = e.lastPosition;
+                      if (v && !v.paused) v.pause();
+                    } catch (_) {}
                   }
-                  if ((Ze(), !document.body)) return;
                   const a = document.createElement("div");
                   a.id = "ytb-resume-card";
                   a.className = "ytb-resume-card-small";
@@ -4917,14 +4939,16 @@ algoBlockChannels: "",
                   Oe = a;
                   setTimeout(() => {
                     Oe === a && Ze();
-                  }, 15e3);
+                  }, 30e3);
                 })(a, () => {
                   try {
                     if (ie.videoId() && a.videoId && ie.videoId() !== a.videoId) { Ze(); return; } ((e.currentTime = a.lastPosition), e.play && e.play().catch(() => {}));
                   } catch (e) {}
                   pe("Resumed at " + ce(a.lastPosition), 1800, "success");
                 });
-            }, 1500)),
+              };
+              _showCard();
+            })()),
       !Te)
     ) {
       const e = () => {
@@ -4947,6 +4971,7 @@ algoBlockChannels: "",
       Ce = !0;
       try {
         if (!S.sessionRestoreOn) return;
+        if (Ma.awaitingResume) return;
         if (document.hidden) {
           const e = ie.el();
           if (e && e.paused) return;
@@ -5195,6 +5220,7 @@ algoBlockChannels: "",
       } catch (e) {}
     }
 
+    const _entry = e;
     Ae = (function () {
       const e = ie.api();
       const t = ie.el();
@@ -5210,7 +5236,10 @@ algoBlockChannels: "",
         }
       } catch (e) {}
 
-      try { t && !t.paused && t.pause(); } catch (e) {}
+      try {
+        if (t && _entry.lastPosition > 0 && isFinite(_entry.lastPosition)) t.currentTime = _entry.lastPosition;
+        if (t && !t.paused) t.pause();
+      } catch (e) {}
       try { e && "function" == typeof e.pauseVideo && e.pauseVideo(); } catch (e) {}
       return function () {
         try { if (e) for (const k of Object.keys(a)) e[k] = a[k]; } catch (e) {}
@@ -11345,6 +11374,21 @@ algoBlockChannels: "",
       keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
       apply(e) {
         if (!S.sessionRestoreOn) return void Ue();
+        e.addStyle(
+          "#ytb-resume-card{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483640;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto;background:rgba(20,22,28,.94);border:1px solid rgba(255,255,255,.14);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.55),0 4px 14px rgba(0,0,0,.4);color:#fff;font:13px/1.4 system-ui,-apple-system,sans-serif;backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);animation:ytbResumeCardIn .18s ease-out}" +
+          "@keyframes ytbResumeCardIn{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}" +
+          "@media (prefers-reduced-motion:reduce){#ytb-resume-card{animation:none}}" +
+          "body.ytb-calm #ytb-resume-card{border-color:var(--ytbc-line2)!important;box-shadow:var(--ytbc-shadow)!important}" +
+          "body.ytb-calm #ytb-resume-card .ytb-resume-cta{color:var(--ytbc-acc)!important}" +
+          "body.ytb-calm #ytb-resume-card .ytb-resume-title{color:var(--ytbc-ink3)!important}" +
+          "body.ytb-calm #ytb-resume-card .ytb-resume-btn-secondary{background:var(--ytbc-card-hi)!important;color:var(--ytbc-ink)!important;border:1px solid var(--ytbc-line2)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-eyebrow{color:var(--ytbc-acc)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-title{color:var(--ytbc-ink)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-meta{color:var(--ytbc-ink3)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-body{color:var(--ytbc-ink2)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-footer{color:var(--ytbc-ink3)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-dismiss{color:var(--ytbc-ink3)!important}",
+        );
         const t = () => {
             const e = ie.videoId();
             e && Xe(e, { duration: ie.el() ? ie.el().duration : 0 });

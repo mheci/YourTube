@@ -2714,6 +2714,21 @@
       keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
       apply(e) {
         if (!S.sessionRestoreOn) return void Ue();
+        e.addStyle(
+          "#ytb-resume-card{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483640;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto;background:rgba(20,22,28,.94);border:1px solid rgba(255,255,255,.14);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.55),0 4px 14px rgba(0,0,0,.4);color:#fff;font:13px/1.4 system-ui,-apple-system,sans-serif;backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);animation:ytbResumeCardIn .18s ease-out}" +
+          "@keyframes ytbResumeCardIn{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}" +
+          "@media (prefers-reduced-motion:reduce){#ytb-resume-card{animation:none}}" +
+          "body.ytb-calm #ytb-resume-card{border-color:var(--ytbc-line2)!important;box-shadow:var(--ytbc-shadow)!important}" +
+          "body.ytb-calm #ytb-resume-card .ytb-resume-cta{color:var(--ytbc-acc)!important}" +
+          "body.ytb-calm #ytb-resume-card .ytb-resume-title{color:var(--ytbc-ink3)!important}" +
+          "body.ytb-calm #ytb-resume-card .ytb-resume-btn-secondary{background:var(--ytbc-card-hi)!important;color:var(--ytbc-ink)!important;border:1px solid var(--ytbc-line2)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-eyebrow{color:var(--ytbc-acc)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-title{color:var(--ytbc-ink)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-meta{color:var(--ytbc-ink3)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-body{color:var(--ytbc-ink2)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-footer{color:var(--ytbc-ink3)!important}" +
+          "body.ytb-calm #ytb-resume-overlay .ytb-resume-dismiss{color:var(--ytbc-ink3)!important}",
+        );
         const t = () => {
             const e = ie.videoId();
             e && Xe(e, { duration: ie.el() ? ie.el().duration : 0 });

@@ -976,8 +976,9 @@ algoBlockChannels: "",
         sbSeekbar: !0,
         sbHud: !1,
         sessionRestoreOn: !1,
-        sessionResumeMode: "silent",
+        sessionResumeMode: "card",
         sessionResumeDesign: "default",
+        sessionResumePromptMigrated: !1,
         fpsCounterOn: !1,
         fpsCounterPos: "tl",
         bufferHealthOn: !1,
@@ -1636,6 +1637,10 @@ algoBlockChannels: "",
       (S.highlightShortVideosOn =
         "short" === S.highlightVideoLengthMode ||
         "both" === S.highlightVideoLengthMode));
+    if (!S.sessionResumePromptMigrated && "silent" === S.sessionResumeMode) {
+      S.sessionResumeMode = "card";
+    }
+    S.sessionResumePromptMigrated = !0;
     if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
     else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
     else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";

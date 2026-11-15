@@ -685,12 +685,11 @@
       Te = null;
     }
     Ze();
+    Qe();
   }
   async function Ke() {
     if (!S.sessionRestoreOn) return;
 
-    Ma.awaitingResume = !1;
-    Ma.awaitingResumeVid = null;
     if (!Ke._gateInstalled) {
       Ke._gateInstalled = !0;
       try {
@@ -721,6 +720,10 @@
 
     const e = ie.videoId();
     if (!e || e === ke) return;
+    Ma.awaitingResume = !1;
+    Ma.awaitingResumeVid = null;
+    Ze();
+    Qe();
     if (((ke = e), (xe = !1), (we = Date.now()), clearInterval(ve), Te)) {
       try {
         Te();
@@ -731,7 +734,7 @@
       _a() || document.hidden || Ye();
     }, 5e3);
 
-    window.__ytbZeTimer = setTimeout(() => { try { Ze(); } catch (e) {} }, 30000);
+    window.__ytbZeTimer = setTimeout(() => { try { Qe(); Ze(); } catch (e) {} }, 30000);
     const t = Date.now();
     let a = await Ee(e);
     (a
@@ -786,6 +789,10 @@
               a.thumbnail && We(e, a.thumbnail),
               g.emit("history.updated", { videoId: e })));
         }));
+    if (!a.completed && !(a.lastPosition > 0) && a.progress > 1 && a.duration > 0) {
+      a.lastPosition = Math.min(a.duration, Math.round((a.progress / 100) * a.duration));
+      await Be(a);
+    }
     const n = (() => {
       try {
         const e = location.href.match(/[?&#]t=([0-9]+)/);
@@ -910,19 +917,29 @@
                   try {
                     o.disconnect();
                   } catch (e) {}
-              }, 8e3);
+              }, 2e4);
             })(a)
-          : setTimeout(() => {
-              const e = ie.el();
-              e &&
-                isFinite(e.duration) &&
+          : (function () {
+              let _cardTries = 40;
+              const _showCard = () => {
+                const e = ie.el();
+                if (!(e && isFinite(e.duration) && e.duration > 0)) {
+                  if (--_cardTries > 0 && ie.videoId() === a.videoId) setTimeout(_showCard, 500);
+                  return;
+                }
                 (function (e, t) {
+                  Ze();
+                  if (!document.body) return;
                   if (e) {
                     Ma.awaitingResume = !0;
                     Ma.awaitingResumeVid = e.videoId || null;
                     Ma.awaitingResumeSince = Date.now();
+                    try {
+                      const v = ie.el();
+                      if (v && e.lastPosition > 0 && isFinite(e.lastPosition)) v.currentTime = e.lastPosition;
+                      if (v && !v.paused) v.pause();
+                    } catch (_) {}
                   }
-                  if ((Ze(), !document.body)) return;
                   const a = document.createElement("div");
                   a.id = "ytb-resume-card";
                   a.className = "ytb-resume-card-small";
@@ -1017,14 +1034,16 @@
                   Oe = a;
                   setTimeout(() => {
                     Oe === a && Ze();
-                  }, 15e3);
+                  }, 30e3);
                 })(a, () => {
                   try {
                     if (ie.videoId() && a.videoId && ie.videoId() !== a.videoId) { Ze(); return; } ((e.currentTime = a.lastPosition), e.play && e.play().catch(() => {}));
                   } catch (e) {}
                   pe("Resumed at " + ce(a.lastPosition), 1800, "success");
                 });
-            }, 1500)),
+              };
+              _showCard();
+            })()),
       !Te)
     ) {
       const e = () => {
@@ -1047,6 +1066,7 @@
       Ce = !0;
       try {
         if (!S.sessionRestoreOn) return;
+        if (Ma.awaitingResume) return;
         if (document.hidden) {
           const e = ie.el();
           if (e && e.paused) return;
@@ -1295,6 +1315,7 @@
       } catch (e) {}
     }
 
+    const _entry = e;
     Ae = (function () {
       const e = ie.api();
       const t = ie.el();
@@ -1310,7 +1331,10 @@
         }
       } catch (e) {}
 
-      try { t && !t.paused && t.pause(); } catch (e) {}
+      try {
+        if (t && _entry.lastPosition > 0 && isFinite(_entry.lastPosition)) t.currentTime = _entry.lastPosition;
+        if (t && !t.paused) t.pause();
+      } catch (e) {}
       try { e && "function" == typeof e.pauseVideo && e.pauseVideo(); } catch (e) {}
       return function () {
         try { if (e) for (const k of Object.keys(a)) e[k] = a[k]; } catch (e) {}

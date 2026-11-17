@@ -6032,7 +6032,6 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         "ytd-mini-guide-renderer{background:" + GLASS_BG + "!important;border-right:1px solid rgba(255,255,255,.08)!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}",
         "#guide-content{background:" + GLASS_BG + "!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}",
         "#guide-inner-content,#guide-renderer{background:transparent!important}",
-        "#app-drawer{background:rgba(18,20,26,.7)!important;backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}",
         "#primary,#secondary,#below,ytd-watch-flexy{background:transparent!important}",
         "ytd-rich-grid-renderer,#contents.ytd-rich-grid-renderer{background:transparent!important}",
         "ytd-rich-item-renderer,ytd-rich-grid-media,ytd-video-renderer,ytd-playlist-video-renderer,ytd-grid-video-renderer{background:" + GLASS_BG2 + "!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:14px!important;backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);box-shadow:0 6px 18px rgba(0,0,0,.25)}",

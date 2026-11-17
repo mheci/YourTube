@@ -32,3 +32,22 @@ jobs:
         run: npm run check && npm run verify
       - name: Verify bundle matches sources
         run: git diff --exit-code -- yourtube.user.js yourtube.meta.js
+
+  guide-overlay:
+    name: Chromium guide regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install test-only driver
+        run: |
+          /usr/bin/python3.12 -m venv "$RUNNER_TEMP/guide-venv"
+          "$RUNNER_TEMP/guide-venv/bin/python" -m pip install --only-binary=:all: --require-hashes -r tests/requirements-guide-ci.txt
+      - name: Check overlay and persistent guide paint with the runner's Chrome
+        run: |
+          chrome="$(command -v google-chrome)"
+          "$chrome" --version
+          "$RUNNER_TEMP/guide-venv/bin/python" tests/guide_overlay.py --browser "$chrome"

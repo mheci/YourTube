@@ -152,7 +152,13 @@ npm run verify    # rebuild and compare sha256 against the committed bundle
 
 Bun 1.4 or newer can run the same scripts faster: `bun scripts/build-userscript.js`, `bun scripts/check.js`, and `bun scripts/verify-bundle.js`.
 
-`src/` holds thirteen fragment modules concatenated in numeric order
+The Quality workflow also runs `tests/guide_overlay.py` against its installed Chrome.
+This offline fixture checks the actual assembled userscript in dark, light, glass and
+native modes. The test driver is a development-only dependency. To repeat locally
+with a compatible Python environment and browser, run `python -m pip install playwright`
+then `python tests/guide_overlay.py --browser /path/to/chromium`.
+
+`src/` holds fourteen fragment modules concatenated in numeric order
 (`00-header` through `90-boot`). The shipped userscript must be byte-identical
 to a rebuild from source: CI enforces that on every push and tag, and a weekly
 workflow rebuilds the tagged release and compares hashes against what the

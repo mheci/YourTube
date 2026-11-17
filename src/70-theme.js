@@ -438,11 +438,11 @@
             ),
             k.push(
               [
+                // The drawer host spans the viewport in overlay mode. Paint
+                // only the sliding panel; YouTube owns the scrim and its fade.
                 "ytd-guide-renderer",
                 "ytd-mini-guide-renderer",
-                "tp-yt-app-drawer",
-                "tp-yt-app-drawer .ytd-app",
-                "tp-yt-app-drawer ytd-app",
+                "tp-yt-app-drawer#guide #contentContainer",
                 "#guide-content.ytd-app",
                 "ytd-guide-renderer.ytd-app",
               ].join(",") +

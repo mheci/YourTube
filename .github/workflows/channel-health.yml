@@ -28,19 +28,23 @@ jobs:
     permissions:
       contents: read
       issues: write
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Resolve latest release tag
         id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Expected a stable vMAJOR.MINOR.PATCH tag" >&2; exit 1
+          fi
           echo "Latest published release: ${tag}"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - name: Check out tagged tree
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ steps.rel.outputs.tag }}
 
       - name: Set up Node.js
@@ -51,6 +55,8 @@ jobs:
 
       - name: Audit channel
         id: audit
+        env:
+          RELEASE_TAG: ${{ steps.rel.outputs.tag }}
         run: |
           set -u
           : > diagnostics.txt
@@ -60,7 +66,7 @@ jobs:
           failnote() { printf '%s\n' "$1" >> channel-log.txt; printf '%s\n' "$1" >> diagnostics.txt; fail=1; }
           check() { if [ "$2" = "$3" ]; then note "PASS: $1 ($2)"; else failnote "FAIL: $1 (expected $3, got $2)"; fi; }
 
-          tag="${{ steps.rel.outputs.tag }}"
+          tag="$RELEASE_TAG"
           expected="${tag#v}"
 
           pkg_version="$(node -p 'require("./package.json").version')"
@@ -112,8 +118,12 @@ jobs:
 
       - name: Report result
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.rel.outputs.tag }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
         run: |
-          if [ "${{ steps.audit.outcome }}" != "success" ] && [ ! -s diagnostics.txt ]; then
+          if [ "$AUDIT_OUTCOME" != "success" ] && [ ! -s diagnostics.txt ]; then
             echo "Channel audit did not produce diagnostics; leaving any open issue untouched." >&2
             exit 1
           fi
@@ -121,7 +131,7 @@ jobs:
             {
               echo "Automated channel audit failed."
               echo ""
-              echo "- Release under audit: ${{ steps.rel.outputs.tag }}"
+              printf '%s\n' "- Release under audit: $RELEASE_TAG"
               echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
               echo "- Detected: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
               echo ''

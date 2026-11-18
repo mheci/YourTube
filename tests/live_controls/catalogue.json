@@ -495,7 +495,7 @@
  },
  {
   "id": "click-logo-to-subs",
-  "name": "Logo \u00e2\u2020\u2019 Subscriptions",
+  "name": "Logo â†’ Subscriptions",
   "cat": "channels",
   "master": "logoToSubsOn",
   "keys": [
@@ -709,7 +709,7 @@
  },
  {
   "id": "redirect-shorts",
-  "name": "Shorts \u00e2\u2020\u2019 Player",
+  "name": "Shorts â†’ Player",
   "cat": "playback",
   "master": "redirectShortsOn",
   "keys": [
@@ -1068,26 +1068,6 @@
   "summary": "Topic-based search discovery with watch-history dedup, no algorithm."
  },
  {
-  "id": "credibility-layer",
-  "name": "Credibility Badges",
-  "cat": "insights",
-  "master": "credLayerOn",
-  "keys": [
-   "credLayerOn"
-  ],
-  "summary": "Upload-age and channel-trust badges on cards."
- },
- {
-  "id": "dead-link-detector",
-  "name": "Outdated Content Flags",
-  "cat": "insights",
-  "master": "deadLinkOn",
-  "keys": [
-   "deadLinkOn"
-  ],
-  "summary": "Warns when search results reference stale content."
- },
- {
   "id": "curated-collections",
   "name": "Collections",
   "cat": "insights",
@@ -1107,29 +1087,9 @@
    "algoAutoTrain",
    "algoBlockTopics",
    "algoBlockKeywords",
-   "algoBlockChannels",
-   "algoScanInterval",
-   "algoStrength",
-   "algoBoostOn",
-   "algoBoostInterval",
-   "algoDiversityOn",
-   "algoDiversityMax",
-   "algoAutoLikeOn",
-   "algoAutoLikePct",
-   "algoAutoDislikeOn",
-   "algoShortsOn"
+   "algoBlockChannels"
   ],
-  "summary": "Reorders your feed by freshness, variety and interest fit."
- },
- {
-  "id": "screen-wake",
-  "name": "Screen Wake Lock",
-  "cat": "playback",
-  "master": "screenWakeOn",
-  "keys": [
-   "screenWakeOn"
-  ],
-  "summary": "Requests a wake lock while a video plays."
+  "summary": "Locally hides feed cards matching topic, keyword and channel filters; no account feedback."
  },
  {
   "id": "perf-mode",
@@ -1166,30 +1126,6 @@
    "overlayHubPos"
   ],
   "summary": "Docks every performance meter into one HUD."
- },
- {
-  "id": "watch-budget",
-  "name": "Watch Budget",
-  "cat": "wellness",
-  "master": "watchBudgetOn",
-  "keys": [
-   "watchBudgetOn",
-   "watchBudgetMinutes"
-  ],
-  "summary": "Daily watch limit with soft nudges and a configurable cap."
- },
- {
-  "id": "shorts-policy",
-  "name": "Shorts Schedule",
-  "cat": "wellness",
-  "master": "shortsScheduleOn",
-  "keys": [
-   "shortsScheduleOn",
-   "shortsScheduleMode",
-   "shortsScheduleStart",
-   "shortsScheduleEnd"
-  ],
-  "summary": "Allows or blocks Shorts by time of day."
  },
  {
   "id": "silence-skipper",
@@ -1254,60 +1190,6 @@
    "instantReplaySec"
   ],
   "summary": "Alt+J replays the last N seconds."
- },
- {
-  "id": "sleep-timer",
-  "name": "Sleep Timer",
-  "cat": "wellness",
-  "master": "sleepTimerOn",
-  "keys": [
-   "sleepTimerOn",
-   "sleepTimerMin"
-  ],
-  "summary": "Alt+O: pauses after N minutes with a volume fade."
- },
- {
-  "id": "stretch-reminder",
-  "name": "Stretch Reminder",
-  "cat": "wellness",
-  "master": "stretchReminderOn",
-  "keys": [
-   "stretchReminderOn",
-   "stretchEveryMin"
-  ],
-  "summary": "Reminder after long uninterrupted sessions."
- },
- {
-  "id": "intention-lock",
-  "name": "Session Intention",
-  "cat": "wellness",
-  "master": "intentionLockOn",
-  "keys": [
-   "intentionLockOn"
-  ],
-  "summary": "Shows your stated intent before watching; stays visible."
- },
- {
-  "id": "end-winddown",
-  "name": "Wind-Down Gate",
-  "cat": "wellness",
-  "master": "endWindDownOn",
-  "keys": [
-   "endWindDownOn",
-   "windDownSec"
-  ],
-  "summary": "Autoplay stops behind a continue screen."
- },
- {
-  "id": "shorts-marathon-guard",
-  "name": "Shorts Marathon Guard",
-  "cat": "wellness",
-  "master": "shortsMarathonOn",
-  "keys": [
-   "shortsMarathonOn",
-   "shortsMarathonN"
-  ],
-  "summary": "Interrupts after N consecutive Shorts."
  },
  {
   "id": "feed-freshness",
@@ -1477,16 +1359,6 @@
    "readerModeOn"
   ],
   "summary": "Renders long descriptions in a clean reading panel."
- },
- {
-  "id": "breather",
-  "name": "Breather",
-  "cat": "wellness",
-  "master": "ytbBreatherOn",
-  "keys": [
-   "ytbBreatherOn"
-  ],
-  "summary": "Alt+G opens a one-minute breathing exercise."
  },
  {
   "id": "aio-player-tools",

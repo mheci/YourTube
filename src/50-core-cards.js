@@ -1100,7 +1100,7 @@
                   fa(e, t);
                 }
           };
-          if (a === document.body && r && r.childList && r.subtree) {
+          if (a === document.body && r && r.childList && r.subtree && !r.characterData && !r.attributes) {
             const e =
               ((o = i),
               !oa &&

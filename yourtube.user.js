@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.12.6
+// @version      1.12.7-rc.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.12.6", // stamped at build time; was a drifting hard-coded literal
+      "1.12.7-rc.1", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -5268,7 +5268,7 @@ const WatchSessions = (() => {
               });
           } catch (_) {}
         }
-        if (changed && belongs(s) && S.algoIntelligenceOn && typeof AlgoEngine !== 'undefined')
+        if (changed && belongs(s) && S.algoIntelligenceOn && S.algoAutoTrain && typeof AlgoEngine !== 'undefined')
           try {
             AlgoEngine.SignalTracker.trackWatch(s.id, z.pos, z.dur);
           } catch (_) {}
@@ -10136,7 +10136,7 @@ function mountWatchLibrary(parent) {
                   fa(e, t);
                 }
           };
-          if (a === document.body && r && r.childList && r.subtree) {
+          if (a === document.body && r && r.childList && r.subtree && !r.characterData && !r.attributes) {
             const e =
               ((o = i),
               !oa &&
@@ -14756,30 +14756,25 @@ function mountWatchLibrary(parent) {
       cat: "feed",
       masterKey: "hideTopLiveGamesOn",
       keys: ["hideTopLiveGamesOn"],
-      apply(e) {
+      apply(ctx) {
         if (!S.hideTopLiveGamesOn) return;
-        const t = () => {
-          const a = document.querySelectorAll("ytd-shelf-renderer");
-          for (const n of a) {
-            if (n.dataset && n.dataset.ytbTLGHidden) continue;
-            const r = n.querySelector("h2");
-            if (r && /top live games/i.test(r.textContent || "")) {
-              (n.style.display = "none"), (n.dataset.ytbTLGHidden = "1");
+        const owned = new Map();
+        const scan = () => {
+          for (const node of document.querySelectorAll("ytd-shelf-renderer")) {
+            if (owned.has(node)) continue;
+            const title = node.querySelector("h2");
+            if (title && /top live games/i.test(title.textContent || "")) {
+              owned.set(node, node.style.display);
+              node.style.display = "none";
             }
           }
+          for (const node of owned.keys()) if (!node.isConnected) owned.delete(node);
         };
-        t();
-
-        const a = new MutationObserver(ee(t, 300));
-        a.observe(document.body || document.documentElement, { childList: !0, subtree: !0 });
+        scan();
+        if (document.body) ctx.addObserver(document.body, ctx.debounce(scan, 300), {childList:true, subtree:true});
         Yt["hide-top-live-games"].push(() => {
-          try {
-            a.disconnect();
-          } catch (e) {}
-          document.querySelectorAll("ytd-shelf-renderer[data-ytb-t-l-g-hidden]").forEach((e) => {
-            e.style.display = "";
-            delete e.dataset.ytbTLGHidden;
-          });
+          for (const [node, previous] of owned) if (node.style.display === "none") node.style.display = previous;
+          owned.clear();
         });
       },
       settings(e) {
@@ -26528,119 +26523,16 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       return { trackWatch, trackLike, trackFeedback, getProfile, getChannels, getRecentSignals, clearHistory, getStore: () => store };
     })();
 
-    const SignalInjector = (() => {
-
-      const sendFeedback = async (feedbackToken, action) => {
-
-        try { if (typeof S !== "undefined" && S && S.algoIntelligenceOn !== true) return false; } catch (_) {}
-        if (!RateLimiter.canProceed("feedback")) return false;
-        try {
-          const result = await Ot("feedback", {
-            context: Mt(),
-            feedbackTokens: [feedbackToken],
-            isFeedbackTokenUnencrypted: false,
-            shouldMerge: false,
-          });
-          if (result && result.ok) {
-            SignalTracker.trackFeedback(feedbackToken, action || "feedback");
-            return true;
-          }
-        } catch (_) {}
-        return false;
-      };
-
-      const sendLike = async (videoId, action = "like") => {
-
-        try { if (typeof S !== "undefined" && S && S.algoIntelligenceOn !== true) return false; } catch (_) {}
-        if (!videoId || !RateLimiter.canProceed("like")) return false;
-        try {
-          const endpoint = action === "like" ? "like/like" : action === "dislike" ? "like/dislike" : "like/removelike";
-          const result = await Ot(endpoint, {
-            context: Mt(),
-            target: { videoId },
-          });
-          if (result && result.ok) {
-            SignalTracker.trackLike(videoId, action);
-            return true;
-          }
-        } catch (_) {}
-        return false;
-      };
-
-      const simulateWatch = async (videoId, durationSec = 30) => {
-
-        try { if (typeof S !== "undefined" && S && S.algoIntelligenceOn !== true) return false; } catch (_) {}
-        if (!videoId || !RateLimiter.canProceed("player")) return false;
-        try {
-          const cpn = generateCPN();
-          const result = await Ot("player", {
-            context: Mt(),
-            videoId,
-            cpn,
-            contentCheckOk: true,
-            racyCheckOk: true,
-            playbackContext: {
-              contentPlaybackContext: {
-                vis: 0,
-                lactMilliseconds: "1000",
-              },
-            },
-          });
-          if (result && result.ok) {
-
-            await sendWatchTime(videoId, cpn, durationSec);
-            SignalTracker.trackWatch(videoId, durationSec, durationSec + 10);
-            return true;
-          }
-        } catch (_) {}
-        return false;
-      };
-
-      const sendWatchTime = async (videoId, cpn, watchSec) => {
-        try {
-
-          if (typeof qt === "function") {
-            qt(videoId, watchSec + 10, watchSec, "playing", cpn);
-          }
-        } catch (_) {}
-      };
-
-      const generateCPN = () => {
-        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-        let cpn = "";
-        const arr = new Uint8Array(16);
-        crypto.getRandomValues(arr);
-        for (let i = 0; i < 16; i++) cpn += chars[arr[i] % chars.length];
-        return cpn;
-      };
-
-      const browseChannel = async (channelId) => {
-        if (!channelId || !RateLimiter.canProceed("browse")) return false;
-        try {
-          const result = await Ot("browse", {
-            context: Mt(),
-            browseId: channelId,
-          });
-          return result && result.ok;
-        } catch (_) {}
-        return false;
-      };
-
-      const searchTopic = async (query) => {
-
-        if (!query || !RateLimiter.canProceed("search")) return false;
-        try {
-          const result = await Ot("search", {
-            context: Mt(),
-            query,
-          });
-          return result && result.ok;
-        } catch (_) {}
-        return false;
-      };
-
-      return { sendFeedback, sendLike, simulateWatch, browseChannel, searchTopic, generateCPN };
-    })();
+    // Legacy training actions previously sent account-affecting feedback,
+    // reactions and artificial watch/search signals. Keep their old call sites
+    // inert during migration; local data and Discover do not depend on them.
+    const SignalInjector = Object.freeze({
+      sendFeedback: async () => false,
+      sendLike: async () => false,
+      simulateWatch: async () => false,
+      browseChannel: async () => false,
+      searchTopic: async () => false,
+    });
 
     const extractMenuTokens = (menuEl) => {
       const empty = { notInterestedToken: "", dontRecommendToken: "" };
@@ -27439,100 +27331,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         "One toggle for discovery. Browse 8+ categories inside or outside your niche. Picks are filtered against your watch history while Session History is on, and never repeat within a session."));
     } });
 
-  xa.register({ id: "credibility-layer", name: "Credibility Badges", summary: "Upload-age and channel-trust badges on cards.",
-      cat: "insights", masterKey: "credLayerOn", keys: ["credLayerOn"],
-    apply(ctx) {
-      if (!S.credLayerOn) return;
-      YourTubeEngine.injectCSS();
-      const processCards = () => {
-        let added = 0;
-        document.querySelectorAll("ytd-video-renderer, ytd-compact-video-renderer, ytd-rich-item-renderer").forEach(card => {
-          if (card.dataset.ytbCred) return;
-          const meta = card.querySelector("#metadata-line");
 
-          if (!meta) return; // retry when YouTube hydrates metadata
-          const info = YourTubeSearch.analyzeCredibility(card);
-          if (!info || info.reach === "unknown") return;
-          const badge = document.createElement("span");
-          badge.className = "ytb-ui-cred-badge";
-          if (info.reach === "high") {
-            badge.style.cssText = "background:rgba(76,175,80,.15);color:#81c784";
-            badge.textContent = "High reach";
-          } else if (info.reach === "growing") {
-            badge.style.cssText = "background:rgba(255,193,7,.12);color:#ffd54f";
-            badge.textContent = "Growing";
-          } else {
-            badge.style.cssText = "background:rgba(33,150,243,.12);color:#64b5f6";
-            badge.textContent = "Emerging";
-          }
-          meta.appendChild(badge);
-          added++;
-          if (info.age && info.age > 730) {
-            const ab = document.createElement("span");
-            ab.className = "ytb-ui-cred-badge";
-            ab.style.cssText = "background:rgba(255,152,0,.12);color:#ffb74d";
-            ab.textContent = Math.floor(info.age / 365) + "y old";
-            ab.title = "Over 2 years old. May be outdated.";
-            meta.appendChild(ab);
-          }
-          card.dataset.ytbCred = "1";
-        });
-        return added;
-      };
 
-      const scanner = YourTubeResources.ScanScheduler.create(processCards, {
-        intervalMs: 3000,
-        minGapMs: 250,
-        maxBackoffMs: 10000,
-        label: "credibility",
-      });
-      scanner.request({ priority: true });
-      scanner.start();
-      ctx.onNav(() => scanner.request({ priority: true }));
-      ctx.addObserver(document.body, () => scanner.request({ priority: true }), { childList: true, subtree: true });
-      Yt["credibility-layer"].push(() => {
-        scanner.dispose();
-        document.querySelectorAll(".ytb-ui-cred-badge").forEach((el) => el.remove());
-        document.querySelectorAll("[data-ytb-cred]").forEach((el) => { delete el.dataset.ytbCred; });
-      });
-    },
-    settings(en) { en.appendChild(Io("Enable Credibility Layer", "credLayerOn")); } });
 
-  xa.register({ id: "dead-link-detector", name: "Outdated Content Flags", summary: "Warns when search results reference stale content.",
-      cat: "insights", masterKey: "deadLinkOn", keys: ["deadLinkOn"],
-    apply(ctx) {
-      if (!S.deadLinkOn) return;
-      YourTubeEngine.injectCSS();
-      const check = () => {
-        const ud = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span");
-        if (!ud || ud.dataset.ytbChecked) return;
-        const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/);
-        if (!dm) return;
-        const when = new Date(dm[1]).getTime();
-        // "Season 3, 2020" also matches the shape but is not a date; without
-        // this guard the badge renders "NaN years old".
-        if (!Number.isFinite(when)) return;
-        ud.dataset.ytbChecked = "1";
-        const age = Date.now() - when;
-        if (age <= 365 * 24 * 60 * 60 * 1000 * 2) return;
-        const badge = document.createElement("span");
-        badge.className = "ytb-ui-pill";
-        badge.dataset.ytbOutdated = "1";
-        badge.style.cssText = "background:rgba(255,152,0,.15);color:#ffb74d;margin-left:8px";
-        badge.textContent = Math.floor(age / (365 * 24 * 60 * 60 * 1000)) + " years old";
-        badge.title = "Over 2 years old. May be outdated.";
-        const info = document.querySelector("#info-strings, #info");
-        if (info) info.appendChild(badge);
-      };
-      YourTubeEngine.scheduleOnReady(ctx, check, { attempts: 8, delayMs: 600 });
-
-      ctx.onNav(() => ctx.addTimeout(check, 700));
-      Yt["dead-link-detector"].push(() => {
-        document.querySelectorAll("[data-ytb-outdated]").forEach((el) => el.remove());
-        document.querySelectorAll("[data-ytb-checked]").forEach((el) => { delete el.dataset.ytbChecked; });
-      });
-    },
-    settings(en) { en.appendChild(Io("Enable Outdated Content Detector", "deadLinkOn")); } });
 
   xa.register({ id: "curated-collections", name: "Collections", summary: "Organize saved videos into named collections.",
       cat: "insights", masterKey: "collectionsOn", keys: ["collectionsOn"],
@@ -27599,279 +27400,50 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
   xa.register({
     id: "algo-intelligence",
     name: "Feed Intelligence",
-    summary: "Reorders your feed by freshness, variety and interest fit.",
-      cat: "insights",
+    summary: "Locally hides feed cards matching your topic, keyword and channel filters. No account feedback is sent.",
+    cat: "insights",
     masterKey: "algoIntelligenceOn",
-    keys: ["algoIntelligenceOn", "algoAutoTrain", "algoBlockTopics", "algoBlockKeywords", "algoBlockChannels", "algoScanInterval", "algoStrength", "algoBoostOn", "algoBoostInterval", "algoDiversityOn", "algoDiversityMax", "algoAutoLikeOn", "algoAutoLikePct", "algoAutoDislikeOn", "algoShortsOn"],
+    keys: ["algoIntelligenceOn", "algoAutoTrain", "algoBlockTopics", "algoBlockKeywords", "algoBlockChannels"],
     apply(ctx) {
-      if (!S.algoIntelligenceOn) {
-        AlgoEngine.stopMonitoring();
-        return;
-      }
-
-      AlgoEngine.applyStrength(S.algoStrength || "balanced");
-
-      AlgoEngine.startMonitoring();
-      Yt["algo-intelligence"].push(() => AlgoEngine.stopMonitoring());
-
-      AlgoEngine.resetBlockLists();
-      for (const t of String(S.algoBlockTopics || "").split(/[,;\n]+/)) {
-        const trimmed = t.trim().toLowerCase();
-        if (trimmed) AlgoEngine.blockTopic(trimmed);
-      }
-      for (const kw of String(S.algoBlockKeywords || "").split(/[,;\n]+/)) {
-        const trimmed = kw.trim().toLowerCase();
-        if (trimmed) AlgoEngine.blockKeyword(trimmed);
-      }
-      for (const c of String(S.algoBlockChannels || "").split(/[,;\n]+/)) {
-        const trimmed = c.trim().toLowerCase();
-        if (trimmed) AlgoEngine.blockChannel(trimmed);
-      }
-
-      const scanInterval = Math.max(30, Number(S.algoScanInterval) || 120) * 1000;
-
+      if (!S.algoIntelligenceOn) return;
+      // Local watch signals are opt-in. No artificial reactions or training.
       if (S.algoAutoTrain) {
-        const doScan = async () => {
-          if (document.hidden || _a()) return;
-          try { await AlgoEngine.scanAndBlock(10); } catch (_) {}
-        };
-        ctx.addTimeout(doScan, 5000);
-        ctx.addInterval(doScan, scanInterval);
+        AlgoEngine.startMonitoring();
+        Yt["algo-intelligence"].push(() => AlgoEngine.stopMonitoring());
       }
-
-      if (S.algoBoostOn) {
-        const boostInterval = Math.max(10, Number(S.algoBoostInterval) || 20) * 60 * 1000;
-        const doBoost = async () => {
-          if (document.hidden || _a()) return;
-          if (!location.pathname.startsWith("/shorts")) {
-            try { await AlgoEngine.boost(6); } catch (_) {}
-          }
-        };
-        ctx.addTimeout(doBoost, 30000);
-        ctx.addInterval(doBoost, boostInterval);
-      }
-
-      if (S.algoDiversityOn) {
-        const doDiversity = async () => {
-          if (document.hidden || _a()) return;
-          try { await AlgoEngine.maybeWiden(); } catch (_) {}
-        };
-        ctx.addTimeout(doDiversity, 45000);
-        ctx.addInterval(doDiversity, scanInterval * 2);
-      }
-
-      if (S.algoShortsOn) {
-        const doShorts = async () => {
-          if (document.hidden) return;
-          try { await AlgoEngine.scanShorts(5); } catch (_) {}
-        };
-        ctx.addTimeout(doShorts, 8000);
-        ctx.addInterval(doShorts, scanInterval);
-      }
+      const words = value => String(value || "").split(/[,;\n]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+      const topics = words(S.algoBlockTopics), keywords = words(S.algoBlockKeywords), channels = words(S.algoBlockChannels);
+      if (!topics.length && !keywords.length && !channels.length) return;
+      const selector = "ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,ytd-grid-video-renderer,yt-lockup-view-model:not(ytd-rich-item-renderer *)";
+      const owned = new Set();
+      ctx.addStyle("[data-ytb-local-feed-block]{display:none!important}");
+      const scan = () => {
+        for (const node of document.querySelectorAll(selector)) {
+          const title = (node.querySelector("#video-title,.ytLockupMetadataViewModelTitle,[id=video-title-link]")?.textContent || "").trim().toLowerCase();
+          const channel = (node.querySelector("ytd-channel-name,#channel-name,.yt-lockup-metadata-view-model__metadata")?.textContent || "").trim().toLowerCase();
+          const classes = topics.length ? AlgoEngine.ContentClassifier.classify({ title }) : {};
+          const blocked = keywords.some(k => title.includes(k)) || channels.some(k => channel.includes(k)) || topics.some(k => Number(classes[k] || 0) > 25);
+          if (blocked) { node.setAttribute("data-ytb-local-feed-block", ""); owned.add(node); }
+          else if (owned.delete(node)) node.removeAttribute("data-ytb-local-feed-block");
+        }
+        for (const node of owned) if (!node.isConnected) owned.delete(node);
+      };
+      scan();
+      if (document.body) ctx.addObserver(document.body, ctx.debounce(scan, 200), { childList: true, subtree: true, characterData: true });
+      ctx.onNav(() => ctx.addTimeout(scan, 250));
+      Yt["algo-intelligence"].push(() => { for (const node of owned) node.removeAttribute("data-ytb-local-feed-block"); owned.clear(); });
     },
     settings(en) {
-      en.appendChild(Io("Enable Algorithm Intelligence", "algoIntelligenceOn"));
-      en.appendChild(Ro("Signal strength", "algoStrength", {
-        light: "Light — gentle, minimal signals",
-        balanced: "Balanced (recommended) — natural pacing",
-        aggressive: "Aggressive — maximum reshaping speed",
-      }));
-      en.appendChild(Io("Auto-scan and block mismatched recommendations", "algoAutoTrain"));
-      en.appendChild(No("Scan interval (seconds)", "algoScanInterval", 30, 600, 10, v => v + "s"));
-      en.appendChild(Io("Auto-boost your top interests (searches + likes)", "algoBoostOn"));
-      en.appendChild(No("Boost interval (minutes)", "algoBoostInterval", 10, 120, 5, v => v + "m"));
-      en.appendChild(Io("Widen feed when one topic dominates (anti filter-bubble)", "algoDiversityOn"));
-      en.appendChild(No("Diversity trigger (dominant topic %)", "algoDiversityMax", 45, 90, 5, v => v + "%"));
-      en.appendChild(Io("Auto-like strongly-aligned watches", "algoAutoLikeOn"));
-      en.appendChild(No("Auto-like at watch %", "algoAutoLikePct", 50, 100, 5, v => v + "%"));
-      en.appendChild(Io("Auto-dislike clearly-unwanted watches", "algoAutoDislikeOn"));
-      en.appendChild(Io("Shape the Shorts feed too", "algoShortsOn"));
-      en.appendChild(Ho(
-        "Blocked topics (comma-separated)",
-        "algoBlockTopics",
-        "gaming, news, entertainment"
-      ));
-      en.appendChild(Ho(
-        "Blocked keywords (comma-separated)",
-        "algoBlockKeywords",
-        "drama, clickbait, reaction"
-      ));
-      en.appendChild(Ho(
-        "Blocked channels (comma-separated)",
-        "algoBlockChannels",
-        ""
-      ));
-
-      const profileDiv = document.createElement("div");
-      profileDiv.className = "ytb-hist-note";
-      profileDiv.style.cssText = "margin-top:8px;padding:8px;background:rgba(255,255,255,.03);border-radius:6px";
-      const updateProfile = () => {
-        const p = AlgoEngine.getProfile();
-        const topicEntries = Object.entries(p.topics || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
-        let html = "<strong>Your Algorithm Profile</strong><br>";
-        html += "Videos: " + p.totalWatched + " | Avg watch: " + p.avgWatchPct + "% | Signals: " + p.sessionSignals;
-        const chans = AlgoEngine.getChannels(3);
-        if (chans.length) html += " | Top channel: " + ytbEscapeHtml(chans[0].name || "?") + " (" + chans[0].count + ")";
-        html += "<br>";
-        if (topicEntries.length) {
-          html += "Top topics: ";
-          html += topicEntries.map(([t, s]) => ytbEscapeHtml(t) + " (" + s + "%)").join(", ");
-        } else {
-          html += "Watch some videos to build your profile.";
-        }
-        const d = AlgoEngine.analyzeDiversity();
-        if (d && d.dominant) html += "<br>Feed focus: " + ytbEscapeHtml(d.dominant) + " at " + d.maxShare + "% of recommendations";
-        profileDiv.innerHTML = Xy(html);
-      };
-      updateProfile();
-      en.appendChild(profileDiv);
-
-      const actions = document.createElement("div");
-      actions.className = "ytb-rowb";
-      actions.style.marginTop = "8px";
-
-      const scanBtn = Oo("Scan & Block Now", async () => {
-        scanBtn.disabled = true;
-        scanBtn.textContent = "Scanning...";
-        try {
-          const result = await AlgoEngine.scanAndBlock(15);
-          pe("Blocked " + result.actions + " of " + result.scanned + " mismatched recommendations.", 3000, "success");
-        } catch (_) {
-          pe("Scan failed.", 2000, "error");
-        }
-        scanBtn.disabled = false;
-        scanBtn.textContent = "Scan & Block Now";
-        updateProfile();
-      }, "primary");
-
-      const boostBtn = Oo("Boost Interests", async () => {
-        boostBtn.disabled = true;
-        boostBtn.textContent = "Boosting...";
-        try {
-          const r = await AlgoEngine.boost(6);
-          pe("Boost sent: " + r.searches + " searches, " + r.likes + " likes, " + r.browsed + " channel visits.", 3000, "success");
-        } catch (_) {
-          pe("Boost failed.", 2000, "error");
-        }
-        boostBtn.disabled = false;
-        boostBtn.textContent = "Boost Interests";
-        updateProfile();
-      });
-
-      const widenBtn = Oo("Widen Bubble", async () => {
-        widenBtn.disabled = true;
-        widenBtn.textContent = "Widening...";
-        try {
-          const n = await AlgoEngine.widen(4);
-          pe("Explored " + n + " new topics outside your bubble.", 3000, "success");
-        } catch (_) {
-          pe("Widen failed.", 2000, "error");
-        }
-        widenBtn.disabled = false;
-        widenBtn.textContent = "Widen Bubble";
-        updateProfile();
-      });
-
-      const shortsBtn = Oo("Scan Shorts", async () => {
-        shortsBtn.disabled = true;
-        shortsBtn.textContent = "Scanning shorts...";
-        try {
-          const r = await AlgoEngine.scanShorts(5);
-          pe("Shorts: blocked " + r.actions + " of " + r.scanned + " visible shorts.", 3000, "success");
-        } catch (_) {
-          pe("Shorts scan failed.", 2000, "error");
-        }
-        shortsBtn.disabled = false;
-        shortsBtn.textContent = "Scan Shorts";
-      });
-
-      const analyzeBtn = Oo("Analyze Feed", () => {
-        const analysis = AlgoEngine.analyzeHomepage();
-        const mismatches = AlgoEngine.findMismatches();
-        const div = AlgoEngine.analyzeDiversity();
-        let msg = "Feed analysis: " + analysis.count + " recommendations. ";
-        msg += "Topic distribution: " + Object.entries(analysis.topicDistribution).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t, s]) => t + " " + s + "%").join(", ");
-        msg += ". Mismatches: " + mismatches.length;
-        if (div && div.dominant) msg += ". Most concentrated topic: " + div.dominant + " (" + div.maxShare + "%)";
-        pe(msg, 6000, "info");
-      });
-
-      const resetBtn = Oo("Reset Signal History", () => {
-        AlgoEngine.clearSignalHistory();
-        pe("Algorithm signal history cleared.", 2000, "success");
-        updateProfile();
-      });
-
-      actions.appendChild(scanBtn);
-      actions.appendChild(boostBtn);
-      actions.appendChild(widenBtn);
-      actions.appendChild(shortsBtn);
-      actions.appendChild(analyzeBtn);
-      actions.appendChild(resetBtn);
-      en.appendChild(actions);
-
-      const logDiv = document.createElement("div");
-      logDiv.className = "ytb-hist-note";
-      logDiv.style.cssText = "margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.02);border-radius:6px;font-size:10.5px;color:#999";
-      const updateLog = () => {
-        const events = AlgoEngine.getRecentSignals(6);
-        logDiv.textContent = "Recent signals: " + (events.length ? events.map(ev => ev.type + (ev.pct !== undefined ? " " + ev.pct + "%" : "")).join(" · ") : "none yet — watch some videos and scan the feed.");
-      };
-      updateLog();
-
-      const timer = setInterval(() => { en.isConnected && updateLog(); }, 4000);
-      Co.push(() => clearInterval(timer));
-      en.appendChild(logDiv);
+      en.appendChild(Io("Enable local Feed Intelligence", "algoIntelligenceOn"));
+      en.appendChild(Io("Use local watch signals", "algoAutoTrain"));
+      en.appendChild(Ho("Hide topics (comma-separated)", "algoBlockTopics", "gaming, news"));
+      en.appendChild(Ho("Hide title keywords (comma-separated)", "algoBlockKeywords", "drama, clickbait"));
+      en.appendChild(Ho("Hide channels (comma-separated)", "algoBlockChannels", "channel name"));
+      en.appendChild(To("div", "ytb-hist-note", "Filtering is local to this page. It does not send likes, dislikes, feedback, artificial watch events or searches to YouTube. Previously saved preferences are retained."));
     },
   });
 
-  xa.register({ id: "screen-wake", name: "Screen Wake Lock", summary: "Requests a wake lock while a video plays.",
-      cat: "playback", masterKey: "screenWakeOn", keys: ["screenWakeOn"],
-    apply(ctx) {
-      if (!S.screenWakeOn) return;
-      if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") return;
-      let lock = null;
-      let wanted = false;
-      let disposed = false;
-      const release = () => {
-        wanted = false;
-        if (!lock) return;
-        try { lock.release().catch(() => {}); } catch (_) {}
-        lock = null;
-      };
-      const acquire = () => {
-        if (wanted) return;
-        wanted = true;
-        navigator.wakeLock.request("screen").then((l) => {
-          // The request can resolve after teardown, pause or navigation; a lock
-          // nobody wants anymore must not stay held.
-          if (disposed || !wanted) { try { l.release().catch(() => {}); } catch (_) {} return; }
-          lock = l;
-        }).catch(() => { wanted = false; });
-      };
-      const onState = () => {
-        const vid = ie.el();
-        if (vid && !vid.paused && !vid.ended && document.visibilityState === "visible") acquire();
-        else release();
-      };
-      const boundTo = new WeakSet();
-      const bind = () => {
-        const vid = ie.el();
-        if (!vid || boundTo.has(vid)) return;
-        boundTo.add(vid);
-        ctx.addListener(vid, "play", onState);
-        ctx.addListener(vid, "pause", onState);
-        ctx.addListener(vid, "ended", onState);
-      };
-      bind();
-      ctx.addListener(document, "visibilitychange", onState);
-      // The player element is replaced on SPA navigation, so rebind to the new
-      // one and refresh the lock once it exists.
-      ctx.addListener(document, "yt-navigate-finish", () => { release(); ctx.addTimeout(() => { bind(); onState(); }, 1200); });
-      ctx.addTimeout(onState, 500);
-      Yt["screen-wake"].push(() => { disposed = true; release(); });
-    },
-    settings(en) { en.appendChild(Io("Keep the screen awake while playing", "screenWakeOn")); } });
+
 
   xa.register({
     id: "perf-mode",
@@ -28361,256 +27933,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  xa.register({
-    id: "watch-budget",
-    name: "Watch Budget",
-    summary: "Daily watch limit with soft nudges and a configurable cap.",
-      cat: "wellness",
-    masterKey: "watchBudgetOn",
-    keys: ["watchBudgetOn", "watchBudgetMinutes"],
-    apply(ctx) {
-      if (!S.watchBudgetOn) return;
-      YourTubeEngine.injectCSS();
-      const EXTENSION_SEC = 300;
-      const MAX_EXTENSIONS = 3;
-      const focusStore = YourTubeEngine.createStore("__yourtube_focus__", { date: "", nudged: false, extCount: 0, snoozedDay: "" });
-      const today = () => new Date().toDateString();
-      const rollDay = () => {
-        // update() always marks the store dirty, so only write when the day
-        // actually changed; otherwise the 1s budget tick would flush forever.
-        if (focusStore.get().date === today()) return;
-        focusStore.update(d => {
-          if (d.date !== today()) { d.date = today(); d.nudged = false; d.extCount = 0; d.snoozedDay = ""; }
-        });
-      };
-      const budgetMin = () => Math.max(5, Math.min(1440, Number(S.watchBudgetMinutes) || 90));
-      const usedSec = () => { try { return YourTubeSession.budget.getUsed(); } catch (_) { return 0; } };
-      const limitSec = () => {
-        rollDay();
-        return budgetMin() * 60 + (focusStore.get().extCount || 0) * EXTENSION_SEC;
-      };
-      const remainingMin = () => Math.max(0, Math.round((limitSec() - usedSec()) / 60));
-      const snoozedToday = () => { rollDay(); return focusStore.get().snoozedDay === today(); };
 
-      let overlay = null;
-      let softSnoozeUntil = 0;
-      const removeOverlay = () => {
-        if (overlay && overlay.parentNode) overlay.remove();
-        overlay = null;
-      };
-      const showStatus = () => {
-        if (snoozedToday()) pe("YourTube focus: today's budget is done. See you tomorrow.", 3200, "info");
-        else {
-          const left = remainingMin();
-          pe(left > 0
-            ? "YourTube focus: about " + left + " min left of your " + budgetMin() + " min daily budget."
-            : "YourTube focus: today's watch budget is used up.", 3200, "info");
-        }
-      };
-      const buildOverlay = () => {
-        overlay = document.createElement("div");
-        overlay.id = "ytb-focus-overlay";
-        overlay.setAttribute("role", "dialog");
-        overlay.setAttribute("aria-label", "Daily watch budget reached");
-        const card = document.createElement("div");
-        card.className = "ytb-ui-focus-card";
-        const title = document.createElement("div");
-        title.className = "ytb-ui-focus-title";
-        title.textContent = "Today's watch budget is used up";
-        const body = document.createElement("p");
-        body.className = "ytb-ui-focus-body";
-        card.append(title, body);
-        const row = document.createElement("div");
-        row.className = "ytb-ui-focus-row";
-        const breakBtn = document.createElement("button");
-        breakBtn.type = "button";
-        breakBtn.className = "ytb-ui-btn primary";
-        breakBtn.textContent = "Take a break";
-        breakBtn.addEventListener("click", () => {
-          try { ie.pause(); } catch (_) {}
-          focusStore.update(d => { d.snoozedDay = today(); });
-          removeOverlay();
-        });
-        const moreBtn = document.createElement("button");
-        moreBtn.type = "button";
-        moreBtn.className = "ytb-ui-btn";
-        moreBtn.addEventListener("click", () => {
-          rollDay();
-          focusStore.update(d => { d.extCount = Math.min(MAX_EXTENSIONS, (d.extCount || 0) + 1); });
-          removeOverlay();
-        });
-        row.append(breakBtn, moreBtn);
-        card.appendChild(row);
-        overlay.appendChild(card);
-        document.body.appendChild(overlay);
-      };
-      const refreshOverlay = () => {
-        rollDay();
-        const ext = focusStore.get().extCount || 0;
-        const left = remainingMin();
-        const body = overlay.querySelector(".ytb-ui-focus-body");
-        if (body) body.textContent = "You have watched through your " + budgetMin() + " minute budget" +
-          (ext ? " plus " + ext * 5 + " extension minutes" : "") + ". About " + left +
-          " grace minutes are shown only because time keeps counting while you decide.";
-        const moreBtn = overlay.querySelector(".ytb-ui-focus-row button:not(.primary)");
-        if (moreBtn) {
-          moreBtn.textContent = ext >= MAX_EXTENSIONS
-            ? "No extensions left"
-            : "5 more minutes (" + (MAX_EXTENSIONS - ext) + " left)";
-          moreBtn.disabled = ext >= MAX_EXTENSIONS;
-        }
-      };
-      const ensureOverlay = () => {
-        if (!document.body) return;
-        if (!overlay) buildOverlay();
-        refreshOverlay();
-      };
 
-      ctx.addInterval(() => {
-        try {
-          if (!location.pathname.startsWith("/watch")) { removeOverlay(); return; }
-          if (Date.now() < softSnoozeUntil) return;
-          if (snoozedToday()) { removeOverlay(); return; }
-          const vid = ie.el();
-          if (!vid || vid.paused || vid.ended) return;
-          try { YourTubeSession.budget.tick(1); } catch (_) {}
-          const limit = limitSec();
-          const used = usedSec();
-          rollDay();
-          if (!focusStore.get().nudged && used >= limit * 0.8 && used < limit) {
-            focusStore.update(d => { d.nudged = true; });
-            pe("YourTube focus: about " + remainingMin() + " min left in today's watch budget.", 4000, "info");
-          }
-          if (used >= limit) ensureOverlay();
-          else removeOverlay();
-        } catch (_) {}
-      }, 1000);
 
-      ctx.onNav(() => removeOverlay());
-
-      ctx.addListener(document, "keydown", (ev) => {
-        if (ev.repeat) return;
-        const t = ev.target;
-        const tag = t && t.tagName ? String(t.tagName).toUpperCase() : "";
-        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(t && t.isContentEditable)) return;
-        try {
-          if (ev.key === "Escape" && overlay) {
-            softSnoozeUntil = Date.now() + 600000;
-            removeOverlay();
-            return;
-          }
-          if (ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey &&
-              (ev.code === "KeyB" || ev.key === "B" || ev.key === "b")) {
-            ev.preventDefault();
-            showStatus();
-          }
-        } catch (err) {
-          m("hotkey watch budget", err);
-        }
-      });
-
-      Yt["watch-budget"].push(() => removeOverlay());
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Watch-Budget Focus Mode", "watchBudgetOn"));
-      en.appendChild(No("Daily budget (minutes)", "watchBudgetMinutes", 15, 480, 5, v => v + "m"));
-      const info = document.createElement("div");
-      info.className = "ytb-hist-note";
-      info.style.marginTop = "8px";
-      info.innerHTML = Xy("<strong>How it counts:</strong> only visible playback on watch pages accrues time. At 80% you get one gentle nudge; at 100% a calm screen offers a break or three five-minute extensions per day. Shortcut: Shift+B.");
-      en.appendChild(info);
-    },
-  });
-
-  xa.register({
-    id: "shorts-policy",
-    name: "Shorts Schedule",
-    summary: "Allows or blocks Shorts by time of day.",
-      cat: "wellness",
-    masterKey: "shortsScheduleOn",
-    keys: ["shortsScheduleOn", "shortsScheduleMode", "shortsScheduleStart", "shortsScheduleEnd"],
-    apply(ctx) {
-      if (!S.shortsScheduleOn) return;
-      YourTubeEngine.injectCSS();
-      let gate = null;
-      let overrideUntil = 0;
-      const mode = () => (S.shortsScheduleMode === "allow" ? "allow" : "block");
-      const windowText = () => String(S.shortsScheduleStart || "??:??") + " to " + String(S.shortsScheduleEnd || "??:??");
-      const blockedNow = () => {
-        if (overrideUntil && Date.now() < overrideUntil) return false;
-
-        if (!S.shortsScheduleStart || !S.shortsScheduleEnd) return false;
-        if (YourTubeResources.TimeWindow.parseHHMM(S.shortsScheduleStart) === null) return false;
-        if (YourTubeResources.TimeWindow.parseHHMM(S.shortsScheduleEnd) === null) return false;
-        const active = YourTubeResources.TimeWindow.containsHHMM(S.shortsScheduleStart, S.shortsScheduleEnd);
-        return mode() === "block" ? active : !active;
-      };
-      const removeGate = () => {
-        if (gate && gate.parentNode) gate.remove();
-        gate = null;
-      };
-      const enforce = () => {
-        if (!location.pathname.startsWith("/shorts") || !blockedNow()) { removeGate(); return; }
-        if (gate || !document.body) return;
-        gate = document.createElement("div");
-        gate.id = "ytb-shorts-gate";
-        gate.setAttribute("role", "dialog");
-        gate.setAttribute("aria-label", "Shorts policy window active");
-        const card = document.createElement("div");
-        card.className = "ytb-ui-focus-card";
-        const title = document.createElement("div");
-        title.className = "ytb-ui-focus-title";
-        const body = document.createElement("p");
-        body.className = "ytb-ui-focus-body";
-        if (mode() === "block") {
-          title.textContent = "Shorts are paused right now";
-          body.textContent = "You asked YourTube to pause Shorts between " + windowText() + ". Everything else is still here.";
-        } else {
-          title.textContent = "Shorts are resting outside your window";
-          body.textContent = "Shorts are available between " + windowText() + ". The rest of YouTube is untouched.";
-        }
-        const row = document.createElement("div");
-        row.className = "ytb-ui-focus-row";
-        const homeBtn = document.createElement("button");
-        homeBtn.type = "button";
-        homeBtn.className = "ytb-ui-btn primary";
-        homeBtn.textContent = "Open YouTube Home";
-        homeBtn.addEventListener("click", () => { try { e.location.href = "/"; } catch (_) {} });
-        const anywayBtn = document.createElement("button");
-        anywayBtn.type = "button";
-        anywayBtn.className = "ytb-ui-btn";
-        anywayBtn.textContent = "Watch anyway (30 min)";
-        anywayBtn.addEventListener("click", () => {
-          overrideUntil = Date.now() + 1800000;
-          removeGate();
-        });
-        row.append(homeBtn, anywayBtn);
-        card.append(title, body, row);
-        gate.appendChild(card);
-        document.body.appendChild(gate);
-      };
-
-      enforce();
-      ctx.onNav(() => ctx.addTimeout(enforce, 0));
-
-      ctx.addInterval(enforce, 30000);
-      Yt["shorts-policy"].push(() => removeGate());
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Shorts Policy Schedule", "shortsScheduleOn"));
-      en.appendChild(Ro("Policy", "shortsScheduleMode", {
-        block: "Block during the window (e.g. work hours)",
-        allow: "Allow only during the window (e.g. wind-down)",
-      }));
-      en.appendChild(_o("Window start (HH:MM)", "shortsScheduleStart"));
-      en.appendChild(_o("Window end (HH:MM)", "shortsScheduleEnd"));
-      const info = document.createElement("div");
-      info.className = "ytb-hist-note";
-      info.style.marginTop = "8px";
-      info.textContent = "Times use your local clock and may cross midnight (22:00 to 07:00). Malformed times keep the gate off rather than guessing.";
-      en.appendChild(info);
-    },
-  });
 
   const YourTubePack = (() => {
 
@@ -28965,255 +28290,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  xa.register({
-    id: "sleep-timer", name: "Sleep Timer",
-    summary: "Alt+O: pauses after N minutes with a volume fade.",
-      cat: "wellness",
-    masterKey: "sleepTimerOn", keys: ["sleepTimerOn", "sleepTimerMin"],
-    apply(ctx) {
-      if (!S.sleepTimerOn) return;
-      let deadline = 0, armed = 0, origVol = null;
-      const mins = () => Math.max(5, Math.min(240, Number(S.sleepTimerMin) || 30));
-      const disarm = (restoreVol) => {
-        deadline = 0;
-        if (restoreVol && origVol !== null) {
-          const el = ie.el(); if (el) { try { el.volume = origVol; } catch (_) {} }
-        }
-        origVol = null;
-      };
-      const stopPlayback = () => {
-        const el = ie.el(); if (!el) return;
-        try { el.pause(); } catch (_) {}
-        disarm(true);
-        pe("Sleep timer: paused. Good night.", 2500, "info");
-      };
-      ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyO" && !YourTubePack.guardKey(ev)) {
-          ev.preventDefault();
-          const cycle = [...new Set([0, mins(), 30, 60, 90])];
-          const wasFading = deadline && origVol !== null;
-          armed = cycle[(cycle.indexOf(armed) + 1) % cycle.length];
-          disarm(wasFading);
-          if (!armed) { pe("Sleep timer off", 1400, "info"); return; }
-          deadline = Date.now() + armed * 60000;
 
-          pe("Sleep timer armed: " + armed + " min", 2200, "success");
-        }
-      });
-      const id = YourTubeResources.SharedTicker.add(() => {
-        if (!deadline) return;
-        const left = deadline - Date.now();
-        const el = ie.el(); if (!el) return;
-        if (left <= 0) { stopPlayback(); return; }
-        if (left <= 60000) {
-          if (origVol === null) { try { origVol = el.volume; } catch (_) { origVol = 1; } }
-          try { el.volume = Math.max(0, origVol * (left / 60000)); } catch (_) {}
-        }
-      }, 1000, { pauseHidden: false, label: "ytb-ui-sleep-timer" });
-      Yt["sleep-timer"].push(() => { YourTubeResources.SharedTicker.remove(id); disarm(true); });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable sleep timer (Alt+O cycles)", "sleepTimerOn"));
-      en.appendChild(No("Default duration (minutes)", "sleepTimerMin", 5, 240, 5, v => v + "m"));
-    },
-  });
 
-  xa.register({
-    id: "stretch-reminder", name: "Stretch Reminder",
-    summary: "Reminder after long uninterrupted sessions.",
-      cat: "wellness",
-    masterKey: "stretchReminderOn", keys: ["stretchReminderOn", "stretchEveryMin"],
-    apply(ctx) {
-      if (!S.stretchReminderOn) return;
-      let watched = 0, lastPauseAt = Date.now();
-      const every = () => Math.max(15, Math.min(120, Number(S.stretchEveryMin) || 45)) * 60000;
-      const binder = YourTubePack.elBinder("stretch-reminder");
-      binder(ctx, "pause", () => { lastPauseAt = Date.now(); });
-      binder(ctx, "play", () => {
 
-        if (Date.now() - lastPauseAt > 300000) watched = 0;
-      });
-      const id = YourTubeResources.SharedTicker.add(() => {
-        const el = ie.el();
 
-        if (!el || el.paused || document.hidden) return;
-        watched += 1000;
-        if (watched >= every()) {
-          watched = 0;
-          pe("You have been watching a while — stand up and stretch?", 4200, "info");
-        }
-      }, 1000, { pauseHidden: true, label: "ytb-ui-stretch" });
-      Yt["stretch-reminder"].push(() => YourTubeResources.SharedTicker.remove(id));
-    },
-    settings(en) {
-      en.appendChild(Io("Remind me to stretch", "stretchReminderOn"));
-      en.appendChild(No("Every (minutes)", "stretchEveryMin", 15, 120, 5, v => v + "m"));
-    },
-  });
 
-  xa.register({
-    id: "intention-lock", name: "Session Intention",
-    summary: "Shows your stated intent before watching; stays visible.",
-      cat: "wellness",
-    masterKey: "intentionLockOn", keys: ["intentionLockOn"],
-    apply(ctx) {
-      if (!S.intentionLockOn) return;
-      YourTubeEngine.injectCSS();
-      let chip = null;
-      const show = () => {
-        if (!document.body || document.getElementById("ytb-intent")) return;
-        const card = document.createElement("div");
-        card.id = "ytb-intent";
-        card.style.cssText = "position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2147483638;" +
-          "background:rgba(16,18,24,.96);border:1px solid rgba(255,255,255,.14);border-radius:12px;" +
-          "padding:10px 12px;font:12px system-ui;color:#eee;display:flex;gap:8px;align-items:center;" +
-          "box-shadow:0 12px 34px rgba(0,0,0,.5)";
-        const label = document.createElement("span"); label.textContent = "What are you here for?";
-        const input = document.createElement("input");
-        input.maxLength = 80;
-        input.style.cssText = "background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);color:#fff;border-radius:8px;padding:5px 9px;width:220px;outline:none";
-        const go = document.createElement("button");
-        go.className = "ytb-ui-btn primary"; go.textContent = "Set";
-        const done = (val) => {
-          card.remove();
-          if (!val) return;
-          chip = document.createElement("div");
-          chip.id = "ytb-intent-chip";
-          chip.textContent = "🎯 " + val;
-          chip.title = "Click to clear. Your session intention.";
-          chip.style.cssText = "position:fixed;left:12px;bottom:44px;z-index:2147483637;background:rgba(16,18,24,.85);" +
-            "border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:4px 11px;font:600 11px system-ui;color:#ffd7e3";
-          chip.addEventListener("click", () => { chip.remove(); chip = null; });
-          document.body.appendChild(chip);
-        };
-        go.addEventListener("click", () => done(input.value.trim()));
-        input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") done(input.value.trim()); if (ev.key === "Escape") card.remove(); });
-        card.append(label, input, go);
-        document.body.appendChild(card);
-        try { input.focus(); } catch (_) {}
-      };
-      ctx.addTimeout(show, 1200);
-      Yt["intention-lock"].push(() => {
-        const c1 = document.getElementById("ytb-intent"); if (c1) c1.remove();
-        if (chip) { chip.remove(); chip = null; }
-      });
-    },
-    settings(en) { en.appendChild(Io("Ask my intention once per session", "intentionLockOn")); },
-  });
 
-  xa.register({
-    id: "end-winddown", name: "Wind-Down Gate",
-    summary: "Autoplay stops behind a continue screen.",
-      cat: "wellness",
-    masterKey: "endWindDownOn", keys: ["endWindDownOn", "windDownSec"],
-    apply(ctx) {
-      if (!S.endWindDownOn) return;
-      YourTubeEngine.injectCSS();
-      let gateActive = false, overlay = null, countdownIv = 0;
-      const clearCountdown = () => { if (countdownIv) { clearInterval(countdownIv); countdownIv = 0; } };
-      const secs = () => Math.max(3, Math.min(60, Number(S.windDownSec) || 10));
-      const showGate = () => {
-        if (!document.body || overlay) return;
-        gateActive = true;
-        overlay = document.createElement("div");
-        overlay.id = "ytb-winddown";
-        overlay.setAttribute("role", "dialog");
-        overlay.style.cssText = "position:fixed;inset:0;z-index:2147483644;background:rgba(8,9,12,.82);" +
-          "display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px)";
-        const card = document.createElement("div");
-        card.className = "ytb-ui-focus-card";
-        const title = document.createElement("div"); title.className = "ytb-ui-focus-title"; title.textContent = "That's the end.";
-        const body = document.createElement("p"); body.className = "ytb-ui-focus-body";
-        body.textContent = "Autoplay is held for a moment. Breathe — continue only if you mean it.";
-        const row = document.createElement("div"); row.className = "ytb-ui-focus-row";
-        const cont = document.createElement("button"); cont.className = "ytb-ui-btn primary"; cont.textContent = "Continue (" + secs() + "s)";
-        const stop = document.createElement("button"); stop.className = "ytb-ui-btn"; stop.textContent = "Stop here";
-        cont.addEventListener("click", () => dismiss(true));
-        stop.addEventListener("click", () => dismiss(false));
-        row.append(cont, stop); card.append(title, body, row); overlay.appendChild(card);
-        document.body.appendChild(overlay);
-        let left = secs();
-        cont.textContent = "Continue (" + left + "s)";
-        clearCountdown();
-        countdownIv = setInterval(() => {
-          left -= 1;
-          if (left <= 0) { clearCountdown(); cont.disabled = false; cont.textContent = "Continue"; }
-          else cont.textContent = "Continue (" + left + "s)";
-        }, 1000);
-        cont.disabled = true;
-      };
-      const releasePlay = () => { gateActive = false; };
-      const dismiss = (allowNext) => {
-        clearCountdown();
-        if (overlay) { overlay.remove(); overlay = null; }
-        if (allowNext) { releasePlay(); }
-        else {
 
-          gateActive = true;
-          setTimeout(() => { gateActive = false; }, 8000);
-        }
-      };
-      const protoPlay = HTMLMediaElement.prototype.play;
-      let patched = false;
-      let myPatch = null;
-      const patch = () => {
-        if (patched) return; patched = true;
 
-        myPatch = _xp.fn(function (...args) {
-          if (gateActive) { return _pPromise.resolve(); }
-          return protoPlay.apply(this, args);
-        });
-        HTMLMediaElement.prototype.play = myPatch;
-      };
 
-      const unpatch = () => {
-        if (patched) {
-          try { if (HTMLMediaElement.prototype.play === myPatch) HTMLMediaElement.prototype.play = protoPlay; } catch (_) {}
-          myPatch = null;
-          patched = false;
-        }
-      };
-      patch();
-      const binder = YourTubePack.elBinder("end-winddown");
-      binder(ctx, "ended", () => { if (!overlay) showGate(); });
-      ctx.onNav(() => { clearCountdown(); if (overlay) { overlay.remove(); overlay = null; } gateActive = false; });
-      ctx.addListener(document, "keydown", (ev) => {
-        if (ev.key === "Escape" && overlay) dismiss(false);
-      });
-      Yt["end-winddown"].push(() => { clearCountdown(); unpatch(); if (overlay) { overlay.remove(); overlay = null; } gateActive = false; });
-    },
-    settings(en) {
-      en.appendChild(Io("Hold autoplay behind a calm pause", "endWindDownOn"));
-      en.appendChild(No("Continue button unlocks after (seconds)", "windDownSec", 3, 60, 1, v => v + "s"));
-    },
-  });
-
-  xa.register({
-    id: "shorts-marathon-guard", name: "Shorts Marathon Guard",
-    summary: "Interrupts after N consecutive Shorts.",
-      cat: "wellness",
-    masterKey: "shortsMarathonOn", keys: ["shortsMarathonOn", "shortsMarathonN"],
-    apply(ctx) {
-      if (!S.shortsMarathonOn) return;
-      let count = 0, lastVid = "", nudgedAt = 0;
-      ctx.onNav(() => {
-        if (!location.pathname.startsWith("/shorts")) { count = 0; lastVid = ""; return; }
-        const vid = ie.videoId() || location.pathname.split("/").pop() || "";
-        if (vid && vid !== lastVid) {
-          lastVid = vid; count += 1;
-          const limit = Math.max(3, Math.min(100, Number(S.shortsMarathonN) || 15));
-          if (count > 0 && count % limit === 0 && Date.now() - nudgedAt > 120000) {
-            nudgedAt = Date.now();
-            pe(count + " Shorts in a row. The feed never ends — but you can.", 4000, "info");
-          }
-        }
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Count my Shorts streak", "shortsMarathonOn"));
-      en.appendChild(No("Nudge every N Shorts", "shortsMarathonN", 3, 100, 1, v => v + ""));
-    },
-  });
 
   xa.register({
     id: "feed-freshness", name: "Feed Freshness",
@@ -29967,59 +29052,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     settings(en) { en.appendChild(Io("Add reader mode to descriptions", "readerModeOn")); },
   });
 
-  xa.register({
-    id: "breather", name: "Breather",
-    summary: "Alt+G opens a one-minute breathing exercise.",
-      cat: "wellness",
-    masterKey: "ytbBreatherOn", keys: ["ytbBreatherOn"],
-    apply(ctx) {
-      if (!S.ytbBreatherOn) return;
-      YourTubeEngine.injectCSS();
-      let ov = null, raf = 0;
-      const close = () => {
-        if (raf) { cancelAnimationFrame(raf); raf = 0; }
-        if (ov) { ov.remove(); ov = null; }
-      };
-      const open = () => {
-        if (!document.body || ov) return;
-        ov = document.createElement("div");
-        ov.id = "ytb-breather";
-        ov.style.cssText = "position:fixed;inset:0;z-index:2147483643;background:rgba(6,7,10,.93);" +
-          "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px";
-        const circle = document.createElement("div");
-        circle.style.cssText = "width:130px;height:130px;border-radius:50%;border:2px solid rgba(255,138,165,.75);" +
-          "transition:transform 4s ease-in-out, opacity 4s ease-in-out;opacity:.55";
-        const label = document.createElement("div");
-        label.style.cssText = "font:600 13px system-ui;color:#ffd7e3;letter-spacing:.08em;text-transform:uppercase";
-        label.textContent = "in";
-        const hint = document.createElement("div");
-        hint.style.cssText = "font:11px system-ui;color:#889";
-        hint.textContent = "Esc to finish · 4s in, 4s out";
-        ov.append(circle, label, hint);
-        ov.addEventListener("click", close);
-        document.body.appendChild(ov);
-        let t0 = performance.now();
-        const anim = (now) => {
-          if (!ov) return;
-          const el = (now - t0) / 1000;
-          const cycle = Math.floor(el / 4) % 2;
-          const k = Math.min(1, (el % 4) / 4);
-          if (cycle === 0) { circle.style.transform = "scale(" + (0.72 + 0.38 * k) + ")"; circle.style.opacity = String(0.55 + 0.45 * k); label.textContent = "in"; }
-          else { circle.style.transform = "scale(" + (1.1 - 0.38 * k) + ")"; circle.style.opacity = String(1 - 0.45 * k); label.textContent = "out"; }
-          raf = requestAnimationFrame(anim);
-        };
-        raf = requestAnimationFrame(anim);
-      };
-      ctx.addListener(document, "keydown", (ev) => {
-        if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyG" && !YourTubePack.guardKey(ev)) {
-          ev.preventDefault(); ov ? close() : open();
-        }
-        if (ev.key === "Escape") close();
-      });
-      Yt["breather"].push(close);
-    },
-    settings(en) { en.appendChild(Io("Enable breather (Alt+G)", "ytbBreatherOn")); },
-  });
+
 
   const aioEnroll = (master, members) => {
     const flag = master + "Enrolled";

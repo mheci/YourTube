@@ -2380,30 +2380,25 @@
       cat: "feed",
       masterKey: "hideTopLiveGamesOn",
       keys: ["hideTopLiveGamesOn"],
-      apply(e) {
+      apply(ctx) {
         if (!S.hideTopLiveGamesOn) return;
-        const t = () => {
-          const a = document.querySelectorAll("ytd-shelf-renderer");
-          for (const n of a) {
-            if (n.dataset && n.dataset.ytbTLGHidden) continue;
-            const r = n.querySelector("h2");
-            if (r && /top live games/i.test(r.textContent || "")) {
-              (n.style.display = "none"), (n.dataset.ytbTLGHidden = "1");
+        const owned = new Map();
+        const scan = () => {
+          for (const node of document.querySelectorAll("ytd-shelf-renderer")) {
+            if (owned.has(node)) continue;
+            const title = node.querySelector("h2");
+            if (title && /top live games/i.test(title.textContent || "")) {
+              owned.set(node, node.style.display);
+              node.style.display = "none";
             }
           }
+          for (const node of owned.keys()) if (!node.isConnected) owned.delete(node);
         };
-        t();
-
-        const a = new MutationObserver(ee(t, 300));
-        a.observe(document.body || document.documentElement, { childList: !0, subtree: !0 });
+        scan();
+        if (document.body) ctx.addObserver(document.body, ctx.debounce(scan, 300), {childList:true, subtree:true});
         Yt["hide-top-live-games"].push(() => {
-          try {
-            a.disconnect();
-          } catch (e) {}
-          document.querySelectorAll("ytd-shelf-renderer[data-ytb-t-l-g-hidden]").forEach((e) => {
-            e.style.display = "";
-            delete e.dataset.ytbTLGHidden;
-          });
+          for (const [node, previous] of owned) if (node.style.display === "none") node.style.display = previous;
+          owned.clear();
         });
       },
       settings(e) {

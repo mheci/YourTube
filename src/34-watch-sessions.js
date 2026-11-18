@@ -264,7 +264,7 @@ const WatchSessions = (() => {
               });
           } catch (_) {}
         }
-        if (changed && belongs(s) && S.algoIntelligenceOn && typeof AlgoEngine !== 'undefined')
+        if (changed && belongs(s) && S.algoIntelligenceOn && S.algoAutoTrain && typeof AlgoEngine !== 'undefined')
           try {
             AlgoEngine.SignalTracker.trackWatch(s.id, z.pos, z.dur);
           } catch (_) {}

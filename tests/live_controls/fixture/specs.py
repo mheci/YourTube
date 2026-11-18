@@ -1335,21 +1335,11 @@ test(
 )
 test(
     "algo-intelligence",
-    player,
-    "(await YourTube.storage.get('__algo_signals__'))?.watchHistory||null",
-    "!!x&&Object.keys(x).length>0",
-    setup="v().currentTime=35",
-    action="await v().play()",
-    cfg={
-        "algoAutoTrain": False,
-        "algoBoostOn": False,
-        "algoDiversityOn": False,
-        "algoAutoLikeOn": False,
-        "algoAutoDislikeOn": False,
-        "algoShortsOn": False,
-    },
-    limit=17000,
-    note="Local watch-signal collection only. No recommendation feedback, likes, dislikes or boosts sent.",
+    res,
+    "sty('ytd-video-renderer[data-n=\"2\"]','display')",
+    "x==='none'",
+    cfg={"algoBlockKeywords": "night", "algoAutoTrain": False},
+    note="A native-shaped card matching a title keyword is hidden locally.",
 )
 test(
     "perf-mode",

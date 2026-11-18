@@ -103,7 +103,7 @@ Open the dashboard from the guide menu, the player button or the keyboard
 shortcut. Changes apply immediately; nothing needs a reload. Settings export to
 a file and import back.
 
-### Session History (private 1.12.5-rc.3 candidate)
+### Session History (1.12.5-rc.3 candidate)
 
 Turn on **Session History** and select **Pause and ask**. Watch past five seconds,
 pause and leave the video, then reopen its ordinary watch URL. **Resume at …**
@@ -122,7 +122,7 @@ The journal lives in this browser's existing history database. Search by title o
 channel, filter, pin, follow a timestamp, or export/import a local JSON backup.
 Removal and clearing require confirmation. This journal is separate from your
 YouTube account's history and the Session Replay diagnostic feature. The regular
-public release is not changed by this private candidate.
+stable release is not changed by a candidate commit.
 
 Two settings deserve a note:
 
@@ -187,9 +187,17 @@ to a rebuild from source: CI enforces that on every push and tag, and a weekly
 workflow rebuilds the tagged release and compares hashes against what the
 update channel serves.
 
-Releases are tag-driven: bump `package.json`, build, verify, commit, tag
-`v<version>`, push. `release.yml` publishes `yourtube.user.js` and
-`yourtube.meta.js` as release assets, which is exactly what the updater reads.
+A push to `main` runs CI and uploads `YourTube-userscript-v<full version>` with
+both scripts and `SHA256SUMS`. A candidate such as `1.12.5-rc.3` is not a stable
+release. Quality also runs `tests/watch_sessions.py` (all 28 scenarios, including
+the 32-second hold) and keeps the JSON observations and screenshots for seven days.
+
+Stable publication is explicit: bump the package to `X.Y.Z`, build, verify,
+commit, then push a matching `vX.Y.Z` tag when ready to release. The tag must pass
+Quality on its own commit before the publisher gets write access. Publication
+verifies both downloaded files against that commit before taking the release out
+of draft. A rerun verifies an existing public release; it will not replace its
+assets. No Pages deployment or new stable release is implied by a `main` push.
 
 ---
 

@@ -1,8 +1,8 @@
 name: Channel health
 
 # Weekly audit of the userscript update channel:
-#   - releases/latest must serve the newest git tag, package.json, and both
-#     artifact headers at the same version;
+#   - releases/latest must serve the stable tag, tagged package.json and both
+#     complete artifact header versions (never a truncated RC version);
 #   - rebuilding the artifact at the tagged commit must reproduce the released
 #     yourtube.user.js byte-for-byte (deterministic pipeline);
 #   - both /releases/latest/download URLs must answer HTTP 200.
@@ -79,13 +79,16 @@ jobs:
           code_user="$(curl -sS -L -o user.released.js -w '%{http_code}' "${base}/yourtube.user.js")"
           check "GET ${base}/yourtube.user.js" "$code_user" "200"
 
+          header_version() { awk '$1=="//" && $2=="@version" {sub(/\r$/, "", $3); print $3; exit}' "$1"; }
           if [ "$code_meta" = "200" ]; then
-            meta_version="$(grep -oP '// @version\s+\K[0-9.]+' meta.released.js | head -n1)"
-            check "released meta.js @version matches latest release tag" "$meta_version" "$expected"
+            check "released meta.js @version matches latest release tag" "$(header_version meta.released.js)" "$expected"
+          fi
+          if [ "$code_user" = "200" ]; then
+            check "released user.js @version matches latest release tag" "$(header_version user.released.js)" "$expected"
           fi
 
-          npm ci --no-audit --no-fund >/dev/null 2>&1 || npm install --no-audit --no-fund >/dev/null 2>&1
-          node scripts/build-userscript.js
+          npm ci --no-audit --no-fund || failnote "FAIL: lockfile install"
+          node scripts/build-userscript.js || failnote "FAIL: tagged source did not rebuild"
 
           if [ "$code_user" = "200" ]; then
             sha_built="$(sha256sum yourtube.user.js | cut -d' ' -f1)"

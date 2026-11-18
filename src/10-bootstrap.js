@@ -878,8 +878,6 @@
         (e.sbChapterToast = !1),   // showChapterInfoMessage
         (e.sbTimeWithSkips = !0),  // showTimeWithSkips
         (e.sbRenderChapters = !0), // renderSegmentsAsChapters
-        (e.dashMode = "light"),    // dashboard palette: "light" (Calm paper) | "dark"
-        (e.dashLook = "classic"),  // dashboard skin: "classic" or a YT_DASH_LOOKS id
         (e.sbRenderChapters = !0), // renderSegmentsAsChapters
         e
       );
@@ -1115,7 +1113,8 @@ algoBlockChannels: "",
         themeFxReducedMotion: !1,
         dashX: -1,
         dashY: -1,
-        dashW: 460,
+        dashW: -1,
+        dashCat: "all",
         dashH: -1,
         netMonitorOn: !1,
         netMonitorRange: "day",
@@ -1508,7 +1507,7 @@ algoBlockChannels: "",
     L = null,
     A = 0,
     _cfgDirty = !1;
-  const E = ["darkTweaks"],
+  const E = ["darkTweaks", "dashLook", "dashMode"],
     B = "yourtube.cfg",
     P = "yourtube.cfg",
     I = "__cfg__";

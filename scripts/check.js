@@ -193,40 +193,19 @@ for (const file of files) {
     process.stderr.write("check: SponsorBlock privacy match test failed: " + (error && error.message ? error.message : error) + "\n");
   }
 })();
-(function validateDashboardLooks() {
+(function validateDashboardSkin() {
   try {
-    const source = fs.readFileSync(path.join(root, "src/76-looks.js"), "utf8");
-    const ctx = { document: { getElementById() { return null; } }, Ta() {} };
-    vm.createContext(ctx);
-    vm.runInContext(
-      source + "\nthis.looks = YT_DASH_LOOKS; this.base = YT_LOOK_BASE; this.css = YT_lookCss;",
-      ctx,
-    );
-    const looks = ctx.looks;
-    const problems = [];
-    if (looks.length !== 20) problems.push("expected 20 looks, got " + looks.length);
-    if (new Set(looks.map((look) => look.id)).size !== looks.length) problems.push("duplicate look ids");
-    if (new Set(looks.map((look) => look.name)).size !== looks.length) problems.push("duplicate look names");
-    for (const look of looks) {
-      const css = ctx.css(look);
-      if (!/^[a-z][a-z0-9-]*$/.test(look.id)) problems.push("bad id: " + look.id);
-      if (!css.includes('data-look="' + look.id + '"')) problems.push(look.id + ": scope missing");
-      if (!/--acc:\S/.test(css) || !/--ink:\S/.test(css) || !/--panel:\S/.test(css)) {
-        problems.push(look.id + ": required tokens missing");
-      }
-      if (css.includes("undefined")) problems.push(look.id + ": undefined value in CSS");
+    const part = file => fs.readFileSync(path.join(root, 'src', file), 'utf8');
+    const source = part('31-journal-design.js') + '\n' + part('76-journal-dashboard.js');
+    const css = vm.runInNewContext(source + '\nJOURNAL_DASHBOARD_CSS');
+    const shell = part('75-dashboard.js'), widget = part('35-watch-library.js');
+    if (!css.includes('.ytb-dash[data-skin="journal"]') || !css.includes('--j-paper:#fffbef') ||
+        !css.includes('--j-green:#225b48') || !widget.includes('${JOURNAL_PROPERTIES}') ||
+        !/shell\.dataset\.skin\s*=\s*['"]journal['"]/.test(shell) || /YT_DASH_LOOKS|YT_applyDashLook|ytb-looksel/.test(shell)) {
+      throw Error('dashboard and watch library must share the single journal skin');
     }
-    if (!ctx.base.includes(".ytb-looksel")) problems.push("look picker base style missing");
-    if (problems.length) {
-      failed++;
-      process.stderr.write("check: dashboard looks failed: " + problems.join("; ") + "\n");
-    } else {
-      console.log("check: 20 dashboard looks OK.");
-    }
-  } catch (error) {
-    failed++;
-    process.stderr.write("check: dashboard looks test failed: " + (error && error.message ? error.message : error) + "\n");
-  }
+    console.log('check: shared journal skin OK.');
+  } catch (error) {failed++; process.stderr.write('check: ' + error.message + '\n');}
 })();
 const bundle = fs.readFileSync(path.join(root, "yourtube.user.js"), "utf8");
 

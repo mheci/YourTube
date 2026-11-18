@@ -70,3 +70,14 @@ jobs:
           path: ${{ runner.temp }}/watch-results
           if-no-files-found: error
           retention-days: 7
+      - name: Journal dashboard navigation and migration
+        id: dashboard
+        run: '"$RUNNER_TEMP/guide-venv/bin/python" tests/journal_dashboard.py --browser "$CHROME_BIN" --out "$RUNNER_TEMP/journal-dashboard"'
+      - name: Retain journal dashboard observations and captures
+        if: ${{ !cancelled() && (steps.dashboard.outcome == 'success' || steps.dashboard.outcome == 'failure') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: journal-dashboard-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/journal-dashboard
+          if-no-files-found: error
+          retention-days: 7

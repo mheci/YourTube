@@ -130,11 +130,10 @@
 @keyframes ytbBreath{0%,100%{opacity:.45;transform:scaleX(.7)}50%{opacity:1;transform:scaleX(1)}}
 
 /* --- Calm popups, overlays and toasts (v1.9.0) ---------------------------
-   Mirrors the dashboard tokens one-for-one (light + .ytb-calm-dark). Every
+   Provides a separate light palette for optional floating surfaces. Every
    rule is prefixed with body.ytb-calm so it outranks the legacy dark-glass
    sheets no matter when they were injected. Toggle: calmUiOn. */
 body.ytb-calm{--ytbc-acc:#b45309;--ytbc-accink:180,83,9;--ytbc-panel:#faf7f0;--ytbc-panel2:#fcf9f3;--ytbc-panel3:#fffdf8;--ytbc-card:#fffdf8;--ytbc-card-hi:#f5f1e8;--ytbc-card-lo:#efece7;--ytbc-line:#e7e5e4;--ytbc-line2:#d6d3d1;--ytbc-ink:#1c1917;--ytbc-ink2:#57534e;--ytbc-ink3:#a8a29e;--ytbc-ok:#4a7d5d;--ytbc-crit:#b91c1c;--ytbc-shadow:0 18px 50px rgba(28,25,23,.18),0 2px 8px rgba(28,25,23,.08);--ytbc-font:"Segoe UI",system-ui,-apple-system,sans-serif}
-body.ytb-calm.ytb-calm-dark{--ytbc-acc:#f59e0b;--ytbc-accink:245,158,11;--ytbc-panel:#17181c;--ytbc-panel2:#1b1d22;--ytbc-panel3:#212428;--ytbc-card:#212428;--ytbc-card-hi:#2a2d34;--ytbc-card-lo:#30343c;--ytbc-line:#2b2e35;--ytbc-line2:#3a3e47;--ytbc-ink:#e8e6e3;--ytbc-ink2:#b3aaa0;--ytbc-ink3:#7a7268;--ytbc-ok:#4ade80;--ytbc-crit:#f87171;--ytbc-shadow:0 24px 70px rgba(0,0,0,.72),0 4px 16px rgba(0,0,0,.5)}
 @keyframes ytbCalmPop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* Toasts */
@@ -6058,25 +6057,24 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  // Calm chrome: carries the dashboard design tokens onto every floating
+  // Calm chrome: applies an independent light palette to each floating
   // surface (toasts, resume prompts, SponsorBlock notices, gates). The body
   // class holds the palette; the rules live in the engine base CSS, which is
   // injected here so toasts are styled before the dashboard ever opens.
   xa.register({
     id: "calm-chrome", name: "Calm Popups & Toasts",
-    summary: "Applies the dashboard's Calm design to popups, overlays and toasts.",
+    summary: "Applies a light palette to popups, overlays and toasts.",
       cat: "appearance",
     masterKey: "calmUiOn", keys: ["calmUiOn"],
     apply(ctx) {
       const sync = () => {
         if (!document.body) return;
         document.body.classList.toggle("ytb-calm", !!S.calmUiOn);
-        document.body.classList.toggle("ytb-calm-dark", !!S.calmUiOn && String(S.dashMode || "light") === "dark");
       };
       YourTubeEngine.injectCSS();
       sync();
       const sub = g.on("cfg.changed", ({ key }) => {
-        if (key === "dashMode" || key === "calmUiOn") sync();
+        if (key === "calmUiOn") sync();
       });
       ctx.addInterval(sync, 2000);
       Yt["calm-chrome"].push(() => {

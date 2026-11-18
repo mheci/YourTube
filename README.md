@@ -22,9 +22,10 @@ Latest release: [github.com/mheci/YourTube/releases](https://github.com/mheci/Yo
 - A theme engine that rewrites YouTube's design tokens rather than patching
   individual elements; text and icon colors are contrast-checked against every
   surface they sit on.
-- The dashboard itself has a light and a dark mode, plus a Classic option and 20
-  switchable visual looks (Swiss, terminal, pixel, noir and the rest), chosen
-  from its header and remembered locally.
+- The settings dashboard uses Watch Journal’s paper, forest-green controls,
+  serif headings and ruled lists. This is its only skin; older dashboard look
+  preferences are ignored. YouTube’s page themes and resume prompt layouts
+  remain separate settings.
 - Static header, unclamped titles, fixed player heights, a custom description
   width and fixed thumbnail sizes for search, the watch sidebar and channel
   grids, each behind its own toggle.
@@ -188,9 +189,11 @@ workflow rebuilds the tagged release and compares hashes against what the
 update channel serves.
 
 A push to `main` runs CI and uploads `YourTube-userscript-v<full version>` with
-both scripts and `SHA256SUMS`. A candidate such as `1.12.5-rc.3` is not a stable
-release. Quality also runs `tests/watch_sessions.py` (all 28 scenarios, including
-the 32-second hold) and keeps the JSON observations and screenshots for seven days.
+both scripts and `SHA256SUMS`. A candidate such as `1.12.5-rc.4` is not a stable
+release. Quality runs `tests/watch_sessions.py` against seekable media, including
+the 32-second hold. `tests/journal_dashboard.py` checks the default skin, legacy
+settings imports, the embedded journal, keyboard navigation and narrow windows.
+Both tests retain JSON observations and screenshots as CI artifacts for seven days.
 
 Stable publication is explicit: bump the package to `X.Y.Z`, build, verify,
 commit, then push a matching `vX.Y.Z` tag when ready to release. The tag must pass

@@ -1417,7 +1417,7 @@
   };
   const _FORBIDDEN_CFG_KEYS = { __proto__: 1, constructor: 1, prototype: 1 };
   function Ta(e, t) {
-    if (_FORBIDDEN_CFG_KEYS[e]) return;
+    if (_FORBIDDEN_CFG_KEYS[e] || E.includes(e)) return;
     const _cfgWasLoaded = T;
     if (S[e] === t) {
       if (!T && z() && S[e] === t) return;
@@ -1439,7 +1439,7 @@
     T || z();
     const t = new Set();
     for (const a of Object.keys(e)) {
-      if (_FORBIDDEN_CFG_KEYS[a]) continue;
+      if (_FORBIDDEN_CFG_KEYS[a] || E.includes(a)) continue;
       S[a] !== e[a] && ((S[a] = e[a]), t.add(a));
     }
     if (!t.size) return;

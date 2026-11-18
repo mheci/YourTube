@@ -4055,6 +4055,8 @@
   }
   function Lo(e, t) {
     const a = To("div", "ytb-row");
+    const field = t.matches('input,select,textarea') ? t : t.querySelector('input,select,textarea');
+    if (field && !field.hasAttribute('aria-label')) field.setAttribute('aria-label', e);
     return (a.appendChild(To("span", "ytb-lbl", e)), a.appendChild(t), a);
   }
   function Ao(e) {
@@ -4469,54 +4471,30 @@
           : o
             ? () => !!S[e.masterKey] && "off" !== S[e.masterKey]
             : () => !!S[e.masterKey];
-    if (r) {
-      const t = document.createElement("span");
-      ((t.className = "ytb-toggle-pill"),
-        (t.style.cssText =
-          "font:700 10px system-ui;padding:3px 8px;border-radius:999px;letter-spacing:.02em;text-transform:uppercase"));
-      const n = () => {
-        const a = i(),
-          n = (e.keys || [])
-            .filter((e) => "boolean" == typeof s[e])
-            .reduce((e, t) => e + (S[t] ? 1 : 0), 0);
-        ((t.textContent = a ? n + " on" : "off"),
-          (t.style.background = a
-            ? "rgba(0,160,80,.22)"
-            : "rgba(255,255,255,.06)"),
-          (t.style.color = a ? "#7be1a3" : "#999"));
+    if (r || o) {
+      const pill = To("span", "ytb-toggle-pill");
+      const updatePill = () => {
+        if (o) { pill.textContent = String(S[e.masterKey] || "off"); return; }
+        const count = (e.keys || []).filter(k => typeof s[k] === "boolean" && S[k]).length;
+        pill.textContent = i() ? count + " on" : "off";
       };
-      (n(),
-        a.appendChild(t),
-        So("cfg.changed", ({ key: t }) => {
-          -1 !== (e.keys || []).indexOf(t) && n();
-        }));
-    } else if (o) {
-      const t = document.createElement("span");
-      ((t.className = "ytb-toggle-pill"),
-        (t.style.cssText =
-          "font:700 10px system-ui;padding:3px 8px;border-radius:999px;background:rgba(255,255,255,.08);color:#bbb;letter-spacing:.02em;text-transform:uppercase"));
-      const n = () => {
-        const a = String(S[e.masterKey] || "off");
-        t.textContent = a;
-        const n = i();
-        ((t.style.background = n
-          ? "rgba(0,160,80,.22)"
-          : "rgba(255,255,255,.06)"),
-          (t.style.color = n ? "#7be1a3" : "#999"));
-      };
-      (n(),
-        a.appendChild(t),
-        So("cfg.changed", ({ key: t }) => {
-          t === e.masterKey && n();
-        }));
-    } else a.appendChild(Bo(e.masterKey));
+      updatePill();
+      a.appendChild(pill);
+      So("cfg.changed", ({ key }) => {
+        if (key === e.masterKey || (r && (e.keys || []).includes(key))) updatePill();
+      });
+    } else if (e.masterKey) {
+      const control = Bo(e.masterKey);
+      control.querySelector('input').setAttribute('aria-label', e.name);
+      a.appendChild(control);
+    }
     (t.appendChild(a),
       e.summary && t.appendChild(To("div", "ytb-sum", e.summary)));
     const d = To("div", "ytp-settings");
     let c = !1;
     const l = () => {
 
-      const t = o || r || !!e.settingsAlways,
+      const t = !e.masterKey || o || r || !!e.settingsAlways,
         a = !!t || i();
       (a &&
         !c &&
@@ -4542,18 +4520,9 @@
     );
   }
   function Yp_clampRect(e, t, a, n) {
-    const r = window.innerWidth,
-      o = window.innerHeight;
-    return (
-      (a = Math.max(320, Math.min(a, r))),
-      (n = Math.max(280, Math.min(n, o))),
-      {
-        x: (e = Math.max(8 - a + 80, Math.min(e, r - 80))),
-        y: (t = Math.max(0, Math.min(t, o - 40))),
-        w: a,
-        h: n,
-      }
-    );
+    const vw = window.innerWidth, vh = window.innerHeight, pad = Math.min(8, vw / 4, vh / 4);
+    const w = Math.min(Math.max(300, a), vw - 2 * pad), h = Math.min(Math.max(260, n), vh - 2 * pad);
+    return {x:Math.max(pad,Math.min(e,vw-w-pad)),y:Math.max(pad,Math.min(t,vh-h-pad)),w,h};
   }
   function jo(e, t, a, n) {
     Oa({

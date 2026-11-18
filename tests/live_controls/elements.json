@@ -1,0 +1,2114 @@
+[
+ {
+  "id": "masthead",
+  "name": "Entire top bar",
+  "selector": "ytd-masthead, #masthead, #masthead-container, ytd-topbar, #topbar, #topbar-container",
+  "loc": "70-theme.js:1686"
+ },
+ {
+  "id": "masthead-logo",
+  "name": "YouTube logo",
+  "selector": "ytd-masthead #logo, ytd-masthead a#logo, ytd-topbar-logo-renderer",
+  "loc": "70-theme.js:1692"
+ },
+ {
+  "id": "masthead-country",
+  "name": "Country code on logo",
+  "selector": "ytd-masthead #country-code, ytd-topbar-logo-renderer #country-code",
+  "loc": "70-theme.js:1698"
+ },
+ {
+  "id": "masthead-guide-btn",
+  "name": "Hamburger / guide button",
+  "selector": "ytd-masthead #guide-button, #guide-button",
+  "loc": "70-theme.js:1704"
+ },
+ {
+  "id": "masthead-search-wrap",
+  "name": "Search box wrapper",
+  "selector": "ytd-masthead #center, ytd-masthead ytd-searchbox",
+  "loc": "70-theme.js:1709"
+ },
+ {
+  "id": "masthead-search-input",
+  "name": "Search input only",
+  "selector": "ytd-searchbox input#search",
+  "loc": "70-theme.js:1714"
+ },
+ {
+  "id": "masthead-search-btn",
+  "name": "Search submit button",
+  "selector": "ytd-masthead #search-icon-legacy, ytd-searchbox #search-icon-legacy",
+  "loc": "70-theme.js:1719"
+ },
+ {
+  "id": "masthead-voice",
+  "name": "Voice search button",
+  "selector": "ytd-masthead #voice-search-button, #voice-search-button",
+  "loc": "70-theme.js:1725"
+ },
+ {
+  "id": "masthead-suggest",
+  "name": "Search suggestion dropdown",
+  "selector": "ytd-searchbox-suggestions-renderer, .ytd-searchbox-suggestions-renderer",
+  "loc": "70-theme.js:1730"
+ },
+ {
+  "id": "masthead-create",
+  "name": "Create (+) button",
+  "selector": "ytd-masthead ytd-topbar-menu-button-renderer:has(button[aria-label='Create']), ytd-masthead yt-button-view-model:has(button[aria-label='Create']), ytd-masthead button[aria-label='Create']",
+  "loc": "70-theme.js:1736"
+ },
+ {
+  "id": "masthead-apps",
+  "name": "Apps grid button",
+  "selector": "ytd-masthead ytd-topbar-menu-button-renderer:has(button[aria-label*='Apps']), ytd-masthead button[aria-label*='Apps']",
+  "loc": "70-theme.js:1742"
+ },
+ {
+  "id": "masthead-notif",
+  "name": "Notifications bell",
+  "selector": "ytd-masthead ytd-notification-topbar-button-renderer",
+  "loc": "70-theme.js:1748"
+ },
+ {
+  "id": "masthead-notif-badge",
+  "name": "Notification count badge",
+  "selector": "ytd-notification-topbar-button-renderer .yt-spec-icon-badge-shape__badge, #notification-count",
+  "loc": "70-theme.js:1753"
+ },
+ {
+  "id": "masthead-avatar",
+  "name": "Account avatar / sign-in",
+  "selector": "ytd-masthead ytd-topbar-menu-button-renderer:has(#avatar-btn), ytd-masthead button#avatar-btn, ytd-masthead yt-img-shadow#avatar-img",
+  "loc": "70-theme.js:1759"
+ },
+ {
+  "id": "masthead-signin",
+  "name": "Sign-in button",
+  "selector": "ytd-masthead ytd-button-renderer.style-suggestive, ytd-masthead a[href*='accounts.google.com'], ytd-masthead yt-button-view-model:has(a[href*='accounts.google.com'])",
+  "loc": "70-theme.js:1765"
+ },
+ {
+  "id": "masthead-premium-promo",
+  "name": "Premium promo button",
+  "selector": "ytd-masthead ytd-button-renderer[is-paid-promo]",
+  "loc": "70-theme.js:1771"
+ },
+ {
+  "id": "masthead-buttons",
+  "name": "All right-side buttons area",
+  "selector": "ytd-masthead #end #buttons",
+  "loc": "70-theme.js:1776"
+ },
+ {
+  "id": "masthead-shadow",
+  "name": "Top bar bottom shadow",
+  "selector": "ytd-masthead[has-tab-header-renderer]",
+  "loc": "70-theme.js:1781"
+ },
+ {
+  "id": "sidebar",
+  "name": "Entire sidebar drawer",
+  "selector": "tp-yt-app-drawer#guide",
+  "loc": "70-theme.js:1791"
+ },
+ {
+  "id": "sidebar-mini",
+  "name": "Mini sidebar (collapsed)",
+  "selector": "ytd-mini-guide-renderer, #mini-guide",
+  "loc": "70-theme.js:1796"
+ },
+ {
+  "id": "sidebar-section1",
+  "name": "Main section (Home/Shorts/Subs)",
+  "selector": "ytd-guide-renderer #sections > ytd-guide-section-renderer:nth-of-type(1)",
+  "loc": "70-theme.js:1801"
+ },
+ {
+  "id": "sidebar-home",
+  "name": "Home link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Home']), ytd-mini-guide-entry-renderer[aria-label='Home']",
+  "loc": "70-theme.js:1807"
+ },
+ {
+  "id": "sidebar-shorts-entry",
+  "name": "Shorts link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Shorts']), ytd-mini-guide-entry-renderer[aria-label='Shorts']",
+  "loc": "70-theme.js:1813"
+ },
+ {
+  "id": "sidebar-subs",
+  "name": "Subscriptions link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Subscriptions']), ytd-mini-guide-entry-renderer[aria-label='Subscriptions']",
+  "loc": "70-theme.js:1819"
+ },
+ {
+  "id": "sidebar-you",
+  "name": "You / Library collapsible",
+  "selector": "ytd-guide-renderer ytd-guide-collapsible-section-entry-renderer",
+  "loc": "70-theme.js:1825"
+ },
+ {
+  "id": "sidebar-history",
+  "name": "History link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='History']), a[href='/feed/history']",
+  "loc": "70-theme.js:1831"
+ },
+ {
+  "id": "sidebar-playlists",
+  "name": "Playlists link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Playlists']), a[href='/feed/playlists']",
+  "loc": "70-theme.js:1837"
+ },
+ {
+  "id": "sidebar-your-videos",
+  "name": "Your videos link",
+  "selector": "ytd-guide-entry-renderer:has(a[title*='Your videos'])",
+  "loc": "70-theme.js:1843"
+ },
+ {
+  "id": "sidebar-watch-later",
+  "name": "Watch later link",
+  "selector": "ytd-guide-entry-renderer:has(a[href*='WL'])",
+  "loc": "70-theme.js:1848"
+ },
+ {
+  "id": "sidebar-liked",
+  "name": "Liked videos link",
+  "selector": "ytd-guide-entry-renderer:has(a[href*='LL'])",
+  "loc": "70-theme.js:1853"
+ },
+ {
+  "id": "sidebar-explore",
+  "name": "Explore section",
+  "selector": "ytd-guide-renderer ytd-guide-section-renderer:nth-of-type(3)",
+  "loc": "70-theme.js:1858"
+ },
+ {
+  "id": "sidebar-trending",
+  "name": "Trending link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Trending'])",
+  "loc": "70-theme.js:1864"
+ },
+ {
+  "id": "sidebar-music",
+  "name": "Music link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Music'])",
+  "loc": "70-theme.js:1869"
+ },
+ {
+  "id": "sidebar-movies",
+  "name": "Movies link",
+  "selector": "ytd-guide-entry-renderer:has(a[title*='Movies'])",
+  "loc": "70-theme.js:1874"
+ },
+ {
+  "id": "sidebar-live",
+  "name": "Live link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Live'])",
+  "loc": "70-theme.js:1879"
+ },
+ {
+  "id": "sidebar-gaming",
+  "name": "Gaming link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Gaming'])",
+  "loc": "70-theme.js:1884"
+ },
+ {
+  "id": "sidebar-news",
+  "name": "News link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='News'])",
+  "loc": "70-theme.js:1889"
+ },
+ {
+  "id": "sidebar-sports",
+  "name": "Sports link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Sports'])",
+  "loc": "70-theme.js:1894"
+ },
+ {
+  "id": "sidebar-learning",
+  "name": "Learning link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Learning'])",
+  "loc": "70-theme.js:1899"
+ },
+ {
+  "id": "sidebar-fashion",
+  "name": "Fashion & Beauty link",
+  "selector": "ytd-guide-entry-renderer:has(a[title*='Fashion'])",
+  "loc": "70-theme.js:1904"
+ },
+ {
+  "id": "sidebar-podcasts",
+  "name": "Podcasts link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Podcasts'])",
+  "loc": "70-theme.js:1909"
+ },
+ {
+  "id": "sidebar-more-yt",
+  "name": "More from YouTube section",
+  "selector": "ytd-guide-renderer ytd-guide-section-renderer:nth-of-type(4)",
+  "loc": "70-theme.js:1914"
+ },
+ {
+  "id": "sidebar-yt-premium",
+  "name": "YouTube Premium link",
+  "selector": "ytd-guide-entry-renderer:has(a[title*='Premium'])",
+  "loc": "70-theme.js:1920"
+ },
+ {
+  "id": "sidebar-yt-studio",
+  "name": "YouTube Studio link",
+  "selector": "ytd-guide-entry-renderer:has(a[title*='Studio'])",
+  "loc": "70-theme.js:1925"
+ },
+ {
+  "id": "sidebar-yt-music",
+  "name": "YouTube Music link",
+  "selector": "ytd-guide-entry-renderer:has(a[title*='YouTube Music'])",
+  "loc": "70-theme.js:1930"
+ },
+ {
+  "id": "sidebar-yt-kids",
+  "name": "YouTube Kids link",
+  "selector": "ytd-guide-entry-renderer:has(a[title*='Kids'])",
+  "loc": "70-theme.js:1935"
+ },
+ {
+  "id": "sidebar-settings",
+  "name": "Settings link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Settings']), a[href*='/account']",
+  "loc": "70-theme.js:1940"
+ },
+ {
+  "id": "sidebar-report",
+  "name": "Report history link",
+  "selector": "ytd-guide-entry-renderer:has(a[title*='Report'])",
+  "loc": "70-theme.js:1946"
+ },
+ {
+  "id": "sidebar-help",
+  "name": "Help link",
+  "selector": "ytd-guide-entry-renderer:has(a[title='Help'])",
+  "loc": "70-theme.js:1951"
+ },
+ {
+  "id": "sidebar-feedback",
+  "name": "Send feedback link",
+  "selector": "ytd-guide-entry-renderer:has(a[title*='feedback'])",
+  "loc": "70-theme.js:1956"
+ },
+ {
+  "id": "sidebar-footer",
+  "name": "Footer (links/copyright)",
+  "selector": "ytd-guide-renderer #footer",
+  "loc": "70-theme.js:1961"
+ },
+ {
+  "id": "sidebar-signin-promo",
+  "name": "Sign-in promo in guide",
+  "selector": "ytd-guide-signin-promo-renderer",
+  "loc": "70-theme.js:1966"
+ },
+ {
+  "id": "home-chips-bar",
+  "name": "Filter chips bar",
+  "selector": "ytd-feed-filter-chip-bar-renderer, iron-selector#chips",
+  "loc": "70-theme.js:1976"
+ },
+ {
+  "id": "home-rich-grid",
+  "name": "Entire grid",
+  "selector": "ytd-rich-grid-renderer",
+  "loc": "70-theme.js:1981"
+ },
+ {
+  "id": "home-shorts-shelf",
+  "name": "Shorts shelves",
+  "selector": "ytd-rich-shelf-renderer[is-shorts], ytd-reel-shelf-renderer",
+  "loc": "70-theme.js:1986"
+ },
+ {
+  "id": "home-shorts-pill",
+  "name": "Shorts dismiss pill",
+  "selector": "ytd-rich-shelf-renderer[is-shorts] ytd-shelf-header-layout button",
+  "loc": "70-theme.js:1992"
+ },
+ {
+  "id": "home-mix-shelf",
+  "name": "Mix / playlist shelves",
+  "selector": "ytd-rich-shelf-renderer:not([is-shorts])",
+  "loc": "70-theme.js:1998"
+ },
+ {
+  "id": "home-news-shelf",
+  "name": "Breaking news shelf",
+  "selector": "ytd-rich-shelf-renderer[is-default-no-title]",
+  "loc": "70-theme.js:2003"
+ },
+ {
+  "id": "home-ads",
+  "name": "Ad slots in feed",
+  "selector": "ytd-rich-item-renderer ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytd-banner-promo-renderer, ytd-promoted-sparkles-web-renderer",
+  "loc": "70-theme.js:2008"
+ },
+ {
+  "id": "home-card-thumb",
+  "name": "Card thumbnails",
+  "selector": "ytd-rich-grid-media ytd-thumbnail",
+  "loc": "70-theme.js:2014"
+ },
+ {
+  "id": "home-card-hover-preview",
+  "name": "Hover preview video",
+  "selector": "ytd-moving-thumbnail-renderer, ytd-video-preview",
+  "loc": "70-theme.js:2019"
+ },
+ {
+  "id": "home-card-loading-preview",
+  "name": "Loading preview overlay",
+  "selector": "ytd-thumbnail-overlay-loading-preview-renderer",
+  "loc": "70-theme.js:2024"
+ },
+ {
+  "id": "home-card-duration",
+  "name": "Duration badge",
+  "selector": "ytd-rich-grid-media ytd-thumbnail-overlay-time-status-renderer",
+  "loc": "70-theme.js:2029"
+ },
+ {
+  "id": "home-card-new-badge",
+  "name": "'New' badge",
+  "selector": "ytd-thumbnail-overlay-now-playing-renderer",
+  "loc": "70-theme.js:2035"
+ },
+ {
+  "id": "home-card-resume-bar",
+  "name": "Resume progress bar",
+  "selector": "ytd-thumbnail-overlay-resume-playback-renderer",
+  "loc": "70-theme.js:2040"
+ },
+ {
+  "id": "home-card-title",
+  "name": "Card titles",
+  "selector": "ytd-rich-grid-media #video-title-link, ytd-rich-grid-media #video-title",
+  "loc": "70-theme.js:2045"
+ },
+ {
+  "id": "home-card-channel-avatar",
+  "name": "Channel avatars on cards",
+  "selector": "ytd-rich-grid-media #avatar-link, ytd-rich-grid-media #avatar-container",
+  "loc": "70-theme.js:2051"
+ },
+ {
+  "id": "home-card-channel-name",
+  "name": "Channel names on cards",
+  "selector": "ytd-rich-grid-media #channel-name, ytd-rich-grid-media ytd-channel-name",
+  "loc": "70-theme.js:2057"
+ },
+ {
+  "id": "home-card-meta",
+  "name": "Views / date metadata",
+  "selector": "ytd-rich-grid-media #metadata-line, ytd-rich-grid-media ytd-video-meta-block",
+  "loc": "70-theme.js:2063"
+ },
+ {
+  "id": "home-card-menu",
+  "name": "3-dot menu on cards",
+  "selector": "ytd-rich-grid-media #menu, ytd-rich-grid-media ytd-menu-renderer",
+  "loc": "70-theme.js:2069"
+ },
+ {
+  "id": "home-watched-badge",
+  "name": "Watched overlay",
+  "selector": "ytd-thumbnail-overlay-toggle-button-renderer",
+  "loc": "70-theme.js:2075"
+ },
+ {
+  "id": "home-sponsored-label",
+  "name": "Sponsored label",
+  "selector": "ytd-rich-item-renderer ytd-ad-slot-renderer .badge-style-type-ad",
+  "loc": "70-theme.js:2080"
+ },
+ {
+  "id": "subs-header",
+  "name": "Subscriptions header",
+  "selector": "ytd-browse[page-subtype='subscriptions'] ytd-page-header-renderer",
+  "loc": "70-theme.js:2091"
+ },
+ {
+  "id": "subs-chips",
+  "name": "Subs filter chips",
+  "selector": "ytd-browse[page-subtype='subscriptions'] ytd-feed-filter-chip-bar-renderer",
+  "loc": "70-theme.js:2097"
+ },
+ {
+  "id": "subs-shelf-headers",
+  "name": "Date shelves (Today/Yesterday/etc)",
+  "selector": "ytd-browse[page-subtype='subscriptions'] ytd-item-section-renderer #title",
+  "loc": "70-theme.js:2103"
+ },
+ {
+  "id": "subs-toggle-grid",
+  "name": "Grid/List toggle",
+  "selector": "ytd-browse[page-subtype='subscriptions'] ytd-shelf-renderer #toggle",
+  "loc": "70-theme.js:2109"
+ },
+ {
+  "id": "watch-flexy",
+  "name": "Entire watch container",
+  "selector": "ytd-watch-flexy",
+  "loc": "70-theme.js:2120"
+ },
+ {
+  "id": "watch-title",
+  "name": "Video title",
+  "selector": "ytd-watch-metadata h1, #title h1, ytd-watch-metadata yt-formatted-string.ytd-watch-metadata",
+  "loc": "70-theme.js:2125"
+ },
+ {
+  "id": "watch-views",
+  "name": "View count",
+  "selector": "ytd-watch-info-text #info span:first-child, .view-count",
+  "loc": "70-theme.js:2131"
+ },
+ {
+  "id": "watch-date",
+  "name": "Publish date",
+  "selector": "ytd-watch-info-text #info span:last-child",
+  "loc": "70-theme.js:2136"
+ },
+ {
+  "id": "watch-info-strings",
+  "name": "View+date string",
+  "selector": "ytd-watch-info-text, #info-strings, #info-container",
+  "loc": "70-theme.js:2141"
+ },
+ {
+  "id": "watch-hashtags",
+  "name": "Hashtags above title",
+  "selector": "ytd-watch-metadata .super-title, yt-formatted-string.super-title",
+  "loc": "70-theme.js:2146"
+ },
+ {
+  "id": "watch-channel-row",
+  "name": "Channel row",
+  "selector": "ytd-watch-metadata #owner, ytd-video-owner-renderer",
+  "loc": "70-theme.js:2152"
+ },
+ {
+  "id": "watch-channel-avatar",
+  "name": "Channel avatar",
+  "selector": "ytd-video-owner-renderer #avatar, ytd-video-owner-renderer yt-img-shadow",
+  "loc": "70-theme.js:2157"
+ },
+ {
+  "id": "watch-channel-name",
+  "name": "Channel name link",
+  "selector": "ytd-video-owner-renderer ytd-channel-name, #channel-name a",
+  "loc": "70-theme.js:2163"
+ },
+ {
+  "id": "watch-channel-verified",
+  "name": "Verified checkmark",
+  "selector": "ytd-video-owner-renderer ytd-badge-supported-renderer",
+  "loc": "70-theme.js:2169"
+ },
+ {
+  "id": "watch-channel-subs",
+  "name": "Subscriber count",
+  "selector": "ytd-video-owner-renderer #owner-sub-count, #owner-sub-count",
+  "loc": "70-theme.js:2174"
+ },
+ {
+  "id": "watch-subscribe",
+  "name": "Subscribe button",
+  "selector": "ytd-watch-metadata ytd-subscribe-button-renderer, #subscribe-button",
+  "loc": "70-theme.js:2180"
+ },
+ {
+  "id": "watch-bell",
+  "name": "Notification bell",
+  "selector": "ytd-watch-metadata ytd-notification-preference-button-renderer",
+  "loc": "70-theme.js:2186"
+ },
+ {
+  "id": "watch-join",
+  "name": "Join (membership) button",
+  "selector": "#sponsor-button, ytd-button-renderer.ytd-sponsor-button-renderer",
+  "loc": "70-theme.js:2192"
+ },
+ {
+  "id": "watch-actions-row",
+  "name": "Like/share/save row container",
+  "selector": "ytd-watch-metadata #top-row, #actions",
+  "loc": "70-theme.js:2198"
+ },
+ {
+  "id": "watch-like",
+  "name": "Like button",
+  "selector": "ytd-watch-metadata like-button-view-model, segmented-like-dislike-button-view-model like-button-view-model",
+  "loc": "70-theme.js:2203"
+ },
+ {
+  "id": "watch-like-count",
+  "name": "Like count number",
+  "selector": "like-button-view-model .yt-spec-button-shape-next__button-text-content",
+  "loc": "70-theme.js:2209"
+ },
+ {
+  "id": "watch-dislike",
+  "name": "Dislike button",
+  "selector": "ytd-watch-metadata dislike-button-view-model, segmented-like-dislike-button-view-model dislike-button-view-model",
+  "loc": "70-theme.js:2215"
+ },
+ {
+  "id": "watch-share",
+  "name": "Share button",
+  "selector": "ytd-watch-metadata yt-button-view-model:has(button[aria-label*='hare']), #top-level-buttons-computed ytd-button-renderer:nth-child(1)",
+  "loc": "70-theme.js:2221"
+ },
+ {
+  "id": "watch-download",
+  "name": "Download button",
+  "selector": "ytd-watch-metadata ytd-download-button-renderer, ytd-download-button-renderer",
+  "loc": "70-theme.js:2227"
+ },
+ {
+  "id": "watch-clip",
+  "name": "Clip button",
+  "selector": "ytd-watch-metadata yt-button-view-model:has(button[aria-label*='lip'])",
+  "loc": "70-theme.js:2233"
+ },
+ {
+  "id": "watch-save",
+  "name": "Save to playlist button",
+  "selector": "ytd-watch-metadata yt-button-view-model:has(button[aria-label*='ave'])",
+  "loc": "70-theme.js:2239"
+ },
+ {
+  "id": "watch-thanks",
+  "name": "Thanks (Super Thanks) button",
+  "selector": "ytd-watch-metadata yt-button-view-model:has(button[aria-label*='hanks'])",
+  "loc": "70-theme.js:2245"
+ },
+ {
+  "id": "watch-remix",
+  "name": "Remix button",
+  "selector": "ytd-watch-metadata yt-button-view-model:has(button[aria-label*='emix'])",
+  "loc": "70-theme.js:2251"
+ },
+ {
+  "id": "watch-more-actions",
+  "name": "More actions (...) menu",
+  "selector": "ytd-watch-metadata ytd-menu-renderer, ytd-menu-renderer.ytd-watch-metadata",
+  "loc": "70-theme.js:2257"
+ },
+ {
+  "id": "watch-description",
+  "name": "Description box",
+  "selector": "ytd-watch-metadata #description, #description-inner, ytd-text-inline-expander",
+  "loc": "70-theme.js:2263"
+ },
+ {
+  "id": "watch-description-text",
+  "name": "Description text only",
+  "selector": "ytd-watch-metadata #description yt-attributed-string",
+  "loc": "70-theme.js:2269"
+ },
+ {
+  "id": "watch-show-more",
+  "name": "...more / Show less link",
+  "selector": "ytd-text-inline-expander tp-yt-paper-button",
+  "loc": "70-theme.js:2274"
+ },
+ {
+  "id": "watch-engagement-panels",
+  "name": "Engagement panel container",
+  "selector": "ytd-engagement-panel-section-list-renderer",
+  "loc": "70-theme.js:2279"
+ },
+ {
+  "id": "watch-info-cards",
+  "name": "Info panels (donations etc)",
+  "selector": "ytd-info-panel-content-renderer, #donation-shelf",
+  "loc": "70-theme.js:2284"
+ },
+ {
+  "id": "watch-chapters-list",
+  "name": "Chapters list",
+  "selector": "ytd-macro-markers-list-renderer, ytd-horizontal-card-list-renderer",
+  "loc": "70-theme.js:2289"
+ },
+ {
+  "id": "watch-transcript",
+  "name": "Transcript panel",
+  "selector": "ytd-engagement-panel-section-list-renderer[target-id*='transcript']",
+  "loc": "70-theme.js:2295"
+ },
+ {
+  "id": "watch-comments-panel",
+  "name": "Comments engagement panel",
+  "selector": "ytd-engagement-panel-section-list-renderer[target-id*='comments']",
+  "loc": "70-theme.js:2301"
+ },
+ {
+  "id": "watch-related-panel",
+  "name": "Related (mobile-style) panel",
+  "selector": "ytd-engagement-panel-section-list-renderer[target-id*='related']",
+  "loc": "70-theme.js:2307"
+ },
+ {
+  "id": "watch-product-shelf",
+  "name": "Products / shopping shelf",
+  "selector": "ytd-engagement-panel-section-list-renderer[target-id*='product']",
+  "loc": "70-theme.js:2313"
+ },
+ {
+  "id": "watch-clarification",
+  "name": "Clarification / context panel",
+  "selector": "ytd-info-panel-content-renderer, #clarify-box",
+  "loc": "70-theme.js:2319"
+ },
+ {
+  "id": "secondary",
+  "name": "Entire right column",
+  "selector": "#secondary, ytd-watch-next-secondary-results-renderer",
+  "loc": "70-theme.js:2329"
+ },
+ {
+  "id": "secondary-inner",
+  "name": "Right column inner",
+  "selector": "#secondary-inner",
+  "loc": "70-theme.js:2334"
+ },
+ {
+  "id": "secondary-chips",
+  "name": "Right column filter chips",
+  "selector": "#related ytd-feed-filter-chip-bar-renderer, ytd-watch-next-secondary-results-renderer ytd-feed-filter-chip-bar-renderer",
+  "loc": "70-theme.js:2339"
+ },
+ {
+  "id": "secondary-autoplay",
+  "name": "Autoplay toggle row",
+  "selector": "ytd-compact-autoplay-renderer",
+  "loc": "70-theme.js:2345"
+ },
+ {
+  "id": "secondary-autoplay-toggle",
+  "name": "Autoplay switch only",
+  "selector": "ytd-compact-autoplay-renderer ytd-toggle-button-renderer",
+  "loc": "70-theme.js:2350"
+ },
+ {
+  "id": "secondary-related",
+  "name": "Related video cards",
+  "selector": "ytd-compact-video-renderer",
+  "loc": "70-theme.js:2355"
+ },
+ {
+  "id": "secondary-related-thumb",
+  "name": "Related thumbnails",
+  "selector": "ytd-compact-video-renderer ytd-thumbnail",
+  "loc": "70-theme.js:2360"
+ },
+ {
+  "id": "secondary-related-title",
+  "name": "Related titles",
+  "selector": "ytd-compact-video-renderer #video-title",
+  "loc": "70-theme.js:2365"
+ },
+ {
+  "id": "secondary-related-channel",
+  "name": "Related channel names",
+  "selector": "ytd-compact-video-renderer #channel-name, ytd-compact-video-renderer ytd-channel-name",
+  "loc": "70-theme.js:2370"
+ },
+ {
+  "id": "secondary-related-meta",
+  "name": "Related metadata",
+  "selector": "ytd-compact-video-renderer #metadata-line",
+  "loc": "70-theme.js:2376"
+ },
+ {
+  "id": "secondary-related-menu",
+  "name": "Related 3-dot menus",
+  "selector": "ytd-compact-video-renderer ytd-menu-renderer",
+  "loc": "70-theme.js:2381"
+ },
+ {
+  "id": "secondary-playlist-card",
+  "name": "Playlist cards",
+  "selector": "ytd-compact-playlist-renderer",
+  "loc": "70-theme.js:2386"
+ },
+ {
+  "id": "secondary-playlist-panel",
+  "name": "Active playlist panel",
+  "selector": "ytd-playlist-panel-renderer",
+  "loc": "70-theme.js:2391"
+ },
+ {
+  "id": "secondary-radio-card",
+  "name": "Mix / radio cards",
+  "selector": "ytd-compact-radio-renderer",
+  "loc": "70-theme.js:2396"
+ },
+ {
+  "id": "secondary-movie-card",
+  "name": "Movie cards",
+  "selector": "ytd-compact-movie-renderer",
+  "loc": "70-theme.js:2401"
+ },
+ {
+  "id": "secondary-merch",
+  "name": "Merch shelf",
+  "selector": "ytd-merch-shelf-renderer",
+  "loc": "70-theme.js:2406"
+ },
+ {
+  "id": "secondary-ads",
+  "name": "Right column ads",
+  "selector": "ytd-watch-next-secondary-results-renderer ytd-ad-slot-renderer, #player-ads",
+  "loc": "70-theme.js:2411"
+ },
+ {
+  "id": "secondary-promoted",
+  "name": "Promoted cards",
+  "selector": "ytd-promoted-sparkles-web-renderer",
+  "loc": "70-theme.js:2417"
+ },
+ {
+  "id": "secondary-chat",
+  "name": "Live chat frame",
+  "selector": "ytd-live-chat-frame, #chat",
+  "loc": "70-theme.js:2422"
+ },
+ {
+  "id": "player",
+  "name": "Entire player",
+  "selector": "#movie_player, ytd-player, .html5-video-player",
+  "loc": "70-theme.js:2432"
+ },
+ {
+  "id": "player-video",
+  "name": "Video element only",
+  "selector": "video.html5-main-video",
+  "loc": "70-theme.js:2437"
+ },
+ {
+  "id": "player-chrome-top",
+  "name": "Top overlay bar",
+  "selector": ".ytp-chrome-top",
+  "loc": "70-theme.js:2442"
+ },
+ {
+  "id": "player-title-overlay",
+  "name": "Title overlay (top)",
+  "selector": ".ytp-chrome-top .ytp-title",
+  "loc": "70-theme.js:2447"
+ },
+ {
+  "id": "player-channel-link",
+  "name": "Channel link overlay",
+  "selector": ".ytp-title-channel",
+  "loc": "70-theme.js:2452"
+ },
+ {
+  "id": "player-share-button",
+  "name": "Share button overlay",
+  "selector": ".ytp-share-button",
+  "loc": "70-theme.js:2457"
+ },
+ {
+  "id": "player-more-options",
+  "name": "More options menu (top)",
+  "selector": ".ytp-overflow-button",
+  "loc": "70-theme.js:2462"
+ },
+ {
+  "id": "player-endscreen",
+  "name": "End-screen suggestions",
+  "selector": ".ytp-ce-element, .ytp-endscreen-content",
+  "loc": "70-theme.js:2467"
+ },
+ {
+  "id": "player-endscreen-pause",
+  "name": "Pause-screen suggestions",
+  "selector": ".ytp-pause-overlay",
+  "loc": "70-theme.js:2472"
+ },
+ {
+  "id": "player-cards",
+  "name": "Info cards (i) teaser",
+  "selector": ".ytp-cards-button, .ytp-cards-teaser-text",
+  "loc": "70-theme.js:2477"
+ },
+ {
+  "id": "player-cards-icon",
+  "name": "Info card icon only",
+  "selector": ".ytp-cards-button-icon",
+  "loc": "70-theme.js:2482"
+ },
+ {
+  "id": "player-watermark",
+  "name": "Channel watermark",
+  "selector": ".ytp-watermark, .annotation",
+  "loc": "70-theme.js:2487"
+ },
+ {
+  "id": "player-prevbtn",
+  "name": "Previous video button",
+  "selector": ".ytp-prev-button",
+  "loc": "70-theme.js:2492"
+ },
+ {
+  "id": "player-playbtn",
+  "name": "Play/Pause button",
+  "selector": ".ytp-play-button",
+  "loc": "70-theme.js:2497"
+ },
+ {
+  "id": "player-nextbtn",
+  "name": "Next video button",
+  "selector": ".ytp-next-button",
+  "loc": "70-theme.js:2502"
+ },
+ {
+  "id": "player-autoplay",
+  "name": "Autoplay toggle button",
+  "selector": ".ytp-autonav-toggle-button-container",
+  "loc": "70-theme.js:2507"
+ },
+ {
+  "id": "player-miniplayer",
+  "name": "Miniplayer button",
+  "selector": ".ytp-miniplayer-button",
+  "loc": "70-theme.js:2512"
+ },
+ {
+  "id": "player-size",
+  "name": "Theater/default size button",
+  "selector": ".ytp-size-button",
+  "loc": "70-theme.js:2517"
+ },
+ {
+  "id": "player-fullscreen",
+  "name": "Fullscreen button",
+  "selector": ".ytp-fullscreen-button",
+  "loc": "70-theme.js:2522"
+ },
+ {
+  "id": "player-remote",
+  "name": "Cast / remote button",
+  "selector": ".ytp-remote-button",
+  "loc": "70-theme.js:2527"
+ },
+ {
+  "id": "player-subtitles",
+  "name": "Subtitles / CC button",
+  "selector": ".ytp-subtitles-button",
+  "loc": "70-theme.js:2532"
+ },
+ {
+  "id": "player-settings",
+  "name": "Settings cog button",
+  "selector": ".ytp-settings-button",
+  "loc": "70-theme.js:2537"
+ },
+ {
+  "id": "player-pip-native",
+  "name": "Picture-in-picture button",
+  "selector": ".ytp-pip-button",
+  "loc": "70-theme.js:2542"
+ },
+ {
+  "id": "player-volume-area",
+  "name": "Volume slider area",
+  "selector": ".ytp-volume-area",
+  "loc": "70-theme.js:2547"
+ },
+ {
+  "id": "player-mute-button",
+  "name": "Mute button only",
+  "selector": ".ytp-mute-button",
+  "loc": "70-theme.js:2552"
+ },
+ {
+  "id": "player-volume-slider",
+  "name": "Volume slider only",
+  "selector": ".ytp-volume-slider, .ytp-volume-panel",
+  "loc": "70-theme.js:2557"
+ },
+ {
+  "id": "player-time",
+  "name": "Time display",
+  "selector": ".ytp-time-display",
+  "loc": "70-theme.js:2562"
+ },
+ {
+  "id": "player-time-current",
+  "name": "Current time only",
+  "selector": ".ytp-time-current",
+  "loc": "70-theme.js:2567"
+ },
+ {
+  "id": "player-time-duration",
+  "name": "Duration only",
+  "selector": ".ytp-time-duration",
+  "loc": "70-theme.js:2572"
+ },
+ {
+  "id": "player-time-separator",
+  "name": "Time separator (/)",
+  "selector": ".ytp-time-separator",
+  "loc": "70-theme.js:2577"
+ },
+ {
+  "id": "player-live-badge",
+  "name": "Live badge",
+  "selector": ".ytp-live, .ytp-live-badge",
+  "loc": "70-theme.js:2582"
+ },
+ {
+  "id": "player-progress",
+  "name": "Progress / seek bar",
+  "selector": ".ytp-progress-bar-container",
+  "loc": "70-theme.js:2587"
+ },
+ {
+  "id": "player-progress-list",
+  "name": "Progress list area",
+  "selector": ".ytp-progress-list",
+  "loc": "70-theme.js:2592"
+ },
+ {
+  "id": "player-chapter-ticks",
+  "name": "Chapter ticks on bar",
+  "selector": ".ytp-chapter-hover-container",
+  "loc": "70-theme.js:2597"
+ },
+ {
+  "id": "player-chapter-title",
+  "name": "Chapter title on bar",
+  "selector": ".ytp-chapter-title",
+  "loc": "70-theme.js:2602"
+ },
+ {
+  "id": "player-tooltip",
+  "name": "Seek bar preview tooltip",
+  "selector": ".ytp-tooltip",
+  "loc": "70-theme.js:2607"
+ },
+ {
+  "id": "player-preview-image",
+  "name": "Seek bar preview thumbnail",
+  "selector": ".ytp-preview, .ytp-tooltip-image",
+  "loc": "70-theme.js:2612"
+ },
+ {
+  "id": "player-bezel",
+  "name": "Bezel feedback (10s skip etc)",
+  "selector": ".ytp-bezel",
+  "loc": "70-theme.js:2617"
+ },
+ {
+  "id": "player-gradient-bottom",
+  "name": "Bottom gradient overlay",
+  "selector": ".ytp-gradient-bottom",
+  "loc": "70-theme.js:2622"
+ },
+ {
+  "id": "player-gradient-top",
+  "name": "Top gradient overlay",
+  "selector": ".ytp-gradient-top",
+  "loc": "70-theme.js:2627"
+ },
+ {
+  "id": "player-spinner",
+  "name": "Loading spinner",
+  "selector": ".ytp-spinner",
+  "loc": "70-theme.js:2632"
+ },
+ {
+  "id": "player-error",
+  "name": "Player error message",
+  "selector": ".ytp-error",
+  "loc": "70-theme.js:2637"
+ },
+ {
+  "id": "player-context-menu",
+  "name": "Right-click menu",
+  "selector": ".ytp-popup.ytp-contextmenu",
+  "loc": "70-theme.js:2642"
+ },
+ {
+  "id": "player-settings-menu",
+  "name": "Settings panel popup",
+  "selector": ".ytp-settings-menu, .ytp-popup.ytp-settings-menu",
+  "loc": "70-theme.js:2647"
+ },
+ {
+  "id": "player-quality-menu",
+  "name": "Quality submenu",
+  "selector": ".ytp-quality-menu",
+  "loc": "70-theme.js:2652"
+ },
+ {
+  "id": "player-ad-overlay",
+  "name": "Overlay ads on video",
+  "selector": ".ytp-ad-overlay-container, .ytp-ad-text-overlay",
+  "loc": "70-theme.js:2657"
+ },
+ {
+  "id": "player-ad-image",
+  "name": "Image ad overlay",
+  "selector": ".ytp-ad-image-overlay",
+  "loc": "70-theme.js:2662"
+ },
+ {
+  "id": "player-ad-skip",
+  "name": "Skip ad button",
+  "selector": ".ytp-ad-skip-button-modern, .ytp-ad-skip-button, .ytp-skip-ad-button",
+  "loc": "70-theme.js:2667"
+ },
+ {
+  "id": "player-ad-skip-container",
+  "name": "Skip ad container",
+  "selector": ".ytp-ad-skip-button-container, .ytp-ad-skip-button-slot",
+  "loc": "70-theme.js:2673"
+ },
+ {
+  "id": "player-ad-preview",
+  "name": "Ad preview countdown",
+  "selector": ".ytp-ad-preview-container, .ytp-ad-preview-text",
+  "loc": "70-theme.js:2678"
+ },
+ {
+  "id": "player-ad-duration",
+  "name": "Ad duration remaining",
+  "selector": ".ytp-ad-duration-remaining",
+  "loc": "70-theme.js:2683"
+ },
+ {
+  "id": "player-ad-info",
+  "name": "Ad info / Why this ad",
+  "selector": ".ytp-ad-info-dialog-container, .ytp-ad-button",
+  "loc": "70-theme.js:2688"
+ },
+ {
+  "id": "player-ad-visit-advertiser",
+  "name": "Visit advertiser button",
+  "selector": ".ytp-ad-visit-advertiser-button",
+  "loc": "70-theme.js:2693"
+ },
+ {
+  "id": "player-ad-channel-card",
+  "name": "Ad channel card",
+  "selector": ".ytp-ad-player-overlay-instream-info, .ytp-ad-player-overlay-flyout-cta",
+  "loc": "70-theme.js:2698"
+ },
+ {
+  "id": "player-ad-survey",
+  "name": "Ad survey question",
+  "selector": ".ytp-ad-survey",
+  "loc": "70-theme.js:2704"
+ },
+ {
+  "id": "player-ambient-yt",
+  "name": "Native ambient mode glow",
+  "selector": "#cinematics, #cinematics-container, .ytb-cinematic-effect",
+  "loc": "70-theme.js:2709"
+ },
+ {
+  "id": "player-stats-debug",
+  "name": "Stats for nerds overlay",
+  "selector": ".html5-video-info-panel",
+  "loc": "70-theme.js:2714"
+ },
+ {
+  "id": "comments",
+  "name": "Entire comments section",
+  "selector": "#comments, ytd-comments",
+  "loc": "70-theme.js:2724"
+ },
+ {
+  "id": "comments-header",
+  "name": "Header (count + sort)",
+  "selector": "ytd-comments-header-renderer",
+  "loc": "70-theme.js:2729"
+ },
+ {
+  "id": "comments-count",
+  "name": "Comment count only",
+  "selector": "ytd-comments-header-renderer #count",
+  "loc": "70-theme.js:2734"
+ },
+ {
+  "id": "comments-sort",
+  "name": "Sort menu",
+  "selector": "ytd-comments-header-renderer #sort-menu, ytd-sort-filter-sub-menu-renderer",
+  "loc": "70-theme.js:2739"
+ },
+ {
+  "id": "comments-input",
+  "name": "Add a comment box",
+  "selector": "ytd-comments #simple-box, ytd-comment-simplebox-renderer",
+  "loc": "70-theme.js:2745"
+ },
+ {
+  "id": "comments-input-avatar",
+  "name": "Your avatar in input",
+  "selector": "ytd-comment-simplebox-renderer #author-thumbnail",
+  "loc": "70-theme.js:2750"
+ },
+ {
+  "id": "comments-input-placeholder",
+  "name": "'Add a comment' placeholder",
+  "selector": "ytd-comment-simplebox-renderer #placeholder-area",
+  "loc": "70-theme.js:2755"
+ },
+ {
+  "id": "comments-thread",
+  "name": "All comment threads",
+  "selector": "ytd-comment-thread-renderer",
+  "loc": "70-theme.js:2760"
+ },
+ {
+  "id": "comments-pinned",
+  "name": "Pinned comment",
+  "selector": "ytd-comment-thread-renderer:has(#pinned-comment-badge)",
+  "loc": "70-theme.js:2765"
+ },
+ {
+  "id": "comments-author",
+  "name": "Comment author names",
+  "selector": "ytd-comment-view-model #author-text, ytd-comment-renderer #author-text",
+  "loc": "70-theme.js:2770"
+ },
+ {
+  "id": "comments-author-avatar",
+  "name": "Comment avatars",
+  "selector": "ytd-comment-view-model #author-thumbnail, ytd-comment-renderer #author-thumbnail",
+  "loc": "70-theme.js:2775"
+ },
+ {
+  "id": "comments-text",
+  "name": "Comment text body",
+  "selector": "ytd-comment-view-model #content-text, ytd-comment-renderer #content-text",
+  "loc": "70-theme.js:2780"
+ },
+ {
+  "id": "comments-timestamp",
+  "name": "Comment timestamps",
+  "selector": "ytd-comment-view-model #published-time-text, ytd-comment-renderer #published-time-text",
+  "loc": "70-theme.js:2785"
+ },
+ {
+  "id": "comments-action-buttons",
+  "name": "Comment action row",
+  "selector": "ytd-comment-action-buttons-renderer",
+  "loc": "70-theme.js:2790"
+ },
+ {
+  "id": "comments-like",
+  "name": "Comment like button",
+  "selector": "ytd-comment-action-buttons-renderer #like-button",
+  "loc": "70-theme.js:2795"
+ },
+ {
+  "id": "comments-dislike",
+  "name": "Comment dislike button",
+  "selector": "ytd-comment-action-buttons-renderer #dislike-button",
+  "loc": "70-theme.js:2800"
+ },
+ {
+  "id": "comments-reply-btn",
+  "name": "Reply button",
+  "selector": "ytd-comment-action-buttons-renderer #reply-button",
+  "loc": "70-theme.js:2805"
+ },
+ {
+  "id": "comments-replies-section",
+  "name": "Replies sub-thread",
+  "selector": "ytd-comment-replies-renderer",
+  "loc": "70-theme.js:2810"
+ },
+ {
+  "id": "comments-show-replies",
+  "name": "Show/hide replies link",
+  "selector": "ytd-comment-replies-renderer #more-replies, ytd-comment-replies-renderer #less-replies",
+  "loc": "70-theme.js:2815"
+ },
+ {
+  "id": "comments-creator-heart",
+  "name": "Creator heart badge",
+  "selector": "ytd-creator-heart-renderer",
+  "loc": "70-theme.js:2821"
+ },
+ {
+  "id": "comments-creator-reply-badge",
+  "name": "Creator badge on replies",
+  "selector": "ytd-author-comment-badge-renderer",
+  "loc": "70-theme.js:2826"
+ },
+ {
+  "id": "comments-pinned-badge",
+  "name": "Pinned badge",
+  "selector": "#pinned-comment-badge",
+  "loc": "70-theme.js:2831"
+ },
+ {
+  "id": "comments-emoji-picker",
+  "name": "Emoji picker button",
+  "selector": "ytd-comment-simplebox-renderer #emoji-button",
+  "loc": "70-theme.js:2836"
+ },
+ {
+  "id": "livechat",
+  "name": "Entire live chat panel",
+  "selector": "ytd-live-chat-frame, yt-live-chat-app",
+  "loc": "70-theme.js:2846"
+ },
+ {
+  "id": "livechat-header",
+  "name": "Chat header bar",
+  "selector": "yt-live-chat-header-renderer",
+  "loc": "70-theme.js:2851"
+ },
+ {
+  "id": "livechat-collapse-btn",
+  "name": "Collapse / popout button",
+  "selector": "ytd-live-chat-frame #show-hide-button",
+  "loc": "70-theme.js:2856"
+ },
+ {
+  "id": "livechat-mode-switch",
+  "name": "Top chat / Live chat switch",
+  "selector": "yt-live-chat-header-renderer yt-sort-filter-sub-menu-renderer",
+  "loc": "70-theme.js:2861"
+ },
+ {
+  "id": "livechat-input",
+  "name": "Chat input box",
+  "selector": "yt-live-chat-message-input-renderer, #input-panel",
+  "loc": "70-theme.js:2867"
+ },
+ {
+  "id": "livechat-input-avatar",
+  "name": "Your avatar in chat input",
+  "selector": "yt-live-chat-message-input-renderer #author-photo",
+  "loc": "70-theme.js:2872"
+ },
+ {
+  "id": "livechat-send-btn",
+  "name": "Send button",
+  "selector": "yt-live-chat-message-input-renderer #send-button",
+  "loc": "70-theme.js:2877"
+ },
+ {
+  "id": "livechat-emoji-btn",
+  "name": "Emoji picker button",
+  "selector": "yt-live-chat-message-input-renderer #emoji-button",
+  "loc": "70-theme.js:2882"
+ },
+ {
+  "id": "livechat-superchat-btn",
+  "name": "Super Chat button",
+  "selector": "yt-live-chat-message-input-renderer #product-picker",
+  "loc": "70-theme.js:2887"
+ },
+ {
+  "id": "livechat-messages",
+  "name": "Chat message list",
+  "selector": "yt-live-chat-item-list-renderer",
+  "loc": "70-theme.js:2892"
+ },
+ {
+  "id": "livechat-text-msg",
+  "name": "Individual text messages",
+  "selector": "yt-live-chat-text-message-renderer",
+  "loc": "70-theme.js:2897"
+ },
+ {
+  "id": "livechat-membership",
+  "name": "Membership join messages",
+  "selector": "yt-live-chat-membership-item-renderer",
+  "loc": "70-theme.js:2902"
+ },
+ {
+  "id": "livechat-superchat-msg",
+  "name": "Super Chat messages",
+  "selector": "yt-live-chat-paid-message-renderer",
+  "loc": "70-theme.js:2907"
+ },
+ {
+  "id": "livechat-sticker",
+  "name": "Super Stickers",
+  "selector": "yt-live-chat-paid-sticker-renderer",
+  "loc": "70-theme.js:2912"
+ },
+ {
+  "id": "livechat-ticker",
+  "name": "Super Chat ticker (top)",
+  "selector": "yt-live-chat-ticker-renderer",
+  "loc": "70-theme.js:2917"
+ },
+ {
+  "id": "livechat-engagement",
+  "name": "Engagement message (welcome etc)",
+  "selector": "yt-live-chat-viewer-engagement-message-renderer",
+  "loc": "70-theme.js:2922"
+ },
+ {
+  "id": "livechat-system-msg",
+  "name": "System messages",
+  "selector": "yt-live-chat-banner-manager",
+  "loc": "70-theme.js:2927"
+ },
+ {
+  "id": "livechat-popout-btn",
+  "name": "Popout button",
+  "selector": "yt-live-chat-header-renderer yt-icon-button",
+  "loc": "70-theme.js:2932"
+ },
+ {
+  "id": "livechat-policy",
+  "name": "Chat policy notice",
+  "selector": "yt-live-chat-policy-link",
+  "loc": "70-theme.js:2937"
+ },
+ {
+  "id": "channel-page",
+  "name": "Entire channel page",
+  "selector": "ytd-browse[page-subtype='channels']",
+  "loc": "70-theme.js:2947"
+ },
+ {
+  "id": "channel-banner",
+  "name": "Banner image",
+  "selector": "ytd-c4-tabbed-header-renderer #banner, yt-page-header-renderer #page-header-banner, yt-image-banner-view-model",
+  "loc": "70-theme.js:2952"
+ },
+ {
+  "id": "channel-header",
+  "name": "Header section",
+  "selector": "ytd-c4-tabbed-header-renderer, yt-page-header-renderer",
+  "loc": "70-theme.js:2958"
+ },
+ {
+  "id": "channel-avatar",
+  "name": "Channel avatar",
+  "selector": "ytd-c4-tabbed-header-renderer #avatar, yt-page-header-renderer yt-avatar-shape",
+  "loc": "70-theme.js:2963"
+ },
+ {
+  "id": "channel-name",
+  "name": "Channel name + handle",
+  "selector": "ytd-c4-tabbed-header-renderer #channel-name, yt-page-header-renderer yt-dynamic-text-view-model",
+  "loc": "70-theme.js:2969"
+ },
+ {
+  "id": "channel-handle",
+  "name": "@handle only",
+  "selector": "yt-page-header-renderer yt-content-metadata-view-model span:first-child",
+  "loc": "70-theme.js:2975"
+ },
+ {
+  "id": "channel-subs-count",
+  "name": "Subscriber count",
+  "selector": "ytd-c4-tabbed-header-renderer #subscriber-count, yt-page-header-renderer yt-content-metadata-view-model",
+  "loc": "70-theme.js:2981"
+ },
+ {
+  "id": "channel-description-short",
+  "name": "Short description below name",
+  "selector": "yt-page-header-renderer yt-description-preview-view-model",
+  "loc": "70-theme.js:2987"
+ },
+ {
+  "id": "channel-subscribe",
+  "name": "Subscribe button",
+  "selector": "ytd-c4-tabbed-header-renderer ytd-subscribe-button-renderer, yt-page-header-renderer yt-subscribe-button-view-model",
+  "loc": "70-theme.js:2992"
+ },
+ {
+  "id": "channel-join",
+  "name": "Join button",
+  "selector": "ytd-c4-tabbed-header-renderer #sponsor-button",
+  "loc": "70-theme.js:2998"
+ },
+ {
+  "id": "channel-share-btn",
+  "name": "Share button",
+  "selector": "ytd-c4-tabbed-header-renderer yt-button-view-model:has(button[aria-label*='hare'])",
+  "loc": "70-theme.js:3003"
+ },
+ {
+  "id": "channel-tabs",
+  "name": "Tab bar (Home/Videos/Shorts/...)",
+  "selector": "ytd-c4-tabbed-header-renderer #tabs-container, yt-tab-group-shape, tp-yt-paper-tabs",
+  "loc": "70-theme.js:3009"
+ },
+ {
+  "id": "channel-tab-home",
+  "name": "Home tab",
+  "selector": "tp-yt-paper-tab:nth-of-type(1)",
+  "loc": "70-theme.js:3015"
+ },
+ {
+  "id": "channel-tab-videos",
+  "name": "Videos tab",
+  "selector": "tp-yt-paper-tab[tab-title='Videos'], yt-tab-shape[tab-title='Videos']",
+  "loc": "70-theme.js:3020"
+ },
+ {
+  "id": "channel-tab-shorts",
+  "name": "Shorts tab",
+  "selector": "tp-yt-paper-tab[tab-title='Shorts'], yt-tab-shape[tab-title='Shorts']",
+  "loc": "70-theme.js:3026"
+ },
+ {
+  "id": "channel-tab-live",
+  "name": "Live tab",
+  "selector": "tp-yt-paper-tab[tab-title='Live'], yt-tab-shape[tab-title='Live']",
+  "loc": "70-theme.js:3032"
+ },
+ {
+  "id": "channel-tab-playlists",
+  "name": "Playlists tab",
+  "selector": "tp-yt-paper-tab[tab-title='Playlists'], yt-tab-shape[tab-title='Playlists']",
+  "loc": "70-theme.js:3038"
+ },
+ {
+  "id": "channel-tab-community",
+  "name": "Community tab",
+  "selector": "tp-yt-paper-tab[tab-title='Community'], yt-tab-shape[tab-title='Community']",
+  "loc": "70-theme.js:3044"
+ },
+ {
+  "id": "channel-tab-about",
+  "name": "About tab",
+  "selector": "tp-yt-paper-tab[tab-title='About'], yt-tab-shape[tab-title='About']",
+  "loc": "70-theme.js:3050"
+ },
+ {
+  "id": "channel-tab-store",
+  "name": "Store tab",
+  "selector": "tp-yt-paper-tab[tab-title='Store'], yt-tab-shape[tab-title='Store']",
+  "loc": "70-theme.js:3056"
+ },
+ {
+  "id": "channel-description-full",
+  "name": "About / description section",
+  "selector": "ytd-channel-about-metadata-renderer",
+  "loc": "70-theme.js:3062"
+ },
+ {
+  "id": "channel-links",
+  "name": "Channel links (social/website)",
+  "selector": "ytd-channel-external-link-view-model, ytd-channel-external-link-renderer",
+  "loc": "70-theme.js:3067"
+ },
+ {
+  "id": "channel-stats",
+  "name": "Channel stats (joined, views)",
+  "selector": "ytd-channel-about-metadata-renderer yt-formatted-string",
+  "loc": "70-theme.js:3073"
+ },
+ {
+  "id": "channel-trailer",
+  "name": "Featured video / trailer",
+  "selector": "ytd-channel-video-player-renderer",
+  "loc": "70-theme.js:3078"
+ },
+ {
+  "id": "channel-featured-channels",
+  "name": "Featured channels shelf",
+  "selector": "ytd-channel-featured-content-renderer ytd-channel-renderer",
+  "loc": "70-theme.js:3083"
+ },
+ {
+  "id": "channel-shelves",
+  "name": "Video section shelves",
+  "selector": "ytd-channel-featured-content-renderer, ytd-item-section-renderer",
+  "loc": "70-theme.js:3089"
+ },
+ {
+  "id": "channel-shelf-titles",
+  "name": "Shelf titles",
+  "selector": "ytd-shelf-renderer #title-container",
+  "loc": "70-theme.js:3095"
+ },
+ {
+  "id": "channel-community-post",
+  "name": "Community posts",
+  "selector": "ytd-backstage-post-thread-renderer, ytd-post-renderer",
+  "loc": "70-theme.js:3100"
+ },
+ {
+  "id": "search-page",
+  "name": "Entire search results page",
+  "selector": "ytd-search",
+  "loc": "70-theme.js:3110"
+ },
+ {
+  "id": "search-chips",
+  "name": "Filter chips bar",
+  "selector": "ytd-search ytd-feed-filter-chip-bar-renderer",
+  "loc": "70-theme.js:3115"
+ },
+ {
+  "id": "search-filter-btn",
+  "name": "Filters button",
+  "selector": "ytd-search-header-renderer button, ytd-search-filter-renderer",
+  "loc": "70-theme.js:3120"
+ },
+ {
+  "id": "search-sub-menu",
+  "name": "Filter sub-menus",
+  "selector": "ytd-search-sub-menu-renderer",
+  "loc": "70-theme.js:3126"
+ },
+ {
+  "id": "search-result-count",
+  "name": "Result count",
+  "selector": "ytd-search ytd-results-count-renderer",
+  "loc": "70-theme.js:3131"
+ },
+ {
+  "id": "search-video-card",
+  "name": "Video result cards",
+  "selector": "ytd-search ytd-video-renderer",
+  "loc": "70-theme.js:3136"
+ },
+ {
+  "id": "search-video-thumb",
+  "name": "Video result thumbnails",
+  "selector": "ytd-search ytd-video-renderer ytd-thumbnail",
+  "loc": "70-theme.js:3141"
+ },
+ {
+  "id": "search-video-title",
+  "name": "Video result titles",
+  "selector": "ytd-search ytd-video-renderer #video-title",
+  "loc": "70-theme.js:3146"
+ },
+ {
+  "id": "search-video-desc",
+  "name": "Video result descriptions",
+  "selector": "ytd-search ytd-video-renderer #description-text",
+  "loc": "70-theme.js:3151"
+ },
+ {
+  "id": "search-channel-card",
+  "name": "Channel result cards",
+  "selector": "ytd-search ytd-channel-renderer",
+  "loc": "70-theme.js:3156"
+ },
+ {
+  "id": "search-channel-subscribe",
+  "name": "Channel result subscribe btn",
+  "selector": "ytd-search ytd-channel-renderer ytd-subscribe-button-renderer",
+  "loc": "70-theme.js:3161"
+ },
+ {
+  "id": "search-playlist-card",
+  "name": "Playlist result cards",
+  "selector": "ytd-search ytd-playlist-renderer",
+  "loc": "70-theme.js:3167"
+ },
+ {
+  "id": "search-radio-card",
+  "name": "Radio / mix result cards",
+  "selector": "ytd-search ytd-radio-renderer",
+  "loc": "70-theme.js:3172"
+ },
+ {
+  "id": "search-shorts-shelf",
+  "name": "Shorts shelf",
+  "selector": "ytd-search ytd-reel-shelf-renderer",
+  "loc": "70-theme.js:3177"
+ },
+ {
+  "id": "search-people-also",
+  "name": "'People also watched' shelf",
+  "selector": "ytd-search ytd-shelf-renderer",
+  "loc": "70-theme.js:3182"
+ },
+ {
+  "id": "search-ads",
+  "name": "Ads in search results",
+  "selector": "ytd-search ytd-ad-slot-renderer, ytd-search ytd-promoted-sparkles-web-renderer",
+  "loc": "70-theme.js:3187"
+ },
+ {
+  "id": "search-pyv",
+  "name": "Promoted Yahoo / Google ad cards",
+  "selector": "ytd-search ytd-promoted-video-renderer",
+  "loc": "70-theme.js:3193"
+ },
+ {
+  "id": "search-show-more",
+  "name": "Show more results button",
+  "selector": "ytd-search ytd-continuation-item-renderer",
+  "loc": "70-theme.js:3198"
+ },
+ {
+  "id": "shorts-page",
+  "name": "Entire Shorts player",
+  "selector": "ytd-shorts",
+  "loc": "70-theme.js:3208"
+ },
+ {
+  "id": "shorts-player",
+  "name": "Active Shorts video element",
+  "selector": "ytd-reel-video-renderer[is-active] video",
+  "loc": "70-theme.js:3213"
+ },
+ {
+  "id": "shorts-overlay-container",
+  "name": "Right action column",
+  "selector": "ytd-reel-player-overlay-renderer #actions",
+  "loc": "70-theme.js:3218"
+ },
+ {
+  "id": "shorts-like-btn",
+  "name": "Like button",
+  "selector": "ytd-reel-player-overlay-renderer #like-button",
+  "loc": "70-theme.js:3223"
+ },
+ {
+  "id": "shorts-dislike-btn",
+  "name": "Dislike button",
+  "selector": "ytd-reel-player-overlay-renderer #dislike-button",
+  "loc": "70-theme.js:3228"
+ },
+ {
+  "id": "shorts-comment-btn",
+  "name": "Comment button",
+  "selector": "ytd-reel-player-overlay-renderer #comments-button",
+  "loc": "70-theme.js:3233"
+ },
+ {
+  "id": "shorts-share-btn",
+  "name": "Share button",
+  "selector": "ytd-reel-player-overlay-renderer #share-button",
+  "loc": "70-theme.js:3238"
+ },
+ {
+  "id": "shorts-remix-btn",
+  "name": "Remix button",
+  "selector": "ytd-reel-player-overlay-renderer #remix-button",
+  "loc": "70-theme.js:3243"
+ },
+ {
+  "id": "shorts-more-btn",
+  "name": "More options button",
+  "selector": "ytd-reel-player-overlay-renderer #menu-button",
+  "loc": "70-theme.js:3248"
+ },
+ {
+  "id": "shorts-channel-bar",
+  "name": "Channel + subscribe bar",
+  "selector": "ytd-reel-player-overlay-renderer .reel-player-header-renderer",
+  "loc": "70-theme.js:3253"
+ },
+ {
+  "id": "shorts-channel-avatar",
+  "name": "Channel avatar (Shorts)",
+  "selector": "ytd-reel-player-overlay-renderer #channel-avatar",
+  "loc": "70-theme.js:3259"
+ },
+ {
+  "id": "shorts-channel-name",
+  "name": "Channel name (Shorts)",
+  "selector": "ytd-reel-player-overlay-renderer #channel-name",
+  "loc": "70-theme.js:3264"
+ },
+ {
+  "id": "shorts-subscribe-btn",
+  "name": "Subscribe button (Shorts)",
+  "selector": "ytd-reel-player-overlay-renderer ytd-subscribe-button-renderer",
+  "loc": "70-theme.js:3269"
+ },
+ {
+  "id": "shorts-title",
+  "name": "Title / caption overlay",
+  "selector": "ytd-reel-player-overlay-renderer #overlay #title",
+  "loc": "70-theme.js:3275"
+ },
+ {
+  "id": "shorts-description",
+  "name": "Description overlay",
+  "selector": "ytd-reel-player-overlay-renderer #overlay",
+  "loc": "70-theme.js:3280"
+ },
+ {
+  "id": "shorts-comments-panel",
+  "name": "Comments side panel",
+  "selector": "ytd-engagement-panel-section-list-renderer[target-id='shorts-engagement-panel-comments-section']",
+  "loc": "70-theme.js:3285"
+ },
+ {
+  "id": "shorts-audio-pivot",
+  "name": "Sound / music pivot button",
+  "selector": "ytd-reel-audio-pivot-button-renderer",
+  "loc": "70-theme.js:3291"
+ },
+ {
+  "id": "shorts-nav-prev",
+  "name": "Previous Short button",
+  "selector": "ytd-shorts #navigation-button-up",
+  "loc": "70-theme.js:3296"
+ },
+ {
+  "id": "shorts-nav-next",
+  "name": "Next Short button",
+  "selector": "ytd-shorts #navigation-button-down",
+  "loc": "70-theme.js:3301"
+ },
+ {
+  "id": "shorts-progress-bar",
+  "name": "Mini progress bar",
+  "selector": "ytd-shorts .reel-progress-bar",
+  "loc": "70-theme.js:3306"
+ },
+ {
+  "id": "playlist-header",
+  "name": "Playlist header (title/desc/buttons)",
+  "selector": "ytd-playlist-header-renderer",
+  "loc": "70-theme.js:3316"
+ },
+ {
+  "id": "playlist-title",
+  "name": "Playlist title",
+  "selector": "ytd-playlist-header-renderer #title",
+  "loc": "70-theme.js:3321"
+ },
+ {
+  "id": "playlist-meta",
+  "name": "Playlist metadata (views, date)",
+  "selector": "ytd-playlist-header-renderer #stats",
+  "loc": "70-theme.js:3326"
+ },
+ {
+  "id": "playlist-description",
+  "name": "Playlist description",
+  "selector": "ytd-playlist-header-renderer #description",
+  "loc": "70-theme.js:3331"
+ },
+ {
+  "id": "playlist-creator",
+  "name": "Playlist creator info",
+  "selector": "ytd-playlist-header-renderer #owner-text",
+  "loc": "70-theme.js:3336"
+ },
+ {
+  "id": "playlist-sidebar",
+  "name": "Playlist panel sidebar",
+  "selector": "ytd-playlist-sidebar-renderer",
+  "loc": "70-theme.js:3341"
+ },
+ {
+  "id": "playlist-thumb",
+  "name": "Playlist big thumbnail",
+  "selector": "ytd-playlist-sidebar-primary-info-renderer #thumbnail",
+  "loc": "70-theme.js:3346"
+ },
+ {
+  "id": "playlist-save-btn",
+  "name": "Save playlist button",
+  "selector": "ytd-playlist-header-renderer ytd-button-renderer:has(yt-icon-shape)",
+  "loc": "70-theme.js:3351"
+ },
+ {
+  "id": "playlist-share-btn",
+  "name": "Share playlist button",
+  "selector": "ytd-playlist-header-renderer yt-button-view-model:has(button[aria-label*='hare'])",
+  "loc": "70-theme.js:3357"
+ },
+ {
+  "id": "playlist-play-all",
+  "name": "Play all button",
+  "selector": "ytd-playlist-header-renderer .play-all-button",
+  "loc": "70-theme.js:3363"
+ },
+ {
+  "id": "playlist-shuffle",
+  "name": "Shuffle button",
+  "selector": "ytd-playlist-header-renderer .shuffle-button",
+  "loc": "70-theme.js:3368"
+ },
+ {
+  "id": "playlist-videos-list",
+  "name": "Video entries list",
+  "selector": "ytd-playlist-video-list-renderer",
+  "loc": "70-theme.js:3373"
+ },
+ {
+  "id": "playlist-video-row",
+  "name": "Individual video rows",
+  "selector": "ytd-playlist-video-renderer",
+  "loc": "70-theme.js:3378"
+ },
+ {
+  "id": "playlist-video-index",
+  "name": "Row index numbers",
+  "selector": "ytd-playlist-video-renderer #index",
+  "loc": "70-theme.js:3383"
+ },
+ {
+  "id": "playlist-video-thumb",
+  "name": "Row thumbnails",
+  "selector": "ytd-playlist-video-renderer ytd-thumbnail",
+  "loc": "70-theme.js:3388"
+ },
+ {
+  "id": "playlist-video-title",
+  "name": "Row titles",
+  "selector": "ytd-playlist-video-renderer #video-title",
+  "loc": "70-theme.js:3393"
+ },
+ {
+  "id": "playlist-video-channel",
+  "name": "Row channel names",
+  "selector": "ytd-playlist-video-renderer ytd-channel-name",
+  "loc": "70-theme.js:3398"
+ },
+ {
+  "id": "playlist-video-menu",
+  "name": "Row 3-dot menus",
+  "selector": "ytd-playlist-video-renderer ytd-menu-renderer",
+  "loc": "70-theme.js:3403"
+ },
+ {
+  "id": "playlist-currently-playing",
+  "name": "Currently playing marker",
+  "selector": "ytd-playlist-panel-video-renderer[selected]",
+  "loc": "70-theme.js:3408"
+ },
+ {
+  "id": "popup-container",
+  "name": "All popup containers",
+  "selector": "ytd-popup-container",
+  "loc": "70-theme.js:3418"
+ },
+ {
+  "id": "popup-menu",
+  "name": "Context menus (right-click)",
+  "selector": "tp-yt-iron-dropdown, ytd-menu-popup-renderer",
+  "loc": "70-theme.js:3423"
+ },
+ {
+  "id": "popup-share",
+  "name": "Share dialog",
+  "selector": "ytd-unified-share-panel-renderer",
+  "loc": "70-theme.js:3428"
+ },
+ {
+  "id": "popup-share-targets",
+  "name": "Share targets grid",
+  "selector": "ytd-unified-share-panel-renderer #social-actions",
+  "loc": "70-theme.js:3433"
+ },
+ {
+  "id": "popup-share-url",
+  "name": "Share copy-URL field",
+  "selector": "ytd-unified-share-panel-renderer #share-url",
+  "loc": "70-theme.js:3438"
+ },
+ {
+  "id": "popup-notify",
+  "name": "Notification popup panel",
+  "selector": "ytd-multi-page-menu-renderer:has(ytd-notification-renderer)",
+  "loc": "70-theme.js:3443"
+ },
+ {
+  "id": "popup-notify-item",
+  "name": "Individual notifications",
+  "selector": "ytd-notification-renderer",
+  "loc": "70-theme.js:3449"
+ },
+ {
+  "id": "popup-account-menu",
+  "name": "Account dropdown menu",
+  "selector": "ytd-multi-page-menu-renderer:not(:has(ytd-notification-renderer))",
+  "loc": "70-theme.js:3454"
+ },
+ {
+  "id": "popup-miniplayer",
+  "name": "Miniplayer bar (bottom)",
+  "selector": "ytd-miniplayer",
+  "loc": "70-theme.js:3460"
+ },
+ {
+  "id": "popup-miniplayer-close",
+  "name": "Miniplayer close button",
+  "selector": "ytd-miniplayer .ytp-miniplayer-close-button",
+  "loc": "70-theme.js:3465"
+ },
+ {
+  "id": "popup-toast",
+  "name": "YouTube native toasts",
+  "selector": "yt-notification-action-renderer, tp-yt-paper-toast",
+  "loc": "70-theme.js:3470"
+ },
+ {
+  "id": "popup-confirm-dialog",
+  "name": "Confirm dialogs",
+  "selector": "tp-yt-paper-dialog.yt-confirm-dialog-renderer, yt-confirm-dialog-renderer",
+  "loc": "70-theme.js:3475"
+ },
+ {
+  "id": "popup-save-to-playlist",
+  "name": "Save-to-playlist popup",
+  "selector": "ytd-add-to-playlist-renderer",
+  "loc": "70-theme.js:3481"
+ },
+ {
+  "id": "popup-report-form",
+  "name": "Report video form",
+  "selector": "ytd-report-form-renderer",
+  "loc": "70-theme.js:3486"
+ },
+ {
+  "id": "popup-clip-creation",
+  "name": "Clip creation panel",
+  "selector": "ytd-engagement-panel-clip-create-renderer",
+  "loc": "70-theme.js:3491"
+ },
+ {
+  "id": "popup-download-quality",
+  "name": "Download quality selector",
+  "selector": "ytd-download-quality-selector-renderer",
+  "loc": "70-theme.js:3496"
+ },
+ {
+  "id": "global-consent-banner",
+  "name": "Cookie consent banner",
+  "selector": "ytd-consent-bump-v2-lightbox, tp-yt-paper-dialog.ytd-consent-bump-v2-lightbox",
+  "loc": "70-theme.js:3506"
+ },
+ {
+  "id": "global-consent-bump",
+  "name": "Privacy reminder bump",
+  "selector": "ytd-privacy-message-renderer",
+  "loc": "70-theme.js:3512"
+ },
+ {
+  "id": "global-survey",
+  "name": "Survey / feedback prompts",
+  "selector": "ytd-popup-container ytd-single-option-survey-renderer, ytd-enforcement-message-view-model",
+  "loc": "70-theme.js:3517"
+ },
+ {
+  "id": "global-promo-banner",
+  "name": "Premium / promo banners",
+  "selector": "ytd-banner-promo-renderer, ytd-background-promo-renderer, ytd-mealbar-promo-renderer",
+  "loc": "70-theme.js:3523"
+ },
+ {
+  "id": "global-premium-prompt",
+  "name": "Premium upgrade prompt",
+  "selector": "ytd-popup-container ytd-popup-renderer[id='subscribe-button']",
+  "loc": "70-theme.js:3529"
+ },
+ {
+  "id": "global-guide-signin",
+  "name": "Sign-in prompts in sidebar",
+  "selector": "ytd-guide-signin-promo-renderer",
+  "loc": "70-theme.js:3535"
+ },
+ {
+  "id": "global-ticker",
+  "name": "Ticker / shelf above feed",
+  "selector": "ytd-rich-shelf-renderer:first-of-type",
+  "loc": "70-theme.js:3540"
+ },
+ {
+  "id": "global-adblock-msg",
+  "name": "Adblock detection message",
+  "selector": "ytd-enforcement-message-view-model",
+  "loc": "70-theme.js:3545"
+ },
+ {
+  "id": "global-age-restriction",
+  "name": "Age restriction overlay",
+  "selector": "ytd-age-restriction-bypass-renderer",
+  "loc": "70-theme.js:3550"
+ },
+ {
+  "id": "global-error-state",
+  "name": "Empty/error states",
+  "selector": "yt-page-error-view-model",
+  "loc": "70-theme.js:3555"
+ },
+ {
+  "id": "global-loading-spinner",
+  "name": "Page loading spinner",
+  "selector": "tp-yt-paper-spinner-lite",
+  "loc": "70-theme.js:3560"
+ },
+ {
+  "id": "global-progress-bar",
+  "name": "Top page progress bar",
+  "selector": "yt-page-navigation-progress",
+  "loc": "70-theme.js:3565"
+ },
+ {
+  "id": "lib-page",
+  "name": "Library page",
+  "selector": "ytd-browse[page-subtype='library']",
+  "loc": "70-theme.js:3575"
+ },
+ {
+  "id": "lib-history-page",
+  "name": "History page",
+  "selector": "ytd-browse[page-subtype='history']",
+  "loc": "70-theme.js:3580"
+ },
+ {
+  "id": "lib-history-search",
+  "name": "History search box",
+  "selector": "ytd-search-header-renderer",
+  "loc": "70-theme.js:3585"
+ },
+ {
+  "id": "lib-history-pause",
+  "name": "Pause history toggle",
+  "selector": "ytd-toggle-button-renderer",
+  "loc": "70-theme.js:3590"
+ },
+ {
+  "id": "lib-history-controls",
+  "name": "History controls sidebar",
+  "selector": "ytd-browse[page-subtype='history'] #secondary",
+  "loc": "70-theme.js:3595"
+ },
+ {
+  "id": "lib-watch-later",
+  "name": "Watch later section",
+  "selector": "ytd-browse[page-subtype='playlist'] ytd-playlist-header-renderer",
+  "loc": "70-theme.js:3600"
+ },
+ {
+  "id": "trending-page",
+  "name": "Trending page",
+  "selector": "ytd-browse[page-subtype='trending']",
+  "loc": "70-theme.js:3611"
+ },
+ {
+  "id": "trending-tabs",
+  "name": "Trending tabs (Now/Music/Gaming...)",
+  "selector": "ytd-browse[page-subtype='trending'] tp-yt-paper-tabs",
+  "loc": "70-theme.js:3616"
+ },
+ {
+  "id": "trending-shelf-header",
+  "name": "Trending shelf headers",
+  "selector": "ytd-browse[page-subtype='trending'] ytd-shelf-renderer",
+  "loc": "70-theme.js:3621"
+ }
+]

@@ -41,6 +41,7 @@
     const SKIP_COOLDOWN_MS = 500;
     const SEEK_TOLERANCE = 0.3;
     const POINT_SEGMENT_EPSILON = 0.05;
+    const segmentEndOf = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
     const MAX_SEGMENT_TIME = 24 * 60 * 60;
     const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
     const PRIVACY_HASH_LENGTH = 4;
@@ -321,7 +322,7 @@
           const bar = S["sb_" + category.id + "_sb"] ? "1" : "0";
           return category.id + ":" + enabled + ":" + action + ":" + bar;
         }).join("|");
-        return getConfigKey() + "|" + profile;
+        return [getConfigKey(), profile, !!S.sbSeekbar, !!S.sbRenderChapters, !!S.sbTimeWithSkips].join("|");
       };
 
       const getServerUrl = () => {
@@ -1516,7 +1517,6 @@
     })();
 
     const Player = (() => {
-      const segmentEndOf = (seg) => Math.max(seg.segment[1], seg.segment[0] + POINT_SEGMENT_EPSILON);
       const isTimeInSegment = (seg, time) => time >= seg.segment[0] && time < segmentEndOf(seg);
 
       const findSegmentAtTime = (time) => {
@@ -1709,7 +1709,7 @@
             return;
           }
 
-          if (Settings.onlySkipIfVip() && seg.userID && State.vipByUserID.get(seg.userID) !== true) {
+          if (Settings.onlySkipIfVip() && (!seg.userID || State.vipByUserID.get(seg.userID) !== true)) {
             return;
           }
           const uuid = seg.UUID || ("idx-" + idx + "-" + seg.segment[0]);
@@ -1741,8 +1741,8 @@
 
           if (!shouldSkipGuard(targetTime)) {
             const cd = Settings.skipCountdown();
-            if (cd.enabled && cd.time > 0 && !State.countdownTaskId) {
-              scheduleCountdownSkip(seg, uuid, targetTime, savedSec);
+            if (cd.enabled && cd.time > 0) {
+              if (!State.countdownTaskId) scheduleCountdownSkip(seg, uuid, targetTime, savedSec);
             } else {
               recordSkip(targetTime);
               try { videoEl.currentTime = targetTime; } catch (_) {}
@@ -1873,7 +1873,7 @@
           clearMarks();
           return;
         }
-        if (!S.sponsorblockOn || !S.sbSeekbar) {
+        if (!S.sponsorblockOn) {
           clearMarks();
           return;
         }
@@ -1904,7 +1904,7 @@
         const desired = new Map();
         for (let idx = 0; idx < segments.length; idx++) {
           const seg = segments[idx];
-          if (!Settings.showInSeekbar(seg.category)) continue;
+          if (!S.sbSeekbar || !Settings.showInSeekbar(seg.category)) continue;
           const key = seg.UUID || ("i" + idx);
           desired.set(key, { seg, idx });
         }
@@ -1967,9 +1967,12 @@
         const dur = videoEl && Number.isFinite(videoEl.duration) ? videoEl.duration : 0;
         let sk = 0;
         for (const seg of State.segments) {
-          if (!seg || !Settings.showInSeekbar(seg.category)) continue;
+          if (!seg || Settings.disabled() || Whitelisting.isWhitelisted()) continue;
           const act = effectiveAction(seg);
           if (act !== "skip" && act !== "mute") continue;
+          if (act === "skip" && (Settings.betterBeAwareCats().has(seg.category) ||
+              seg.segment[1] - seg.segment[0] < Settings.minDuration() ||
+              (Settings.onlySkipIfVip() && State.vipByUserID.get(seg.userID) !== true))) continue;
           sk += Math.max(0, Math.min(seg.segment[1], dur || seg.segment[1]) - Math.max(0, seg.segment[0]));
         }
         _timeChipEl.textContent = sk > 0.05 ? "(−" + _fmtDur(sk) + ")" : "";
@@ -2076,7 +2079,7 @@
         clearWatchdogTask();
 
         watchdogTaskId = YourTubeResources.SharedTicker.add(() => {
-          if (!S.sponsorblockOn || !S.sbSeekbar) return;
+          if (!S.sponsorblockOn) return;
 
           try {
             const p = location.pathname || "";
@@ -2849,6 +2852,7 @@
 
     const destroy = () => {
       const previousVideoId = State.videoId;
+      State.lastSkipTime = -Infinity; State.lastSkipTarget = 0;
       State.generation++;
       abortActiveRequests();
       detachLifecycleListeners();
@@ -2985,7 +2989,7 @@
       voteActive: (dir) => {
         const seg = (function () { try { const v = ie.el(); if (!v) return null; const t = v.currentTime; for (const sg of (State.segments || [])) if (sg && t >= sg.segment[0] && t < segmentEndOf(sg)) return sg; } catch (_) {} return null; })();
         if (!seg || !seg.UUID) return Promise.resolve({ ok: false, message: "No segment under playhead" });
-        return API.voteOnSegment(seg.UUID, dir ? 1 : 0);
+        return API.voteOnSegment(seg.UUID, dir === 1 ? 1 : 0);
       },
       toggleCurrentChannelWhitelist: () => {
         const tok = Whitelisting.currentChannelToken();
@@ -3024,6 +3028,9 @@
           rows.push([seg.category, sho, act]);
           if (!sho) continue;
           if (act !== "skip" && act !== "mute") continue;
+          if (act === "skip" && (Settings.betterBeAwareCats().has(seg.category) ||
+              seg.segment[1] - seg.segment[0] < Settings.minDuration() ||
+              (Settings.onlySkipIfVip() && State.vipByUserID.get(seg.userID) !== true))) continue;
           sk += Math.max(0, Math.min(seg.segment[1], dur || seg.segment[1]) - Math.max(0, seg.segment[0]));
         }
         return { dur, sk, rows };

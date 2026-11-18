@@ -1014,6 +1014,20 @@
     let a = null;
     const _ids = new Set();
     return {
+      // A DOM observer can outlive its last queued trailing scan. Own that
+      // timer in this feature generation so teardown cannot re-hide old DOM.
+      debounce(scan, delay) {
+        let timer = 0;
+        t.push(() => { clearTimeout(timer); timer = 0; });
+        return (...args) => {
+          if (Yt[e] !== t) return;
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            timer = 0;
+            if (Yt[e] === t) scan(...args);
+          }, delay);
+        };
+      },
       addStyle(n) {
         if (a) return ((a.textContent += "\n" + n), a);
         const r = "ytb-style-" + e + "-" + ++Gt,
@@ -1159,7 +1173,8 @@
         );
       },
       addTimeout(a, n) {
-      const r = setTimeout(function () {
+        if (Yt[e] !== t) return 0;
+        const r = setTimeout(function () {
           try {
             const _r = a();
             if (_r && typeof _r.then === "function") _r.catch((t) => fa(e, t));
@@ -1341,17 +1356,21 @@
         })();
       },
     };
+  // Coalesce edits made in one event, but apply before the next paint/input.
+  // Native menus only throttle maintenance scans; they must never suspend a user's switch.
   let wa = null;
+  let liveApplyDepth = 0;
+  function queueLiveApply(keys) {
+    if (!wa) { wa = new Set(); queueMicrotask(Ca); }
+    for (const key of keys) for (const f of ka.get(key) || []) wa.add(f.id);
+  }
   function Ca() {
-    if (!wa) return;
-    const e = Array.from(wa);
-    ((wa = null),
-      ae(() => {
-        (async () => {
-          for (let t = 0; t < e.length; t++)
-            (xa.apply(e[t]), (t + 1) % 3 == 0 && (await ne()));
-        })();
-      }, 50));
+    const batch = wa;
+    wa = null;
+    if (!batch) return;
+    liveApplyDepth++;
+    try { for (const id of batch) xa.apply(id); }
+    finally { liveApplyDepth--; }
   }
   function Sa(e) {
     "feedWatchedMode" === e
@@ -1409,53 +1428,38 @@
       S.updateCheckOn = false;
       off.push("updateCheckOn");
     }
-    // Cards tear down only when applied; flipping the keys alone leaves them running.
-    const ids = new Set();
-    for (const k of off)
-      for (const c of ka.get(k) || []) ids.add(c.id);
-    for (const id of ids) xa.apply(id);
+    // Oa includes the preset-derived keys in the same live update.
+
   };
   const _FORBIDDEN_CFG_KEYS = { __proto__: 1, constructor: 1, prototype: 1 };
-  function Ta(e, t) {
-    if (_FORBIDDEN_CFG_KEYS[e] || E.includes(e)) return;
-    const _cfgWasLoaded = T;
-    if (S[e] === t) {
-      if (!T && z() && S[e] === t) return;
-      if (T) return;
+  function Ta(key, value) { Oa({ [key]: value }); }
+  function Oa(values) {
+    const wasLoaded = T;
+    if (!T) z();
+    const changed = new Set();
+    // Snapshot only when a preset/mode can change other keys as a side effect.
+    const derived = ["privacyPreset", "autoPauseMode", "feedWatchedMode", "highlightVideoLengthMode"];
+    const before = derived.some(k => k in values) ? { ...S } : null;
+    for (const key of Object.keys(values)) {
+      if (_FORBIDDEN_CFG_KEYS[key] || E.includes(key) || Object.is(S[key], values[key])) continue;
+      S[key] = values[key]; changed.add(key);
     }
-    ((S[e] = t),
-      Sa(e),
-      Y(),
-      "silentToasts" === e && ue(),
-      _cfgWasLoaded || (() => { try { _bootTouched.set(e, t); } catch (_) {} })(),
-      (() => { try { _localEdits.set(e, Date.now()); } catch (_) {} })(),
-      wa || ((wa = new Set()), queueMicrotask(Ca)));
-    const a = ka.get(e);
-    if (a) for (const e of a) wa.add(e.id);
-    g.emit("cfg.changed", { key: e, val: t });
-  }
-  function Oa(e) {
-    const _cfgWasLoaded = T;
-    T || z();
-    const t = new Set();
-    for (const a of Object.keys(e)) {
-      if (_FORBIDDEN_CFG_KEYS[a] || E.includes(a)) continue;
-      S[a] !== e[a] && ((S[a] = e[a]), t.add(a));
+    if (!changed.size) return;
+    for (const key of changed) if (derived.includes(key)) Sa(key);
+    if (before) for (const key of Object.keys(S)) if (!Object.is(before[key], S[key])) changed.add(key);
+    const now = Date.now();
+    for (const k of changed) {
+      if (!wasLoaded) _bootTouched.set(k, S[k]);
+      _localEdits.set(k, now);
     }
-    if (!t.size) return;
-    if (!_cfgWasLoaded) { for (const k of t) { try { _bootTouched.set(k, S[k]); } catch (_) {} } }
-    try { const _now = Date.now(); for (const k of t) _localEdits.set(k, _now); } catch (_) {}
-    for (const e of t) Sa(e);
-    (Y(), t.has("silentToasts") && ue());
-    const a = new Set();
-    for (const e of t)
-      for (const t of va.values())
-        (t.masterKey !== e && -1 === (t.keys || []).indexOf(e)) || a.add(t.id);
-    setTimeout(() => {
-      for (const e of a) xa.apply(e);
-      for (const e of t) g.emit("cfg.changed", { key: e, val: S[e] });
-    }, 200);
+    Y();
+    if (changed.has("silentToasts")) ue();
+    queueLiveApply(changed);
+    for (const key of changed) g.emit("cfg.changed", { key, val:S[key] });
   }
+  // Session memory belongs to the tab. Disabling the controller gives the
+  // current player back its native rate without changing an unrelated user edit.
+  let lastSpeedDefault, rememberedSpeed, speedOwners = new Map();
   (xa.register({
     id: "speed-controller",
     name: "Playback Speed",
@@ -1464,27 +1468,36 @@
     masterKey: "speedRemember",
     keys: ["speedDefault", "speedRemember", "speedStep"],
     apply(e) {
-      const t = Math.max(0.0625, Math.min(16, Number(S.speedDefault) || 1)),
-        a = () => {
-          const el = ie.el();
-
-          if (el && _isLiveStream()) return;
-          el && Math.abs(el.playbackRate - t) > 0.01 && (el.playbackRate = t);
-        };
-      if ((a(), !S.speedRemember && 1 === S.speedDefault)) return;
-
-      const boundEls = new WeakSet();
-      const n = () => {
-        const t = ie.el();
-        t && !boundEls.has(t) &&
-          (boundEls.add(t),
-          e.addListener(t, "loadedmetadata", a),
-          e.addListener(t, "play", a));
+      if (!S.speedRemember) {
+        for (const [el, owned] of speedOwners) {
+          if (el.isConnected && el.playbackRate === owned.applied) el.playbackRate = owned.original;
+        }
+        speedOwners.clear(); lastSpeedDefault = undefined; rememberedSpeed = undefined;
+        return;
+      }
+      const preferred = Math.max(0.0625, Math.min(16, Number(S.speedDefault) || 1));
+      if (lastSpeedDefault !== preferred) rememberedSpeed = preferred;
+      lastSpeedDefault = preferred;
+      const applyRate = () => {
+        const el = ie.el();
+        if (!el || _isLiveStream()) return;
+        for (const node of speedOwners.keys()) if (!node.isConnected) speedOwners.delete(node);
+        if (!speedOwners.has(el)) speedOwners.set(el, {original:el.playbackRate});
+        const value = rememberedSpeed || preferred;
+        speedOwners.get(el).applied = value;
+        if (Math.abs(el.playbackRate - value) > .001) el.playbackRate = value;
       };
-      (n(),
-        e.onNav(() => {
-          (e.addTimeout(ag, 800), e.addTimeout(n, 1200));
-        }));
+      e.addListener(document, "ratechange", ev => {
+        const el = ev.target, owned = speedOwners.get(el);
+        if (!owned || el !== ie.el() || _isLiveStream() || S.speedPerChannelOn) return;
+        if (el.playbackRate !== owned.applied) {
+          rememberedSpeed = el.playbackRate;
+          owned.original = owned.applied = el.playbackRate;
+        }
+      }, true);
+      e.addListener(document, "loadedmetadata", ev => {if (ev.target === ie.el()) applyRate();}, true);
+      e.onNav(applyRate);
+      applyRate();
     },
     settings(e) {
       (e.appendChild(
@@ -1567,7 +1580,7 @@
                 isFinite(rec.r) &&
                 Math.abs((t.playbackRate || 1) - rec.r) > 0.01
               ) {
-                if (_isLiveStream()) return;
+                if (!S.speedPerChannelOn || t !== ie.el() || vid !== ie.videoId() || _isLiveStream()) return;
 
                 t.playbackRate = rec.r;
                 pe(
@@ -1599,7 +1612,7 @@
         e.onNav(() => {
           ((_spdLastVid = ""), e.addTimeout(_restore, 1200));
         });
-        e.addTimeout(_restore, 1500);
+        _restore();
       },
       settings() {},
     }),
@@ -1694,7 +1707,21 @@
       apply(e) {
         if (!S.autoHD) return;
         let lastVid = "";
-        let lastCodecKey = "";
+        let lastStream = null, lastCodecKey = "", qualityOwner = null, written = "";
+        const filtered = [];
+        function restoreFormats() {
+          for (const {formats, original, kept} of filtered.splice(0)) {
+            // Leave native replacements untouched; undo only our own unchanged edit.
+            if (formats.length === kept.length && kept.every((row,i) => formats[i] === row))
+              formats.splice(0, formats.length, ...original);
+          }
+        }
+        Yt["auto-hd"].push(() => {
+          restoreFormats();
+          if (qualityOwner && written && (qualityOwner.getPlaybackQuality?.() === written || !qualityOwner.getPlaybackQuality)) {
+            qualityOwner.setPlaybackQualityRange?.("auto","auto");
+          }
+        });
         const bound = new WeakSet();
 
         const wantedCodec = (value) => String(value || "auto").toLowerCase();
@@ -1720,11 +1747,12 @@
           };
           const keep = formats.filter((format) => {
             const mime = String(format.mimeType || "").toLowerCase();
-            if (mime.startsWith("video/")) return matchVideo(format);
+            if (mime.startsWith("video/")) return matchVideo(format) && (!muxed || matchAudio(format));
             if (mime.startsWith("audio/")) return matchAudio(format);
             return muxed ? matchVideo(format) || matchAudio(format) : true;
           });
           if (!keep.length || keep.length === formats.length) return false;
+          filtered.push({formats, original:formats.slice(), kept:keep});
           formats.splice(0, formats.length, ...keep);
           return true;
         };
@@ -1732,11 +1760,11 @@
         const applyCodecs = () => {
           const key = wantedCodec(S.videoCodecPref) + "|" + wantedCodec(S.audioCodecPref);
           if (key === "auto|auto") { lastCodecKey = key; return false; }
-          if (key === lastCodecKey) return false;
           const api = ie.api();
           const response = api && typeof api.getPlayerResponse === "function" ? api.getPlayerResponse() : null;
           const streaming = response && response.streamingData;
-          if (!streaming) return false;
+          if (!streaming || (key === lastCodecKey && lastStream === streaming)) return false;
+          restoreFormats(); lastStream = streaming;
           let changed = false;
           if (Array.isArray(streaming.adaptiveFormats)) changed = filterFormats(streaming.adaptiveFormats, false) || changed;
           if (Array.isArray(streaming.formats)) changed = filterFormats(streaming.formats, true) || changed;
@@ -1755,6 +1783,7 @@
           const target = ie.qualityTarget(S.qualityPref);
           if (!target) return;
           if (ie.currentQuality() === target && !codecChanged) return;
+          qualityOwner = ie.api(); written = target;
           ie.setQuality(target);
         };
 
@@ -2480,7 +2509,7 @@
             if (!a || boundAdSkip.has(a)) return;
             boundAdSkip.add(a);
             t(); // The ad and skip control may both predate feature activation.
-            e.addObserver(a, ee(t, 200), {
+            e.addObserver(a, e.debounce(t, 200), {
               attributes: !0, childList: !0, subtree: !0,
               attributeFilter: ["class", "hidden", "disabled"],
             });
@@ -2959,6 +2988,7 @@
   }
 
   function _a() {
+    if (liveApplyDepth) return false;
     const e = performance.now();
     if (e - Ra < 250) return Na;
     Ra = e;

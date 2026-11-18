@@ -325,7 +325,7 @@
       };
 
       if (S.exactDatesCards) {
-        ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-absdate", scanCards, 600), {
+        ctx.addObserver(document.body, ctx.debounce(scanCards, 600), {
           childList: true,
           subtree: true,
           attributes: true,
@@ -686,7 +686,7 @@
         document.querySelectorAll('a[href*="/watch?"][href*="t="]').forEach(clean);
       };
       scan();
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-resume-times", scan, 400), {
+      ctx.addObserver(document.body, ctx.debounce(scan, 400), {
         childList: true,
         subtree: true,
         attributes: true,

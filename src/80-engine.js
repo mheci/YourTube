@@ -53,7 +53,7 @@
 #ytb-budget .ytb-ui-budget-track{flex:1;height:5px;background:rgba(255,255,255,.08);
   border-radius:3px;overflow:hidden}
 #ytb-budget .ytb-ui-budget-fill{height:100%;border-radius:3px;transition:width .5s,background .3s}
-#ytb-disco{position:fixed;right:12px;top:12px;z-index:2147483647;width:min(360px,calc(100vw - 24px));
+#ytb-disco{position:fixed;right:12px;top:12px;z-index:2147483642;width:min(360px,calc(100vw - 24px));
   max-height:calc(100vh - 24px);display:flex;flex-direction:column;margin:0;padding:10px;font-size:12px;
   background:rgba(14,16,22,.96);border:1px solid rgba(255,255,255,.12);border-radius:12px;
   box-shadow:0 16px 44px rgba(0,0,0,.55);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);overflow:hidden}
@@ -64,7 +64,7 @@
   padding:2px 7px;border-radius:6px;flex-shrink:0}
 #ytb-disco .ytb-ui-disco-close:hover{color:#fff;background:rgba(255,255,255,.12)}
 #ytb-disco .ytb-ui-disco-bodies{overflow-y:auto;min-height:0;flex:1 1 auto;max-height:calc(100vh - 170px);padding-right:2px}
-#ytb-disco-reopen{position:fixed;right:12px;top:12px;z-index:2147483647;display:none;align-items:center;gap:6px;
+#ytb-disco-reopen{position:fixed;right:12px;top:12px;z-index:2147483642;display:none;align-items:center;gap:6px;
   padding:8px 14px;border-radius:999px;cursor:pointer;background:rgba(255,61,127,.92);border:1px solid rgba(255,255,255,.22);
   color:#fff;font:600 12px system-ui;box-shadow:0 10px 28px rgba(0,0,0,.45)}
 #ytb-disco-reopen.show{display:inline-flex}
@@ -2552,7 +2552,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     summary: "Five presets scaling work from light to maximum.",
       cat: "tools",
     masterKey: "perfModeOn",
-    keys: ["perfModeOn", "perfModeLevel", "perfModeAuto", "perfContainment", "perfLazyThumbs", "perfLazyComments", "perfKillAnim", "perfKillBlur", "perfThumbQuality", "perfDisablePreviews", "perfMemoryTrim", "perfPrefetch", "perfPreconnect", "perfBgThrottle", "perfPaintReduction", "perfQualityCap"],
+    keys: ["perfModeOn", "safeMode", "perfModeLevel", "perfModeAuto", "perfContainment", "perfLazyThumbs", "perfLazyComments", "perfKillAnim", "perfKillBlur", "perfThumbQuality", "perfDisablePreviews", "perfMemoryTrim", "perfPrefetch", "perfPreconnect", "perfBgThrottle", "perfPaintReduction", "perfQualityCap"],
     apply(ctx) {
       const prev = Yt["perf-mode"] || [];
       if (prev.length) { for (const fn of prev) { try { fn(); } catch (e) {} } Yt["perf-mode"] = []; }
@@ -2614,7 +2614,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         }
       };
       syncLevelToggles();
-      const levelUnsub = So("cfg.changed", ({ key: k }) => {
+      const levelUnsub = g.on("cfg.changed", ({ key: k }) => {
         if (k === "perfModeLevel") {
           syncLevelToggles(true);
           try { xa.apply("perf-mode"); } catch (_) {}
@@ -2742,34 +2742,20 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           }, 30000);
         } catch (e) {}
       }
-      if (on("Prefetch")) {
-        try {
-          const prefetchNext = () => {
-            try {
-              if (!Xt.visible || !Xt.focused) return;
-              const nextBtn = document.querySelector(".ytp-next-button, a.ytp-next-button");
-              if (!nextBtn) return;
-              const doPrefetch = () => {
-                try {
-                  const href = nextBtn.href || nextBtn.getAttribute("href");
-                  if (!href || !href.includes("/watch")) return;
-                  if (document.querySelector("link[data-ytb-prefetch=\"" + href + "\"]")) return;
-                  const link = document.createElement("link");
-                  link.rel = "prefetch";
-                  link.href = href;
-                  link.as = "document";
-                  link.dataset.ytbPrefetch = href;
-                  document.head.appendChild(link);
-                  setTimeout(() => { try { link.remove(); } catch (e) {} }, 15000);
-                } catch (e) {}
-              };
-              if (typeof requestIdleCallback === "function") requestIdleCallback(doPrefetch, { timeout: 2000 });
-              else setTimeout(doPrefetch, 1500);
-            } catch (e) {}
-          };
-          ctx.addInterval(prefetchNext, 15000);
-          ctx.onNav(() => { ctx.addTimeout(prefetchNext, 3000); });
-        } catch (e) {}
+      if (on("Prefetch") && !S.safeMode) {
+        const hints = new Set();
+        const prefetchNext = () => {
+          if (!Xt.visible || !Xt.focused) return;
+          const a = document.querySelector("a.ytp-next-button[href]");
+          if (!a || a.origin !== location.origin || a.pathname !== "/watch") return;
+          for (const hint of hints) if (hint.href === a.href) return;
+          const hint = document.createElement("link");
+          hint.rel = "prefetch"; hint.href = a.href; hint.as = "document";
+          hint.dataset.ytbPrefetch = a.href; hints.add(hint); document.head.appendChild(hint);
+          ctx.addTimeout(() => {hints.delete(hint); hint.remove();}, 15000);
+        };
+        prefetchNext(); ctx.addInterval(prefetchNext, 15000); ctx.onNav(prefetchNext);
+        Yt["perf-mode"].push(() => { for (const hint of hints) hint.remove(); hints.clear(); });
       }
       if (on("Preconnect")) {
         try {
@@ -2817,7 +2803,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
               for (const t of targets) { if (!t.dataset.ytbPaintObserved) { t.dataset.ytbPaintObserved = "1"; paintObserver.observe(t); } }
             } catch (e) {}
           };
-          ctx.addTimeout(observePaint, 2000);
+          observePaint();
           ctx.onNav(() => ctx.addTimeout(observePaint, 2000));
           Yt["perf-mode"].push(() => {
             try { paintObserver.disconnect(); } catch (e) {}
@@ -2838,7 +2824,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
               if (p && typeof p.setPlaybackQuality === "function") p.setPlaybackQuality("hd720");
             } catch (e) {}
           };
-          ctx.addTimeout(capQuality, 1200);
+          capQuality();
           ctx.onNav(() => ctx.addTimeout(capQuality, 1200));
           ctx.addInterval(capQuality, 20000);
           Yt["perf-mode"].push(() => { try { const p = document.querySelector("#movie_player"); if (p && typeof p.setPlaybackQualityRange === "function") p.setPlaybackQualityRange("auto", "auto"); } catch (e) {} });
@@ -3016,7 +3002,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       }, 500);
       ctx.onNav(() => ctx.addTimeout(wakeSweep, 600));
 
-      const unsub = So("cfg.changed", ({ key: k }) => {
+      const unsub = g.on("cfg.changed", ({ key: k }) => {
         if (k === "overlayHubOn") wakeSweep();
         if (k === "overlayHubPos") position();
       });
@@ -3909,7 +3895,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     masterKey: "feedFreshnessOn", keys: ["feedFreshnessOn", "feedMaxAgeMonths"],
     apply(ctx) {
       if (!S.feedFreshnessOn) return;
-      YourTubeEngine.injectCSS();
+      ctx.addStyle("[data-ytb-stale]{display:none!important}");
       const months = () => Math.max(1, Math.min(60, Number(S.feedMaxAgeMonths) || 6));
       const parseAgeDays = (text) => {
         const m = String(text || "").match(/(\d+)\s*(year|month|week|day|hour)/i);
@@ -3927,17 +3913,18 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           if (age < 0) return;
           const stale = age > months() * 30;
           if (stale && !item.dataset.ytbStale) {
-            item.dataset.ytbStale = "1"; item.style.display = "none";
+            item.dataset.ytbStale = "1";
           } else if (!stale && item.dataset.ytbStale) {
-            delete item.dataset.ytbStale; item.style.display = "";
+            delete item.dataset.ytbStale;
           }
         });
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-fresh", scan, 300), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scan, 300), { childList: true, subtree: true });
+      scan();
       ctx.addInterval(scan, 5000);
       ctx.onNav(scan);
       Yt["feed-freshness"].push(() => {
-        document.querySelectorAll("[data-ytb-stale]").forEach((el) => { el.style.display = ""; delete el.dataset.ytbStale; });
+        document.querySelectorAll("[data-ytb-stale]").forEach((el) => { delete el.dataset.ytbStale; });
       });
     },
     settings(en) {
@@ -3970,7 +3957,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           else if (!hit && card.dataset.ytbSnoozed) { delete card.dataset.ytbSnoozed; if (!card.dataset.ytbStale) card.style.display = ""; }
         });
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-snooze", scan, 350), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scan, 350), { childList: true, subtree: true });
       ctx.onNav(scan);
       Yt["channel-snooze"].push(() => {
         document.querySelectorAll("[data-ytb-snoozed]").forEach((el) => { el.style.display = ""; delete el.dataset.ytbSnoozed; });
@@ -4012,7 +3999,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           seen.set(key, true);
         });
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-dup", scan, 350), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scan, 350), { childList: true, subtree: true });
       ctx.onNav(() => ctx.addTimeout(scan, 700));
       Yt["dup-title-spotter"].push(() => {
         document.querySelectorAll(".ytb-ui-dup-badge").forEach((b) => b.remove());
@@ -4065,7 +4052,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           }
         });
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-plmark", scan, 400), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scan, 400), { childList: true, subtree: true });
       ctx.onNav(() => ctx.addTimeout(scan, 800));
       Yt["playlist-watched-marker"].push(() => {
         document.querySelectorAll("[data-ytb-watched]").forEach((t) => {
@@ -4104,7 +4091,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           }
         });
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-cf", scan, 400), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scan, 400), { childList: true, subtree: true });
       ctx.onNav(() => ctx.addTimeout(scan, 900));
       Yt["comment-filter"].push(() => {
         document.querySelectorAll("[data-ytb-cf]").forEach((el) => {
@@ -4160,7 +4147,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           } else { d.splice(at, 1); pe("Restored to history view.", 1500, "info"); }
         });
       }, true);
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-hlh", scan, 350), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scan, 350), { childList: true, subtree: true });
       ctx.onNav(() => ctx.addTimeout(scan, 700));
       Yt["history-local-hide"].push(() => {
         document.querySelectorAll("[data-ytb-hist-hidden]").forEach((el) => { el.style.display = ""; delete el.dataset.ytbHistHidden; });
@@ -4599,9 +4586,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       if (!S.readerModeOn) return;
       YourTubeEngine.injectCSS();
       let overlay = null;
-      const open = () => {
-        const descEl = document.querySelector("#description-inline-expander, #description, ytd-text-inline-expander");
-        if (!descEl || !document.body) return;
+      const open = (descEl) => {
+        // YouTube also ships an SVG <g id="description">. Read from the
+        // specific watch expander that owns the clicked control, not an ID
+        // lookup over the whole page (or a hidden duplicate from a panel).
+        if (!descEl.isConnected || !document.body) return;
         close();
         overlay = document.createElement("div");
         overlay.id = "ytb-reader";
@@ -4612,7 +4601,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         inner.style.cssText = "max-width:720px;width:100%;background:rgba(18,20,27,.98);border-radius:14px;" +
           "padding:26px 30px;border:1px solid rgba(255,255,255,.1);color:#e8e8ee;" +
           "font:15px/1.65 system-ui;white-space:pre-wrap;max-height:86vh;overflow:auto";
-        inner.textContent = descEl.innerText || descEl.textContent || "";
+        const content = descEl.querySelector("#attributed-description-text,yt-attributed-string#content,#description-text") || descEl;
+        const copy = content.cloneNode(true);
+        copy.querySelectorAll("button,script,style,#expand,#collapse,.ytb-ui-reader-open").forEach(node => node.remove());
+        inner.textContent = (copy.textContent || "").trim();
         const closeBtn = document.createElement("button");
         closeBtn.textContent = "× Close";
         closeBtn.className = "ytb-ui-btn";
@@ -4625,20 +4617,25 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
       const close = () => { if (overlay) { overlay.remove(); overlay = null; } };
       const mount = () => {
-        const meta = document.querySelector("#description-inline-expander, ytd-text-inline-expander");
+        if (!location.pathname.startsWith("/watch")) return false;
+        const visible = selector => Array.from(document.querySelectorAll(selector)).find(node =>
+          node instanceof HTMLElement && node.getClientRects().length && !node.closest("[hidden]"));
+        const meta = visible("ytd-watch-metadata #description-inline-expander,ytd-watch-flexy #description-inline-expander") ||
+          visible("#description-inline-expander") || visible("ytd-watch-metadata ytd-text-inline-expander");
         if (!meta || meta.querySelector(".ytb-ui-reader-open")) return !!meta;
         const b = document.createElement("button");
         b.className = "ytb-ui-btn ytb-ui-reader-open";
         b.style.cssText = "margin-top:6px";
         b.textContent = "📖 Reader mode";
-        b.addEventListener("click", open);
+        b.addEventListener("click", ev => { ev.stopPropagation(); open(meta); });
         meta.appendChild(b);
         return true;
       };
       YourTubeEngine.scheduleOnReady(ctx, mount, { attempts: 10, delayMs: 500 });
+      ctx.addObserver(document.body, ctx.debounce(mount, 200), {childList:true, subtree:true});
       ctx.addListener(document, "keydown", (ev) => { if (ev.key === "Escape") close(); });
       ctx.onNav(close);
-      Yt["reader-mode"].push(close);
+      Yt["reader-mode"].push(() => { close(); document.querySelectorAll(".ytb-ui-reader-open").forEach(node => node.remove()); });
     },
     settings(en) { en.appendChild(Io("Add reader mode to descriptions", "readerModeOn")); },
   });
@@ -4792,20 +4789,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn"];
+  const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn", "themeCompactOn"];
   xa.register({
     id: "aio-compact-dense", name: "Bundle: Compact Layout",
     summary: "Group switch: compact UI, dense grid, compact playlists.",
       cat: "bundles",
     masterKey: "aioCompactDenseOn",
     settingsAlways: !0,
-    keys: ["aioCompactDenseOn", "aioCompactDenseOnEnrolled", ..._dense, "themeCompactOn"],
-    apply() {
-
-      const wasEnrolled = !!S.aioCompactDenseOnEnrolled;
-      aioEnroll("aioCompactDenseOn", _dense);
-      if (S.aioCompactDenseOn && !wasEnrolled && S.themeCompactOn === false) Ta("themeCompactOn", true);
-    },
+    keys: ["aioCompactDenseOn", "aioCompactDenseOnEnrolled", ..._dense],
+    apply() { aioEnroll("aioCompactDenseOn", _dense); },
     settings(en) {
       en.appendChild(Io("Turn on all compact/density options", "aioCompactDenseOn"));
       aioRows(en, [
@@ -5014,7 +5006,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         trimStore(data);
         seen.set(data);
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-seen", scan, 400), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scan, 400), { childList: true, subtree: true });
       ctx.addInterval(scan, 6000);
       ctx.onNav(() => ctx.addTimeout(scan, 800));
       Yt["seen-memory"].push(() => {
@@ -5058,7 +5050,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         });
       };
       scan();
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-lowview", scan, 400), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scan, 400), { childList: true, subtree: true });
       ctx.addInterval(scan, 6000);
       ctx.onNav(() => ctx.addTimeout(scan, 800));
       Yt["hide-low-views"].push(() => {
@@ -5118,7 +5110,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           card.dataset.ytbMeta = "1";
         });
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-meta", scan, 400), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scan, 400), { childList: true, subtree: true });
+      scan();
       ctx.addInterval(scan, 5000);
       ctx.onNav(() => ctx.addTimeout(scan, 900));
       Yt["card-metadata"].push(() => {
@@ -5161,7 +5154,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           section.style.display = "none";
         });
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-filler", scan, 400), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scan, 400), { childList: true, subtree: true });
+      scan();
       ctx.addInterval(scan, 4000);
       ctx.onNav(() => ctx.addTimeout(scan, 900));
       Yt["search-filler"].push(() => {
@@ -5285,7 +5279,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           }
         }
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ask", scrub, 300), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(scrub, 300), { childList: true, subtree: true });
+      scrub();
       ctx.addInterval(scrub, 5000);
       Yt["hide-ai-ask"].push(() => {
         document.querySelectorAll("[data-ytb-ask]").forEach((el) => {
@@ -5397,7 +5392,14 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const seekStep = () => Math.max(1, Math.min(60, Number(S.wheelSeekStep) || 5));
       const onWheel = (ev) => {
         const el = ie.el();
-        if (!el) return;
+        // The public player exposes its own event API; adding a DOM wheel
+        // listener to that host can silently subscribe to the wrong channel.
+        // Delegate from the document, scoped to the active video's player, so
+        // page scrolling, menus, and preloaded players keep their native input.
+        const player = el && el.closest("#movie_player,.html5-video-player,ytd-player,#player-container");
+        const path = ev.composedPath?.() || [];
+        if (!player || !(path.includes(player) || player.contains(ev.target)) || ev.ctrlKey || ev.metaKey ||
+            ev.target?.closest?.(".ytb-dash,.ytp-popup,.ytp-settings-menu,[contenteditable=true]")) return;
         if (ev.shiftKey) {
           ev.preventDefault();
           const next = Math.max(0.0625, Math.min(16, Math.round((el.playbackRate + (ev.deltaY < 0 ? 0.1 : -0.1)) * 100) / 100));
@@ -5420,15 +5422,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         el.muted = false;
         pe("Volume " + Math.round(next * 100) + "%", 900, "info");
       };
-      const bound = new WeakSet();
-      const bind = () => {
-        const player = document.getElementById("movie_player") || document.querySelector("#player-container, ytd-player");
-        if (!player || bound.has(player)) return;
-        bound.add(player);
-        ctx.addListener(player, "wheel", onWheel, { passive: false });
-      };
-      bind();
-      ctx.onNav(() => ctx.addTimeout(bind, 1200));
+      ctx.addListener(document, "wheel", onWheel, { capture: true, passive: false });
     },
     settings(en) {
       en.appendChild(Io("Wheel over the player adjusts volume", "wheelControlsOn"));
@@ -5624,7 +5618,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         ".ytb-ui-shorts-progress-fill{height:100%;width:0;background:#ff3d7f;transition:width .2s linear}",
       );
       const rate = () => Math.max(0.25, Math.min(4, Number(S.shortsSpeedDefault) || 1));
-      let lastVid = "";
+      let lastVid = "", owner = null, previous = 1, written = null;
+      const releaseRate = () => {
+        if (owner && written !== null && owner.playbackRate === written) owner.playbackRate = previous;
+        owner = null; written = null;
+      };
       let bar = null;
       const ensureBar = () => {
         if (!S.shortsProgressOn) return null;
@@ -5639,13 +5637,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const el = ie.el();
         const progress = ensureBar();
         if (!onShorts || !el) {
+          releaseRate();
           if (progress) progress.style.display = "none";
           return;
         }
         const vid = (ie.videoId && ie.videoId()) || "";
-        if (vid && vid !== lastVid) {
+        if (vid && (vid !== lastVid || owner !== el)) {
+          releaseRate(); owner = el; previous = el.playbackRate;
           lastVid = vid;
-          try { el.playbackRate = rate(); } catch (_) {}
+          try { written = rate(); el.playbackRate = written; } catch (_) {}
         }
         if (progress) {
           progress.style.display = "block";
@@ -5653,10 +5653,12 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           progress.firstChild.style.width = pct + "%";
         }
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-shortspeed", tick, 300), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(tick, 300), { childList: true, subtree: true });
+      tick();
       ctx.addInterval(tick, 1000);
       ctx.onNav(() => { lastVid = ""; ctx.addTimeout(tick, 600); });
       Yt["shorts-speed"].push(() => {
+        releaseRate();
         if (bar) { try { bar.remove(); } catch (_) {} bar = null; }
       });
     },
@@ -5760,7 +5762,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             if (!data || typeof data.dislikes !== "number") { failed.set(videoId, 1); return; }
             cache.set(videoId, data);
             failed.delete(videoId);
-            if (videoId === (ie.videoId && ie.videoId())) render(videoId, data);
+            if (S.returnDislikeOn && videoId === (ie.videoId && ie.videoId())) render(videoId, data);
           })
           .catch(() => { failed.set(videoId, 1); })
           .then(() => { inFlight--; });
@@ -5775,6 +5777,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         });
         load(videoId);
       };
+      tick();
       ctx.addInterval(tick, 2500);
       ctx.onNav(() => ctx.addTimeout(tick, 1200));
       Yt["return-dislike"].push(() => {
@@ -5811,8 +5814,17 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         "https://dearrow-thumb.ajay.app/api/v1/getThumbnail?videoID=" + encodeURIComponent(videoId) +
         "&time=" + encodeURIComponent(time) + "&returnError=true";
       let titleAppliedFor = "";
-      let originalTitle = "";
-      let previousDocTitle = "";
+      let titleOwner = null;
+      const releaseTitle = () => {
+        const owned = titleOwner;
+        titleOwner = null;
+        if (!owned) return;
+        owned.chip?.remove();
+        // Restore actual native children/listeners, only if the site has not
+        // already reused the heading for another video.
+        if (owned.text.parentNode === owned.target) owned.text.replaceWith(...owned.children);
+        if (document.title === owned.docWritten) document.title = owned.docBefore;
+      };
       let revertedFor = "";
       let applyAlive = true;
       const thumbOriginals = new Map();
@@ -5827,11 +5839,12 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const heading = document.querySelector("ytd-watch-metadata h1, h1.ytd-watch-metadata, #title h1");
         if (!heading) return;
         const target = heading.querySelector("yt-formatted-string") || heading;
-        if (!originalTitle) originalTitle = target.textContent;
-        if (!previousDocTitle) previousDocTitle = document.title;
+        releaseTitle();
+        const text = document.createTextNode(best.title);
+        const owned = titleOwner = {target, text, children: Array.from(target.childNodes), docBefore: document.title, docWritten: best.title + " - YouTube"};
         titleAppliedFor = videoId;
-        target.textContent = best.title;
-        try { document.title = best.title + " - YouTube"; } catch (_) {}
+        target.replaceChildren(text);
+        document.title = owned.docWritten;
         if (!heading.querySelector(".ytb-ui-dearrow-chip")) {
           const chip = To("button", "ytb-ui-dearrow-chip", "DeArrow");
           chip.type = "button";
@@ -5839,14 +5852,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           chip.addEventListener("click", (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
-            target.textContent = originalTitle;
-            if (previousDocTitle) { try { document.title = previousDocTitle; } catch (_) {} }
+            if (titleOwner !== owned) return;
+            releaseTitle();
             // Keep the gate set so the next watch tick does not re-apply the
             // community title the user just dismissed.
             titleAppliedFor = videoId;
             revertedFor = videoId;
             chip.remove();
           });
+          owned.chip = chip;
           heading.appendChild(chip);
         }
       };
@@ -5917,10 +5931,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       watchTick();
       ctx.addInterval(() => { watchTick(); cardScan(); }, 3000);
       ctx.onNav(() => {
-        titleAppliedFor = "";
-        originalTitle = "";
-        previousDocTitle = "";
-        revertedFor = "";
+        const same = titleAppliedFor === ie.videoId();
+        if (!same || (titleOwner && !titleOwner.text.isConnected)) {
+          releaseTitle(); titleAppliedFor = "";
+          if (!same) revertedFor = "";
+        }
         resetBudget();
         ctx.addTimeout(watchTick, 1500);
         ctx.addTimeout(cardScan, 2500);
@@ -5929,15 +5944,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         // Stop late responses from writing into the page first.
         applyAlive = false;
         // Restore the title, the document title and every replaced thumbnail.
-        if (titleAppliedFor) {
-          const heading = document.querySelector("ytd-watch-metadata h1, h1.ytd-watch-metadata, #title h1");
-          const target = heading && (heading.querySelector("yt-formatted-string") || heading);
-          if (target && originalTitle) target.textContent = originalTitle;
-        }
-        if (previousDocTitle) { try { document.title = previousDocTitle; } catch (_) {} }
-        titleAppliedFor = "";
-        originalTitle = "";
-        previousDocTitle = "";
+        releaseTitle(); titleAppliedFor = "";
         document.querySelectorAll(".ytb-ui-dearrow-chip").forEach((el) => el.remove());
         for (const [image, original] of thumbOriginals) {
           try {
@@ -6044,7 +6051,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         Yt["player-effects-block"].push(() => { try { obs.disconnect(); delete flexy.__ytbFxObs; } catch (_) {} });
       };
       ctx.addInterval(() => { watchFlexy(); assert(); }, 4000);
-      ctx.addTimeout(assert, 900);
+      watchFlexy(); assert();
       ctx.onNav(() => ctx.addTimeout(assert, 1400));
     },
     settings(en) {
@@ -6113,7 +6120,30 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           "yt-live-chat-text-message-renderer #message{font-size:12px!important;line-height:1.35!important}",
         );
       }
-      if (rules.length) ctx.addStyle(rules.join(""));
+      if (!rules.length) return;
+      const css = rules.join("");
+      ctx.addStyle(css);
+      // Live chat normally lives in its own document. @noframes is intentional:
+      // install ONLY the chat stylesheet there, not a second player/dashboard.
+      const frames = new Map();
+      const frameSelector = "ytd-live-chat-frame iframe,iframe#chatframe,iframe[src*='/live_chat']";
+      const sync = () => {
+        for (const [frame, state] of frames) if (!frame.isConnected) {
+          frame.removeEventListener("load", state.load); state.style?.remove(); frames.delete(frame);
+        }
+        for (const frame of document.querySelectorAll(frameSelector)) {
+          if (frames.has(frame)) continue;
+          const state = {style:null,load:() => {
+            const doc = frame.contentDocument;
+            if (!doc || !doc.head) return; // cross-origin/unavailable documents are left alone
+            state.style?.remove(); state.style = doc.createElement("style");
+            state.style.textContent = css; doc.head.appendChild(state.style);
+          }};
+          frames.set(frame,state); frame.addEventListener("load",state.load); state.load();
+        }
+      };
+      sync(); ctx.addObserver(document.body,sync,{childList:true,subtree:true});
+      Yt["live-chat-clean"].push(() => {for (const [f,s] of frames) {f.removeEventListener("load",s.load);s.style?.remove();}frames.clear();});
     },
     settings(en) {
       en.appendChild(Io("Clean up live chat", "liveChatCleanOn"));
@@ -6199,6 +6229,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         bind();
         ctx.onNav(() => ctx.addTimeout(bind, 1500));
       }
+      mount();
       ctx.addInterval(mount, 1500);
       ctx.onNav(() => ctx.addTimeout(mount, 1200));
       Yt["transcript-tools"].push(() => {
@@ -6241,6 +6272,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         header.appendChild(button);
         return true;
       };
+      mount();
       ctx.addInterval(mount, 2000);
       Yt["notification-clean"].push(() => {
         document.querySelectorAll(".ytb-ui-mark-read").forEach((el) => el.remove());
@@ -6493,6 +6525,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         button.title = "Open a random video from this page";
         host.appendChild(button);
       };
+      mount();
       ctx.addInterval(mount, 2500);
       ctx.onNav(() => ctx.addTimeout(mount, 1200));
       Yt["random-pick"].push(() => {
@@ -6537,6 +6570,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         button.title = "Shuffle the list order in this tab only";
         host.appendChild(button);
       };
+      mount();
       ctx.addInterval(mount, 2500);
       ctx.onNav(() => ctx.addTimeout(mount, 1200));
       Yt["shuffle-tools"].push(() => {
@@ -6710,7 +6744,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         }
         host.appendChild(row);
       };
-      ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-groups", filterFeed, 500), { childList: true, subtree: true });
+      ctx.addObserver(document.body, ctx.debounce(filterFeed, 500), { childList: true, subtree: true });
       ctx.addInterval(() => { bar(); filterFeed(); }, 8000);
       ctx.onNav(() => { ctx.addTimeout(bar, 1200); ctx.addTimeout(filterFeed, 1500); });
       Yt["sub-groups"].push(() => {
@@ -6798,8 +6832,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             node.style.display = "none";
           });
         };
-        ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-inline-likes", scrub, 400), { childList: true, subtree: true });
-        ctx.addInterval(scrub, 3000);
+        ctx.addObserver(document.body, ctx.debounce(scrub, 400), { childList: true, subtree: true });
+        scrub();
+      ctx.addInterval(scrub, 3000);
         Yt["ui-restore-2026"].push(() => {
           document.querySelectorAll("[data-ytb-inline-likes]").forEach((el) => {
             el.style.display = "";
@@ -6928,6 +6963,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         }
         host.insertBefore(bar, host.firstChild);
       };
+      mount();
       ctx.addInterval(mount, 2000);
       ctx.onNav(() => {
         // Tabs only apply to the watch page; leaving it must restore the layout.
@@ -7096,6 +7132,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         button.title = "Store this channel in a local group";
         host.appendChild(button);
       };
+      mount();
       ctx.addInterval(mount, 2500);
       ctx.onNav(() => ctx.addTimeout(mount, 1200));
       Yt["sub-group-add"].push(() => {
@@ -7155,6 +7192,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         note.appendChild(actions);
         host.appendChild(note);
       };
+      mount();
       ctx.addInterval(mount, 2000);
       ctx.onNav(() => { revealed = false; ctx.addTimeout(mount, 600); });
       Yt["subs-only-home"].push(() => {

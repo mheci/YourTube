@@ -19,7 +19,7 @@
         Zr();
       }
       if (_overhaulUnsub) { try { _overhaulUnsub(); } catch (_e) {} }
-      _overhaulUnsub = So("cfg.changed", ({ key: k }) => {
+      _overhaulUnsub = g.on("cfg.changed", ({ key: k }) => {
         if (!S.themeEngineOn) return;
         if (k === "themeGlassOverhaulOn" || k === "themeOverhaulOn" || k === "themeFxReducedMotion") {
           Zr();

@@ -1,0 +1,2135 @@
+[
+ {
+  "id": "speed-controller",
+  "name": "Playback Speed",
+  "cat": "playback",
+  "master": "speedRemember",
+  "keys": [
+   "speedDefault",
+   "speedRemember",
+   "speedStep"
+  ],
+  "summary": "Applies a default rate and remembers per-session changes."
+ },
+ {
+  "id": "speed-per-channel",
+  "name": "Per-Channel Speed",
+  "cat": "playback",
+  "master": "speedPerChannelOn",
+  "keys": [
+   "speedPerChannelOn"
+  ],
+  "summary": "Stores one playback rate per channel; overrides the global default."
+ },
+ {
+  "id": "loop-video",
+  "name": "Loop Video",
+  "cat": "playback",
+  "master": "loopVideo",
+  "keys": [
+   "loopVideo"
+  ],
+  "summary": "Restarts the video at end; toggleable from the player bar."
+ },
+ {
+  "id": "ab-repeat",
+  "name": "A/B Loop",
+  "cat": "playback",
+  "master": "abLoopOn",
+  "keys": [
+   "abLoopOn",
+   "abA",
+   "abB"
+  ],
+  "summary": "Loops between two player timestamps; markers set from the player bar or Alt+A."
+ },
+ {
+  "id": "auto-hd",
+  "name": "Preferred Quality Lock",
+  "cat": "playback",
+  "master": "autoHD",
+  "keys": [
+   "autoHD",
+   "qualityPref",
+   "qualityLockStrict",
+   "videoCodecPref",
+   "audioCodecPref"
+  ],
+  "summary": "Locks the chosen resolution and codecs, then re-asserts them while YouTube adapts."
+ },
+ {
+  "id": "force-cc",
+  "name": "Forced Captions",
+  "cat": "playback",
+  "master": "forceCC",
+  "keys": [
+   "forceCC",
+   "forceCCLang",
+   "ccNativePrefs",
+   "ccFontSize",
+   "ccFontFamily",
+   "ccFontWeight",
+   "ccTextColor",
+   "ccBgColor",
+   "ccBgOpacity",
+   "ccTextShadow",
+   "ccLineHeight",
+   "ccPos",
+   "ccUppercase",
+   "ccRadius",
+   "ccLetterSpacing",
+   "ccFallbackLangs",
+   "ccKindPref",
+   "ccAutoTranslate",
+   "ccTranslateTo",
+   "ccSkipMusic",
+   "ccSkipShorts",
+   "ccRespectManualOff",
+   "ccReEngageOnPlay"
+  ],
+  "summary": "Enables captions on every video with style, position and language rules."
+ },
+ {
+  "id": "autoskip-ad-btn",
+  "name": "Auto-Click Skip Ad",
+  "cat": "playback",
+  "master": "autoSkipAdBtn",
+  "keys": [
+   "autoSkipAdBtn"
+  ],
+  "summary": "Clicks YouTube's own Skip Ad button the moment it appears."
+ },
+ {
+  "id": "sponsorblock",
+  "name": "SponsorBlock",
+  "cat": "integrations",
+  "master": "sponsorblockOn",
+  "keys": [
+   "sponsorblockOn",
+   "sbPrivacy",
+   "sbToast",
+   "sbToastDur",
+   "sbSeekbar",
+   "sbHud",
+   "sbOnlySkipIfVip",
+   "sbIncognito",
+   "sbSkipCountdown",
+   "sbSkipCountdownTime",
+   "sbBetterBeAware",
+   "sbDisable",
+   "sbWhitelist",
+   "sbMinDuration",
+   "sbAudioCue",
+   "sbSkipRules",
+   "sbChapterToast",
+   "sbTimeWithSkips",
+   "sbRenderChapters",
+   "sb_sponsor_en",
+   "sb_sponsor_act",
+   "sb_sponsor_sb",
+   "sb_selfpromo_en",
+   "sb_selfpromo_act",
+   "sb_selfpromo_sb",
+   "sb_interaction_en",
+   "sb_interaction_act",
+   "sb_interaction_sb",
+   "sb_intro_en",
+   "sb_intro_act",
+   "sb_intro_sb",
+   "sb_outro_en",
+   "sb_outro_act",
+   "sb_outro_sb",
+   "sb_preview_en",
+   "sb_preview_act",
+   "sb_preview_sb",
+   "sb_hook_en",
+   "sb_hook_act",
+   "sb_hook_sb",
+   "sb_filler_en",
+   "sb_filler_act",
+   "sb_filler_sb",
+   "sb_music_offtopic_en",
+   "sb_music_offtopic_act",
+   "sb_music_offtopic_sb",
+   "sb_poi_highlight_en",
+   "sb_poi_highlight_act",
+   "sb_poi_highlight_sb",
+   "sb_exclusive_access_en",
+   "sb_exclusive_access_act",
+   "sb_exclusive_access_sb",
+   "sb_chapter_en",
+   "sb_chapter_act",
+   "sb_chapter_sb"
+  ],
+  "summary": "Skips sponsor segments via hashed-prefix lookups; no video IDs leave the browser."
+ },
+ {
+  "id": "session-restore",
+  "name": "Session History",
+  "cat": "data",
+  "master": "sessionRestoreOn",
+  "keys": [
+   "sessionRestoreOn",
+   "sessionResumeMode",
+   "sessionResumeDesign"
+  ],
+  "summary": "Local watch history with resume positions, bookmarks and search."
+ },
+ {
+  "id": "pip-button",
+  "name": "Picture-in-Picture",
+  "cat": "playback",
+  "master": null,
+  "keys": [],
+  "summary": "Adds a PiP button; detaches the video into a floating window."
+ },
+ {
+  "id": "screenshot",
+  "name": "Frame Capture",
+  "cat": "playback",
+  "master": "screenshotOn",
+  "keys": [
+   "screenshotOn",
+   "screenshotFmt",
+   "screenshotScale",
+   "screenshotClipboard"
+  ],
+  "summary": "Saves the current video frame as PNG/JPG; optional clipboard copy; hotkey available."
+ },
+ {
+  "id": "force-watched",
+  "name": "Mark as Watched",
+  "cat": "playback",
+  "master": "forceWatchedOn",
+  "keys": [
+   "forceWatchedOn",
+   "forceWatchedAccountHistory",
+   "forceWatchedLocalHistory"
+  ],
+  "summary": "Shift+W sends a full-play beacon and records the video in account history."
+ },
+ {
+  "id": "theater-default",
+  "name": "Theater Default",
+  "cat": "playback",
+  "master": "theaterDefault",
+  "keys": [
+   "theaterDefault"
+  ],
+  "summary": "Opens watch pages in theater mode."
+ },
+ {
+  "id": "cinema-mode",
+  "name": "Cinema Mode",
+  "cat": "playback",
+  "master": "cinemaMode",
+  "keys": [
+   "cinemaMode",
+   "cinemaOp"
+  ],
+  "summary": "Dims everything outside the player with adjustable opacity."
+ },
+ {
+  "id": "compact-ui",
+  "name": "Compact UI",
+  "cat": "appearance",
+  "master": "compactUI",
+  "keys": [
+   "compactUI"
+  ],
+  "summary": "Tighter watch-page margins, metadata sizes and paddings."
+ },
+ {
+  "id": "video-filters",
+  "name": "Video Adjustments",
+  "cat": "playback",
+  "master": "videoFiltersOn",
+  "keys": [
+   "videoFiltersOn",
+   "vfBright",
+   "vfContrast",
+   "vfSat",
+   "vfHue",
+   "vfGray",
+   "vfFlip",
+   "vfZoom"
+  ],
+  "summary": "Brightness, contrast, saturation, hue, zoom and flip applied to the player."
+ },
+ {
+  "id": "hide-recs",
+  "name": "Hide Recommendations",
+  "cat": "feed",
+  "master": "hideRecs",
+  "keys": [
+   "hideRecs"
+  ],
+  "summary": "Removes the related-videos sidebar on watch pages."
+ },
+ {
+  "id": "hide-comments",
+  "name": "Hide Comments",
+  "cat": "comments",
+  "master": "hideComments",
+  "keys": [
+   "hideComments"
+  ],
+  "summary": "Removes the comments section on watch pages."
+ },
+ {
+  "id": "hide-endscreen",
+  "name": "Hide End Cards",
+  "cat": "feed",
+  "master": "hideEndscreen",
+  "keys": [
+   "hideEndscreen"
+  ],
+  "summary": "Blocks end-screen recommendation cards and teasers."
+ },
+ {
+  "id": "hide-livechat",
+  "name": "Hide Live Chat",
+  "cat": "comments",
+  "master": "hideLivechat",
+  "keys": [
+   "hideLivechat"
+  ],
+  "summary": "Collapses and removes the live chat panel on streams."
+ },
+ {
+  "id": "hide-watermark",
+  "name": "Hide Watermark",
+  "cat": "feed",
+  "master": "hideWatermark",
+  "keys": [
+   "hideWatermark"
+  ],
+  "summary": "Removes the channel watermark overlay on the player."
+ },
+ {
+  "id": "hide-cards",
+  "name": "Hide Info Cards",
+  "cat": "comments",
+  "master": "hideCards",
+  "keys": [
+   "hideCards"
+  ],
+  "summary": "Blocks the interactive (i) teaser popups during playback."
+ },
+ {
+  "id": "hide-masthead",
+  "name": "Hide Masthead",
+  "cat": "appearance",
+  "master": "hideMasthead",
+  "keys": [
+   "hideMasthead"
+  ],
+  "summary": "Removes the top navigation bar site-wide."
+ },
+ {
+  "id": "hide-banner-ads",
+  "name": "Hide Banner Ads",
+  "cat": "feed",
+  "master": "hideBannerAds",
+  "keys": [
+   "hideBannerAds"
+  ],
+  "summary": "Removes display banners, sponsored shelves and promo overlays."
+ },
+ {
+  "id": "channel-blocker",
+  "name": "Channel Blocker",
+  "cat": "channels",
+  "master": "channelBlockerOn",
+  "keys": [
+   "channelBlockerOn",
+   "channelBlockerList",
+   "channelBlockerHideWatch",
+   "channelBlockerHideBrowse",
+   "channelBlockerHideComments",
+   "channelBlockerMatchTitleText"
+  ],
+  "summary": "Hides listed channels plus uBlock-style rules across every surface."
+ },
+ {
+  "id": "keyword-filter",
+  "name": "Title Keyword Filter",
+  "cat": "feed",
+  "master": "keywordFilterOn",
+  "keys": [
+   "keywordFilterOn",
+   "keywordFilterList"
+  ],
+  "summary": "Hides cards whose titles match your keyword list (CSS fast path + DOM matcher)."
+ },
+ {
+  "id": "geo-override",
+  "name": "Geo Override",
+  "cat": "privacy",
+  "master": "geoOverrideOn",
+  "keys": [
+   "geoOverrideOn",
+   "geoRegion",
+   "geoLang",
+   "geoTimezone",
+   "geoPatchFetch",
+   "geoPatchXHR",
+   "geoPatchBeacon",
+   "geoPatchNavigator"
+  ],
+  "summary": "Changes YouTube client locale hints. It does not change your IP address or guarantee regional availability."
+ },
+ {
+  "id": "stats-overlay",
+  "name": "Playback Stats Overlay",
+  "cat": "playback",
+  "master": "statsOverlay",
+  "keys": [
+   "statsOverlay"
+  ],
+  "summary": "On-player panel: resolution, quality, FPS, bitrate, time, rate, buffer."
+ },
+ {
+  "id": "diag-console",
+  "name": "Activity Console",
+  "cat": "tools",
+  "master": "diagConsole",
+  "keys": [
+   "diagConsole"
+  ],
+  "summary": "Live log of what YourTube is applying and why."
+ },
+ {
+  "id": "perf-profiler",
+  "name": "Feature Profiler",
+  "cat": "tools",
+  "master": "perfProfilerOn",
+  "keys": [
+   "perfProfilerOn"
+  ],
+  "summary": "Measures per-feature CPU cost."
+ },
+ {
+  "id": "fps-counter",
+  "name": "FPS Counter",
+  "cat": "playback",
+  "master": "fpsCounterOn",
+  "keys": [
+   "fpsCounterOn",
+   "fpsCounterPos"
+  ],
+  "summary": "Corner overlay reporting live rendering frame rate."
+ },
+ {
+  "id": "buffer-health",
+  "name": "Buffer Monitor",
+  "cat": "playback",
+  "master": "bufferHealthOn",
+  "keys": [
+   "bufferHealthOn"
+  ],
+  "summary": "Buffer depth and rebuffer counters while playing."
+ },
+ {
+  "id": "dropped-frame-counter",
+  "name": "Dropped Frames",
+  "cat": "playback",
+  "master": "droppedFrameOn",
+  "keys": [
+   "droppedFrameOn",
+   "droppedFramePos",
+   "droppedFrameResetOnNav",
+   "droppedFrameShowRate"
+  ],
+  "summary": "Reports frames dropped by the player to diagnose stutter."
+ },
+ {
+  "id": "default-audio-track",
+  "name": "Original Audio Track",
+  "cat": "playback",
+  "master": "defaultOriginalAudioOn",
+  "keys": [
+   "defaultOriginalAudioOn"
+  ],
+  "summary": "Picks the original-language audio over auto-dubbed tracks."
+ },
+ {
+  "id": "restore-fullscreen-scrolling",
+  "name": "Fullscreen Scrolling",
+  "cat": "playback",
+  "master": "restoreFsScrollOn",
+  "keys": [
+   "restoreFsScrollOn"
+  ],
+  "summary": "Restores page scrolling while fullscreen is active."
+ },
+ {
+  "id": "remove-redirect-urls",
+  "name": "Redirect Bypass",
+  "cat": "privacy",
+  "master": "removeRedirectUrlsOn",
+  "keys": [
+   "removeRedirectUrlsOn"
+  ],
+  "summary": "Rewrites /redirect tracker URLs to their targets."
+ },
+ {
+  "id": "shorten-share-url",
+  "name": "Share Link Shortener",
+  "cat": "privacy",
+  "master": "shortenShareUrlOn",
+  "keys": [
+   "shortenShareUrlOn"
+  ],
+  "summary": "Strips ?si= and ?feature= tracking from copied links."
+ },
+ {
+  "id": "skip-paused-continue",
+  "name": "Auto-Confirm Pause Prompt",
+  "cat": "playback",
+  "master": "skipPausedContinueOn",
+  "keys": [
+   "skipPausedContinueOn"
+  ],
+  "summary": "Confirms YouTube's 'Video paused. Continue watching?' dialog automatically."
+ },
+ {
+  "id": "click-logo-to-subs",
+  "name": "Logo \u00e2\u2020\u2019 Subscriptions",
+  "cat": "channels",
+  "master": "logoToSubsOn",
+  "keys": [
+   "logoToSubsOn"
+  ],
+  "summary": "Routes the YouTube logo to Subscriptions instead of Home."
+ },
+ {
+  "id": "default-channel-tab",
+  "name": "Channel Default Tab",
+  "cat": "channels",
+  "master": "defaultChannelTab",
+  "keys": [
+   "defaultChannelTab"
+  ],
+  "summary": "Opens channel pages on your preferred tab."
+ },
+ {
+  "id": "hide-top-live-games",
+  "name": "Hide Gaming Shelves",
+  "cat": "feed",
+  "master": "hideTopLiveGamesOn",
+  "keys": [
+   "hideTopLiveGamesOn"
+  ],
+  "summary": "Removes 'Top live games' carousels from feeds."
+ },
+ {
+  "id": "hfr-allow",
+  "name": "High Frame Rate Report",
+  "cat": "playback",
+  "master": "hfrAllowOn",
+  "keys": [
+   "hfrAllowOn"
+  ],
+  "summary": "Reports the frame rates the player offers (YouTube picks formats server-side)."
+ },
+ {
+  "id": "update-check",
+  "name": "Update Check",
+  "cat": "privacy",
+  "master": "updateCheckOn",
+  "keys": [
+   "updateCheckOn",
+   "updateCheckHours"
+  ],
+  "summary": "Background check for new YourTube releases; disabled in Maximum privacy."
+ },
+ {
+  "id": "auto-recover-video",
+  "name": "Playback Recovery",
+  "cat": "playback",
+  "master": "autoRecoverOn",
+  "keys": [
+   "autoRecoverOn"
+  ],
+  "summary": "Rebuilds the player when it stalls after a network drop."
+ },
+ {
+  "id": "background-players-pause",
+  "name": "Pause Hidden Tabs",
+  "cat": "playback",
+  "master": "bgPlayersPauseOn",
+  "keys": [
+   "bgPlayersPauseOn"
+  ],
+  "summary": "Pauses playback in tabs that lose visibility; resumes on return."
+ },
+ {
+  "id": "forward-rewind-buttons",
+  "name": "Seek Buttons",
+  "cat": "playback",
+  "master": "forwardRewindOn",
+  "keys": [
+   "forwardRewindOn",
+   "forwardRewindSec"
+  ],
+  "summary": "Player-bar jump buttons with configurable step size."
+ },
+ {
+  "id": "reverse-playlist",
+  "name": "Reverse Playlist",
+  "cat": "playback",
+  "master": "reversePlaylistOn",
+  "keys": [
+   "reversePlaylistOn"
+  ],
+  "summary": "Plays a playlist from last item to first."
+ },
+ {
+  "id": "flip-video",
+  "name": "Flip Video",
+  "cat": "playback",
+  "master": "flipVideoOn",
+  "keys": [
+   "flipVideoOn",
+   "flipVideoH",
+   "flipVideoV",
+   "videoFiltersOn"
+  ],
+  "summary": "Mirrors or flips the video frame horizontally/vertically."
+ },
+ {
+  "id": "session-replay",
+  "name": "Session Recorder",
+  "cat": "tools",
+  "master": "sessionReplay",
+  "keys": [
+   "sessionReplay"
+  ],
+  "summary": "Logs clicks and navigation locally (never uploaded)."
+ },
+ {
+  "id": "api-explorer",
+  "name": "Developer Player API",
+  "cat": "tools",
+  "master": "apiExplorer",
+  "keys": [
+   "apiExplorer",
+   "apiExplorerMutations"
+  ],
+  "summary": "Exposes the player object to devtools for debugging."
+ },
+ {
+  "id": "net-monitor",
+  "name": "Bandwidth Monitor",
+  "cat": "tools",
+  "master": "netMonitorOn",
+  "keys": [
+   "netMonitorOn",
+   "netMonitorRange",
+   "netMonitorBadge",
+   "netMonitorPatchFetch",
+   "netMonitorPatchXHR",
+   "netMonitorPatchBeacon",
+   "privacyPreset"
+  ],
+  "summary": "Graphs transfer volume over time."
+ },
+ {
+  "id": "adaptive-throttle",
+  "name": "Adaptive Throttle",
+  "cat": "tools",
+  "master": "adaptiveThrottleOn",
+  "keys": [
+   "adaptiveThrottleOn"
+  ],
+  "summary": "Reduces processing work on battery-saving conditions."
+ },
+ {
+  "id": "cookie-control",
+  "name": "Cookie Control",
+  "cat": "privacy",
+  "master": "cookieControlOn",
+  "keys": [
+   "cookieControlOn",
+   "cookieControlLive",
+   "cookieControlNotify"
+  ],
+  "summary": "Inspect, search and edit cookies visible to this page."
+ },
+ {
+  "id": "player-dashboard-button",
+  "name": "Player Launcher Button",
+  "cat": "playback",
+  "master": "playerDashButtonOn",
+  "keys": [
+   "playerDashButtonOn"
+  ],
+  "summary": "Adds a YourTube dashboard button to the player bar."
+ },
+ {
+  "id": "stop-button",
+  "name": "Stop Button",
+  "cat": "playback",
+  "master": "stopButtonOn",
+  "keys": [
+   "stopButtonOn"
+  ],
+  "summary": "Player-bar stop: halts playback and releases the stream buffer."
+ },
+ {
+  "id": "hero-artwork-heal",
+  "name": "Channel Hero Fix",
+  "cat": "appearance",
+  "master": "heroHealOn",
+  "keys": [
+   "heroHealOn"
+  ],
+  "summary": "Re-binds featured-video artwork on channel pages when YouTube's preview fails."
+ },
+ {
+  "id": "disable-video-previews",
+  "name": "Disable Hover Previews",
+  "cat": "feed",
+  "master": "disableVideoPreviewsOn",
+  "keys": [
+   "disableVideoPreviewsOn"
+  ],
+  "summary": "Blocks thumbnail hover autoplay."
+ },
+ {
+  "id": "always-progress-bar",
+  "name": "Persistent Seek Bar",
+  "cat": "playback",
+  "master": "alwaysShowProgressBar",
+  "keys": [
+   "alwaysShowProgressBar"
+  ],
+  "summary": "Keeps the seek bar and progress line visible when controls fade."
+ },
+ {
+  "id": "redirect-shorts",
+  "name": "Shorts \u00e2\u2020\u2019 Player",
+  "cat": "playback",
+  "master": "redirectShortsOn",
+  "keys": [
+   "redirectShortsOn"
+  ],
+  "summary": "Opens Shorts URLs in the standard player."
+ },
+ {
+  "id": "auto-expand-desc",
+  "name": "Expand Description",
+  "cat": "playback",
+  "master": "autoExpandDescOn",
+  "keys": [
+   "autoExpandDescOn"
+  ],
+  "summary": "Expands the video description on watch pages."
+ },
+ {
+  "id": "disable-autoplay",
+  "name": "Disable Autoplay",
+  "cat": "playback",
+  "master": "disableAutoplayOn",
+  "keys": [
+   "disableAutoplayOn"
+  ],
+  "summary": "Blocks automatic playback of the next video."
+ },
+ {
+  "id": "auto-pause",
+  "name": "Auto Pause",
+  "cat": "playback",
+  "master": "autoPauseMode",
+  "keys": [
+   "autoPauseMode",
+   "autoPauseHiddenOn",
+   "autoPauseBlurOn"
+  ],
+  "summary": "Pauses on tab hide or window blur; configurable masking."
+ },
+ {
+  "id": "auto-resume-autopaused",
+  "name": "Auto Resume",
+  "cat": "playback",
+  "master": "autoResumeAutoPausedOn",
+  "keys": [
+   "autoResumeAutoPausedOn"
+  ],
+  "summary": "Resumes playback that was paused by tab visibility."
+ },
+ {
+  "id": "top-progress-bar",
+  "name": "Top Progress Bar",
+  "cat": "playback",
+  "master": "topProgressBarOn",
+  "keys": [
+   "topProgressBarOn"
+  ],
+  "summary": "Thin progress strip pinned to the viewport top during playback."
+ },
+ {
+  "id": "copy-timestamp-button",
+  "name": "Copy Timestamp Link",
+  "cat": "playback",
+  "master": "copyTimestampButtonOn",
+  "keys": [
+   "copyTimestampButtonOn"
+  ],
+  "summary": "Player button: copies a link to the current playhead position."
+ },
+ {
+  "id": "copy-video-info-button",
+  "name": "Copy Video Info",
+  "cat": "playback",
+  "master": "copyVideoInfoButtonOn",
+  "keys": [
+   "copyVideoInfoButtonOn"
+  ],
+  "summary": "Player button: copies title, channel and canonical link."
+ },
+ {
+  "id": "open-transcript-button",
+  "name": "Transcript Shortcut",
+  "cat": "playback",
+  "master": "openTranscriptButtonOn",
+  "keys": [
+   "openTranscriptButtonOn"
+  ],
+  "summary": "Player button that opens the transcript panel directly."
+ },
+ {
+  "id": "video-notes",
+  "name": "Video Notes",
+  "cat": "data",
+  "master": "videoNotesOn",
+  "keys": [
+   "videoNotesOn"
+  ],
+  "summary": "Local per-video notes."
+ },
+ {
+  "id": "channel-notes",
+  "name": "Channel Notes",
+  "cat": "channels",
+  "master": "channelNotesOn",
+  "keys": [
+   "channelNotesOn"
+  ],
+  "summary": "Local per-channel notes shown on their pages."
+ },
+ {
+  "id": "chapter-hotkeys",
+  "name": "Chapter Hotkeys",
+  "cat": "playback",
+  "master": "chapterHotkeysOn",
+  "keys": [
+   "chapterHotkeysOn"
+  ],
+  "summary": "Jump chapters with - and =."
+ },
+ {
+  "id": "chapter-buttons",
+  "name": "Chapter Buttons",
+  "cat": "playback",
+  "master": "chapterButtonsOn",
+  "keys": [
+   "chapterButtonsOn"
+  ],
+  "summary": "Previous/next chapter controls in the player bar."
+ },
+ {
+  "id": "number-search-results",
+  "name": "Number Results",
+  "cat": "feed",
+  "master": "numberSearchResultsOn",
+  "keys": [
+   "numberSearchResultsOn"
+  ],
+  "summary": "Indexes feed and search cards for quick reference."
+ },
+ {
+  "id": "dense-video-grid",
+  "name": "Dense Grid",
+  "cat": "appearance",
+  "master": "denseVideoGridOn",
+  "keys": [
+   "denseVideoGridOn"
+  ],
+  "summary": "More thumbnails per row on wide viewports."
+ },
+ {
+  "id": "highlight-video-length",
+  "name": "Length Highlights",
+  "cat": "feed",
+  "master": "highlightVideoLengthMode",
+  "keys": [
+   "highlightVideoLengthMode",
+   "longVideoMinSec",
+   "shortVideoMaxSec",
+   "highlightLongVideosOn",
+   "highlightShortVideosOn"
+  ],
+  "summary": "Color-codes duration badges for long/short videos."
+ },
+ {
+  "id": "hide-live-content",
+  "name": "Hide Live Streams",
+  "cat": "feed",
+  "master": "hideLiveContentOn",
+  "keys": [
+   "hideLiveContentOn"
+  ],
+  "summary": "Removes live/upcoming cards from feeds and search."
+ },
+ {
+  "id": "hide-premieres",
+  "name": "Hide Premieres",
+  "cat": "feed",
+  "master": "hidePremieresOn",
+  "keys": [
+   "hidePremieresOn"
+  ],
+  "summary": "Removes scheduled premiere cards from feeds."
+ },
+ {
+  "id": "playlist-autoscroll",
+  "name": "Playlist Autoscroll",
+  "cat": "playback",
+  "master": "playlistAutoscrollOn",
+  "keys": [
+   "playlistAutoscrollOn"
+  ],
+  "summary": "Keeps the playing entry visible in the playlist panel."
+ },
+ {
+  "id": "compact-playlist",
+  "name": "Compact Playlist",
+  "cat": "playback",
+  "master": "compactPlaylistOn",
+  "keys": [
+   "compactPlaylistOn"
+  ],
+  "summary": "Denser rows in the playlist drawer."
+ },
+ {
+  "id": "shorts-auto-mute",
+  "name": "Shorts Auto-Mute",
+  "cat": "audio",
+  "master": "shortsAutoMuteOn",
+  "keys": [
+   "shortsAutoMuteOn"
+  ],
+  "summary": "Shorts start muted until unmuted."
+ },
+ {
+  "id": "feed-watched",
+  "name": "Watched Feed Treatment",
+  "cat": "feed",
+  "master": "feedWatchedMode",
+  "keys": [
+   "feedWatchedMode",
+   "feedDimWatchedOn",
+   "feedHideWatchedOn"
+  ],
+  "summary": "Dims or hides cards you've already watched."
+ },
+ {
+  "id": "shorts-hide-comments",
+  "name": "Hide Shorts Comments",
+  "cat": "comments",
+  "master": "shortsHideCommentsOn",
+  "keys": [
+   "shortsHideCommentsOn"
+  ],
+  "summary": "Removes the comments drawer on Shorts."
+ },
+ {
+  "id": "collapse-long-comments",
+  "name": "Collapse Long Comments",
+  "cat": "comments",
+  "master": "collapseLongCommentsOn",
+  "keys": [
+   "collapseLongCommentsOn",
+   "collapseLongCommentChars"
+  ],
+  "summary": "Clamps comments past a character limit behind an expand control."
+ },
+ {
+  "id": "highlight-creator-comments",
+  "name": "Creator Highlight",
+  "cat": "comments",
+  "master": "highlightCreatorCommentsOn",
+  "keys": [
+   "highlightCreatorCommentsOn"
+  ],
+  "summary": "Highlights replies authored by the video's channel."
+ },
+ {
+  "id": "highlight-timestamp-links",
+  "name": "Timestamp Highlight",
+  "cat": "comments",
+  "master": "highlightTimestampLinksOn",
+  "keys": [
+   "highlightTimestampLinksOn"
+  ],
+  "summary": "Makes timestamp links in comments stand out."
+ },
+ {
+  "id": "end-soon-warning",
+  "name": "End-of-Video Warning",
+  "cat": "playback",
+  "master": "endSoonWarningOn",
+  "keys": [
+   "endSoonWarningOn",
+   "endSoonSec"
+  ],
+  "summary": "Shows a notice N seconds before the video ends."
+ },
+ {
+  "id": "theme-engine",
+  "name": "Theme Engine",
+  "cat": "appearance",
+  "master": "themeEngineOn",
+  "keys": [
+   "themeEngineOn",
+   "themeCompactOn",
+   "themeSelected",
+   "themeOverhaulOn",
+   "themeGlassOverhaulOn",
+   "themeFxReducedMotion"
+  ],
+  "summary": "201 hand-tuned themes, custom accent colors, focus rings, compact mode."
+ },
+ {
+  "id": "comment-search",
+  "name": "Comment Search",
+  "cat": "comments",
+  "master": "commentSearchOn",
+  "keys": [
+   "commentSearchOn"
+  ],
+  "summary": "Live text filter box above comments."
+ },
+ {
+  "id": "block-yt-ai",
+  "name": "Hide YouTube AI",
+  "cat": "feed",
+  "master": "blockYTAIOn",
+  "keys": [
+   "blockYTAIOn"
+  ],
+  "summary": "Removes YouTube's AI buttons and generated summaries."
+ },
+ {
+  "id": "elements-control",
+  "name": "Element Hider",
+  "cat": "appearance",
+  "master": "elementsControlOn",
+  "keys": [
+   "elementsControlOn",
+   "elementsControlHidden"
+  ],
+  "summary": "Hide any named YouTube element; per-element toggles with live matching."
+ },
+ {
+  "id": "hide-shorts",
+  "name": "Hide Shorts",
+  "cat": "feed",
+  "master": "hideShorts",
+  "keys": [
+   "hideShorts",
+   "hideShortsRedirect",
+   "hideShortsDomClean",
+   "hideShortsApiFilter"
+  ],
+  "summary": "Removes every Shorts surface site-wide; optional API filtering."
+ },
+ {
+  "id": "hide-auto-dubbed",
+  "name": "Hide Auto-Dubs",
+  "cat": "feed",
+  "master": "hideAutoDubbedOn",
+  "keys": [
+   "hideAutoDubbedOn",
+   "hideAutoDubbedPreferOriginal"
+  ],
+  "summary": "Filters auto-dubbed cards; keeps original-audio versions visible."
+ },
+ {
+  "id": "discover",
+  "name": "Discover",
+  "cat": "insights",
+  "master": "discoverOn",
+  "keys": [
+   "discoverOn"
+  ],
+  "summary": "Topic-based search discovery with watch-history dedup, no algorithm."
+ },
+ {
+  "id": "credibility-layer",
+  "name": "Credibility Badges",
+  "cat": "insights",
+  "master": "credLayerOn",
+  "keys": [
+   "credLayerOn"
+  ],
+  "summary": "Upload-age and channel-trust badges on cards."
+ },
+ {
+  "id": "dead-link-detector",
+  "name": "Outdated Content Flags",
+  "cat": "insights",
+  "master": "deadLinkOn",
+  "keys": [
+   "deadLinkOn"
+  ],
+  "summary": "Warns when search results reference stale content."
+ },
+ {
+  "id": "curated-collections",
+  "name": "Collections",
+  "cat": "insights",
+  "master": "collectionsOn",
+  "keys": [
+   "collectionsOn"
+  ],
+  "summary": "Organize saved videos into named collections."
+ },
+ {
+  "id": "algo-intelligence",
+  "name": "Feed Intelligence",
+  "cat": "insights",
+  "master": "algoIntelligenceOn",
+  "keys": [
+   "algoIntelligenceOn",
+   "algoAutoTrain",
+   "algoBlockTopics",
+   "algoBlockKeywords",
+   "algoBlockChannels",
+   "algoScanInterval",
+   "algoStrength",
+   "algoBoostOn",
+   "algoBoostInterval",
+   "algoDiversityOn",
+   "algoDiversityMax",
+   "algoAutoLikeOn",
+   "algoAutoLikePct",
+   "algoAutoDislikeOn",
+   "algoShortsOn"
+  ],
+  "summary": "Reorders your feed by freshness, variety and interest fit."
+ },
+ {
+  "id": "screen-wake",
+  "name": "Screen Wake Lock",
+  "cat": "playback",
+  "master": "screenWakeOn",
+  "keys": [
+   "screenWakeOn"
+  ],
+  "summary": "Requests a wake lock while a video plays."
+ },
+ {
+  "id": "perf-mode",
+  "name": "Performance Mode",
+  "cat": "tools",
+  "master": "perfModeOn",
+  "keys": [
+   "perfModeOn",
+   "perfModeLevel",
+   "perfModeAuto",
+   "perfContainment",
+   "perfLazyThumbs",
+   "perfLazyComments",
+   "perfKillAnim",
+   "perfKillBlur",
+   "perfThumbQuality",
+   "perfDisablePreviews",
+   "perfMemoryTrim",
+   "perfPrefetch",
+   "perfPreconnect",
+   "perfBgThrottle",
+   "perfPaintReduction",
+   "perfQualityCap"
+  ],
+  "summary": "Five presets scaling work from light to maximum."
+ },
+ {
+  "id": "overlay-hub",
+  "name": "Overlay Hub",
+  "cat": "tools",
+  "master": "overlayHubOn",
+  "keys": [
+   "overlayHubOn",
+   "overlayHubPos"
+  ],
+  "summary": "Docks every performance meter into one HUD."
+ },
+ {
+  "id": "watch-budget",
+  "name": "Watch Budget",
+  "cat": "wellness",
+  "master": "watchBudgetOn",
+  "keys": [
+   "watchBudgetOn",
+   "watchBudgetMinutes"
+  ],
+  "summary": "Daily watch limit with soft nudges and a configurable cap."
+ },
+ {
+  "id": "shorts-policy",
+  "name": "Shorts Schedule",
+  "cat": "wellness",
+  "master": "shortsScheduleOn",
+  "keys": [
+   "shortsScheduleOn",
+   "shortsScheduleMode",
+   "shortsScheduleStart",
+   "shortsScheduleEnd"
+  ],
+  "summary": "Allows or blocks Shorts by time of day."
+ },
+ {
+  "id": "silence-skipper",
+  "name": "Silence Skip",
+  "cat": "audio",
+  "master": "silenceSkipOn",
+  "keys": [
+   "silenceSkipOn",
+   "silenceSkipRate"
+  ],
+  "summary": "Fast-forwards through silent stretches at a configurable rate."
+ },
+ {
+  "id": "chapter-auto-skip",
+  "name": "Chapter Auto-Skip",
+  "cat": "playback",
+  "master": "chapterAutoSkipOn",
+  "keys": [
+   "chapterAutoSkipOn",
+   "chapterSkipWords"
+  ],
+  "summary": "Skips chapters whose titles match intro/outro/sponsor or your word list."
+ },
+ {
+  "id": "video-bookmarks",
+  "name": "Timestamp Bookmarks",
+  "cat": "data",
+  "master": "videoBookmarksOn",
+  "keys": [
+   "videoBookmarksOn"
+  ],
+  "summary": "Bookmark moments with Alt+B; stored locally."
+ },
+ {
+  "id": "timestamp-notes",
+  "name": "Timestamped Notes",
+  "cat": "data",
+  "master": "timestampNotesOn",
+  "keys": [
+   "timestampNotesOn"
+  ],
+  "summary": "Notes anchored to playhead positions (Alt+N)."
+ },
+ {
+  "id": "pause-auto-rewind",
+  "name": "Pause Rewind",
+  "cat": "playback",
+  "master": "pauseRewindOn",
+  "keys": [
+   "pauseRewindOn",
+   "pauseRewindSec"
+  ],
+  "summary": "Rewinds a few seconds each time you pause."
+ },
+ {
+  "id": "instant-replay",
+  "name": "Instant Replay",
+  "cat": "playback",
+  "master": "instantReplayOn",
+  "keys": [
+   "instantReplayOn",
+   "instantReplaySec"
+  ],
+  "summary": "Alt+J replays the last N seconds."
+ },
+ {
+  "id": "sleep-timer",
+  "name": "Sleep Timer",
+  "cat": "wellness",
+  "master": "sleepTimerOn",
+  "keys": [
+   "sleepTimerOn",
+   "sleepTimerMin"
+  ],
+  "summary": "Alt+O: pauses after N minutes with a volume fade."
+ },
+ {
+  "id": "stretch-reminder",
+  "name": "Stretch Reminder",
+  "cat": "wellness",
+  "master": "stretchReminderOn",
+  "keys": [
+   "stretchReminderOn",
+   "stretchEveryMin"
+  ],
+  "summary": "Reminder after long uninterrupted sessions."
+ },
+ {
+  "id": "intention-lock",
+  "name": "Session Intention",
+  "cat": "wellness",
+  "master": "intentionLockOn",
+  "keys": [
+   "intentionLockOn"
+  ],
+  "summary": "Shows your stated intent before watching; stays visible."
+ },
+ {
+  "id": "end-winddown",
+  "name": "Wind-Down Gate",
+  "cat": "wellness",
+  "master": "endWindDownOn",
+  "keys": [
+   "endWindDownOn",
+   "windDownSec"
+  ],
+  "summary": "Autoplay stops behind a continue screen."
+ },
+ {
+  "id": "shorts-marathon-guard",
+  "name": "Shorts Marathon Guard",
+  "cat": "wellness",
+  "master": "shortsMarathonOn",
+  "keys": [
+   "shortsMarathonOn",
+   "shortsMarathonN"
+  ],
+  "summary": "Interrupts after N consecutive Shorts."
+ },
+ {
+  "id": "feed-freshness",
+  "name": "Feed Freshness",
+  "cat": "feed",
+  "master": "feedFreshnessOn",
+  "keys": [
+   "feedFreshnessOn",
+   "feedMaxAgeMonths"
+  ],
+  "summary": "Hides home-feed cards older than a set age."
+ },
+ {
+  "id": "channel-snooze",
+  "name": "Channel Snooze",
+  "cat": "channels",
+  "master": "channelSnoozeOn",
+  "keys": [
+   "channelSnoozeOn",
+   "channelSnoozeList"
+  ],
+  "summary": "Temporarily hides channels from your feeds for N days."
+ },
+ {
+  "id": "dup-title-spotter",
+  "name": "Duplicate Title Flags",
+  "cat": "feed",
+  "master": "dupTitleSpotterOn",
+  "keys": [
+   "dupTitleSpotterOn"
+  ],
+  "summary": "Marks repeated titles in search (reuploads)."
+ },
+ {
+  "id": "playlist-watched-marker",
+  "name": "Playlist Watch-Marks",
+  "cat": "channels",
+  "master": "playlistWatchedMarkerOn",
+  "keys": [
+   "playlistWatchedMarkerOn",
+   "sessionRestoreOn"
+  ],
+  "summary": "Dims playlist entries you've already watched."
+ },
+ {
+  "id": "comment-filter",
+  "name": "Comment Keyword Filter",
+  "cat": "comments",
+  "master": "commentFilterOn",
+  "keys": [
+   "commentFilterOn",
+   "commentBlockWords"
+  ],
+  "summary": "Hides comments matching your keyword list."
+ },
+ {
+  "id": "history-local-hide",
+  "name": "Local History Hide",
+  "cat": "privacy",
+  "master": "historyLocalHideOn",
+  "keys": [
+   "historyLocalHideOn"
+  ],
+  "summary": "Suppresses videos from YourTube's local history (does not touch account history)."
+ },
+ {
+  "id": "copy-link-cleaner",
+  "name": "Copy Link Cleaner",
+  "cat": "privacy",
+  "master": "copyLinkCleanerOn",
+  "keys": [
+   "copyLinkCleanerOn"
+  ],
+  "summary": "Removes tracking parameters from copied URLs."
+ },
+ {
+  "id": "night-scheduler",
+  "name": "Theme Scheduler",
+  "cat": "appearance",
+  "master": "nightSchedulerOn",
+  "keys": [
+   "nightSchedulerOn",
+   "nightStart",
+   "nightEnd"
+  ],
+  "summary": "Switches dark/light themes on a schedule."
+ },
+ {
+  "id": "text-scale",
+  "name": "Text Scale",
+  "cat": "appearance",
+  "master": "textScaleOn",
+  "keys": [
+   "textScaleOn",
+   "textScalePct",
+   "textScaleScope"
+  ],
+  "summary": "Adjusts text size for descriptions and comments; site-wide or scoped."
+ },
+ {
+  "id": "storage-dashboard",
+  "name": "Storage Usage",
+  "cat": "data",
+  "master": "storageDashboardOn",
+  "keys": [
+   "storageDashboardOn"
+  ],
+  "summary": "Inspect and prune YourTube's local storage footprint."
+ },
+ {
+  "id": "health-check",
+  "name": "Health Check",
+  "cat": "tools",
+  "master": "healthCheckOn",
+  "keys": [
+   "healthCheckOn"
+  ],
+  "summary": "Diagnostics: stats, quarantined features, live DOM probes."
+ },
+ {
+  "id": "frame-stepper",
+  "name": "Frame Stepper",
+  "cat": "playback",
+  "master": "frameStepperOn",
+  "keys": [
+   "frameStepperOn",
+   "frameFps"
+  ],
+  "summary": "Frame-accurate stepping via buttons or Alt+, / Alt+.."
+ },
+ {
+  "id": "playlist-resume",
+  "name": "Playlist Resume",
+  "cat": "playback",
+  "master": "playlistResumeOn",
+  "keys": [
+   "playlistResumeOn"
+  ],
+  "summary": "Reopens playlists at the position you stopped."
+ },
+ {
+  "id": "channel-volume",
+  "name": "Per-Channel Volume",
+  "cat": "audio",
+  "master": "channelVolumeOn",
+  "keys": [
+   "channelVolumeOn"
+  ],
+  "summary": "Stores one volume level per channel."
+ },
+ {
+  "id": "quick-collection-send",
+  "name": "Save to Collection",
+  "cat": "channels",
+  "master": "quickCollectionSendOn",
+  "keys": [
+   "quickCollectionSendOn"
+  ],
+  "summary": "One-click save of the current video into a collection."
+ },
+ {
+  "id": "reader-mode",
+  "name": "Description Reader",
+  "cat": "appearance",
+  "master": "readerModeOn",
+  "keys": [
+   "readerModeOn"
+  ],
+  "summary": "Renders long descriptions in a clean reading panel."
+ },
+ {
+  "id": "breather",
+  "name": "Breather",
+  "cat": "wellness",
+  "master": "ytbBreatherOn",
+  "keys": [
+   "ytbBreatherOn"
+  ],
+  "summary": "Alt+G opens a one-minute breathing exercise."
+ },
+ {
+  "id": "aio-player-tools",
+  "name": "Bundle: Player Tools",
+  "cat": "bundles",
+  "master": "aioPlayerToolsOn",
+  "keys": [
+   "aioPlayerToolsOn",
+   "aioPlayerToolsOnEnrolled",
+   "copyTimestampButtonOn",
+   "copyVideoInfoButtonOn",
+   "openTranscriptButtonOn",
+   "videoNotesOn",
+   "channelNotesOn",
+   "chapterButtonsOn",
+   "chapterHotkeysOn"
+  ],
+  "summary": "Group switch for the player-bar extras; members stay individually toggleable; OFF removes only what it enabled."
+ },
+ {
+  "id": "aio-shorts-cleanup",
+  "name": "Bundle: Shorts Cleanup",
+  "cat": "bundles",
+  "master": "aioShortsCleanupOn",
+  "keys": [
+   "aioShortsCleanupOn",
+   "aioShortsCleanupOnEnrolled",
+   "redirectShortsOn",
+   "shortsAutoMuteOn",
+   "shortsHideCommentsOn"
+  ],
+  "summary": "Group switch: Shorts in player, auto-mute, hide comments."
+ },
+ {
+  "id": "aio-feed-cleanup",
+  "name": "Bundle: Feed Cleanup",
+  "cat": "bundles",
+  "master": "aioFeedCleanupOn",
+  "keys": [
+   "aioFeedCleanupOn",
+   "aioFeedCleanupOnEnrolled",
+   "hideRecs",
+   "hideLiveContentOn",
+   "hidePremieresOn",
+   "hideTopLiveGamesOn",
+   "hideAutoDubbedOn",
+   "numberSearchResultsOn",
+   "hideAutoDubbedPreferOriginal"
+  ],
+  "summary": "Group switch: hide recs/live/premieres/dubs, number cards."
+ },
+ {
+  "id": "aio-compact-dense",
+  "name": "Bundle: Compact Layout",
+  "cat": "bundles",
+  "master": "aioCompactDenseOn",
+  "keys": [
+   "aioCompactDenseOn",
+   "aioCompactDenseOnEnrolled",
+   "compactUI",
+   "denseVideoGridOn",
+   "compactPlaylistOn",
+   "playlistAutoscrollOn",
+   "themeCompactOn"
+  ],
+  "summary": "Group switch: compact UI, dense grid, compact playlists."
+ },
+ {
+  "id": "aio-privacy-shield",
+  "name": "Bundle: Privacy Shield",
+  "cat": "bundles",
+  "master": "aioPrivacyShieldOn",
+  "keys": [
+   "aioPrivacyShieldOn",
+   "aioPrivacyShieldOnEnrolled",
+   "privacyShieldOn",
+   "removeRedirectUrlsOn",
+   "shortenShareUrlOn",
+   "blockYTAIOn"
+  ],
+  "summary": "Group switch: redirect bypass, short shares, AI hiding."
+ },
+ {
+  "id": "aio-comment-cleanup",
+  "name": "Bundle: Comment Cleanup",
+  "cat": "bundles",
+  "master": "aioCommentCleanupOn",
+  "keys": [
+   "aioCommentCleanupOn",
+   "aioCommentCleanupOnEnrolled",
+   "collapseLongCommentsOn",
+   "highlightCreatorCommentsOn",
+   "highlightTimestampLinksOn",
+   "collapseLongCommentChars"
+  ],
+  "summary": "Group switch: clamp long comments, highlight creators/timestamps."
+ },
+ {
+  "id": "seen-memory",
+  "name": "Anti-Repeat Memory",
+  "cat": "feed",
+  "master": "antiRepeatOn",
+  "keys": [
+   "antiRepeatOn",
+   "antiRepeatDays",
+   "antiRepeatGraceMin"
+  ],
+  "summary": "Suppresses cards scrolled past for a configurable number of days."
+ },
+ {
+  "id": "hide-low-views",
+  "name": "Low-View Filter",
+  "cat": "feed",
+  "master": "hideLowViewsOn",
+  "keys": [
+   "hideLowViewsOn",
+   "lowViewThreshold"
+  ],
+  "summary": "Hides cards below a view-count threshold."
+ },
+ {
+  "id": "card-metadata",
+  "name": "Card Metadata",
+  "cat": "feed",
+  "master": "cardMetaOn",
+  "keys": [
+   "cardMetaOn",
+   "cardMetaVelocity",
+   "cardMetaDate",
+   "exactDatesOn",
+   "exactDatesCards"
+  ],
+  "summary": "Upload date and views/day badges on feed and search cards."
+ },
+ {
+  "id": "search-filler",
+  "name": "Search Filler Removal",
+  "cat": "feed",
+  "master": "searchFillerOff",
+  "keys": [
+   "searchFillerOff"
+  ],
+  "summary": "Removes related-search and 'similar' filler blocks."
+ },
+ {
+  "id": "hide-community-posts",
+  "name": "Hide Community Posts",
+  "cat": "feed",
+  "master": "hideCommunityPostsOn",
+  "keys": [
+   "hideCommunityPostsOn"
+  ],
+  "summary": "Removes community posts and polls from feeds and shelves."
+ },
+ {
+  "id": "hide-mixes",
+  "name": "Hide Mixes",
+  "cat": "feed",
+  "master": "hideMixesOn",
+  "keys": [
+   "hideMixesOn"
+  ],
+  "summary": "Removes auto-generated Mix/Radio playlists everywhere."
+ },
+ {
+  "id": "player-gradient",
+  "name": "Remove Player Gradient",
+  "cat": "playback",
+  "master": "hidePlayerGradientOn",
+  "keys": [
+   "hidePlayerGradientOn"
+  ],
+  "summary": "Removes the vignette shading over the player edges."
+ },
+ {
+  "id": "hide-upnext",
+  "name": "Hide Up-Next Wall",
+  "cat": "feed",
+  "master": "hideUpNextOn",
+  "keys": [
+   "hideUpNextOn"
+  ],
+  "summary": "Removes the autoplay countdown and end-screen video wall."
+ },
+ {
+  "id": "hide-ai-ask",
+  "name": "Hide AI Ask",
+  "cat": "feed",
+  "master": "hideAiAskOn",
+  "keys": [
+   "hideAiAskOn"
+  ],
+  "summary": "Removes the AI Ask pill from feeds, watch and comments."
+ },
+ {
+  "id": "auto-exit-fullscreen",
+  "name": "Auto-Exit Fullscreen",
+  "cat": "playback",
+  "master": "autoExitFullscreenOn",
+  "keys": [
+   "autoExitFullscreenOn"
+  ],
+  "summary": "Leaves fullscreen automatically at video end."
+ },
+ {
+  "id": "wheel-controls",
+  "name": "Mouse-Wheel Controls",
+  "cat": "audio",
+  "master": "wheelControlsOn",
+  "keys": [
+   "wheelControlsOn",
+   "wheelVolumeStep",
+   "wheelSeekStep"
+  ],
+  "summary": "Wheel over the player adjusts volume; over the seek bar seeks."
+ },
+ {
+  "id": "volume-boost",
+  "name": "Volume Boost",
+  "cat": "audio",
+  "master": "volumeBoostOn",
+  "keys": [
+   "volumeBoostOn",
+   "volumeBoostPct",
+   "volumeBoostPerChannel"
+  ],
+  "summary": "Amplifies playback past 100% via WebAudio; optional per-channel."
+ },
+ {
+  "id": "loudness-leveling",
+  "name": "Loudness Normalization",
+  "cat": "audio",
+  "master": "loudnessLevelOn",
+  "keys": [
+   "loudnessLevelOn",
+   "loudnessStrength"
+  ],
+  "summary": "Compressor evens quiet dialogue and loud segments."
+ },
+ {
+  "id": "sticky-quality",
+  "name": "Live Quality Lock",
+  "cat": "playback",
+  "master": "stickyQualityOn",
+  "keys": [
+   "stickyQualityOn",
+   "qualityPref"
+  ],
+  "summary": "Re-applies the preferred quality on live streams."
+ },
+ {
+  "id": "wide-player",
+  "name": "Wide Player",
+  "cat": "playback",
+  "master": "widePlayerOn",
+  "keys": [
+   "widePlayerOn"
+  ],
+  "summary": "Stretches the player to the full window width."
+ },
+ {
+  "id": "shorts-speed",
+  "name": "Shorts Speed & Progress",
+  "cat": "playback",
+  "master": "shortsSpeedOn",
+  "keys": [
+   "shortsSpeedOn",
+   "shortsSpeedDefault",
+   "shortsProgressOn"
+  ],
+  "summary": "Speed control and a progress bar for Shorts."
+ },
+ {
+  "id": "return-dislike",
+  "name": "Return YouTube Dislike",
+  "cat": "integrations",
+  "master": "returnDislikeOn",
+  "keys": [
+   "returnDislikeOn",
+   "returnDislikeBar"
+  ],
+  "summary": "Restores dislike counts plus a like/dislike ratio bar (RYD API)."
+ },
+ {
+  "id": "dearrow",
+  "name": "DeArrow",
+  "cat": "integrations",
+  "master": "deArrowOn",
+  "keys": [
+   "deArrowOn",
+   "deArrowTitles",
+   "deArrowThumbs"
+  ],
+  "summary": "Swaps clickbait titles/thumbnails for community-submitted versions."
+ },
+ {
+  "id": "player-effects-block",
+  "name": "Block Player Enhancements",
+  "cat": "playback",
+  "master": "blockPlayerFxOn",
+  "keys": [
+   "blockPlayerFxOn",
+   "blockAmbient",
+   "blockStableVolume",
+   "blockVoiceBoost"
+  ],
+  "summary": "Force-off Ambient Mode, Stable Volume (dynamic range compression) and Voice Boost."
+ },
+ {
+  "id": "calm-chrome",
+  "name": "Calm Popups & Toasts",
+  "cat": "appearance",
+  "master": "calmUiOn",
+  "keys": [
+   "calmUiOn"
+  ],
+  "summary": "Applies the dashboard's Calm design to popups, overlays and toasts."
+ },
+ {
+  "id": "live-chat-clean",
+  "name": "Live Chat Cleanup",
+  "cat": "comments",
+  "master": "liveChatCleanOn",
+  "keys": [
+   "liveChatCleanOn",
+   "liveChatHidePaid",
+   "liveChatCompact"
+  ],
+  "summary": "Hides paid messages and compacts the chat feed."
+ },
+ {
+  "id": "transcript-tools",
+  "name": "Transcript Tools",
+  "cat": "playback",
+  "master": "transcriptToolsOn",
+  "keys": [
+   "transcriptToolsOn",
+   "transcriptTimestamps",
+   "transcriptNoScroll"
+  ],
+  "summary": "Copy or download transcripts without scrolling."
+ },
+ {
+  "id": "notification-clean",
+  "name": "Notification Cleanup",
+  "cat": "feed",
+  "master": "notificationCleanOn",
+  "keys": [
+   "notificationCleanOn",
+   "notificationHideBadge"
+  ],
+  "summary": "Hides the notification badge and adds a mark-all-read control."
+ },
+ {
+  "id": "watch-later-tools",
+  "name": "Watch Later Tools",
+  "cat": "channels",
+  "master": "watchLaterToolsOn",
+  "keys": [
+   "watchLaterToolsOn",
+   "watchLaterHideWatched",
+   "watchLaterSortDuration"
+  ],
+  "summary": "Hide watched entries, export the rest, sort by duration."
+ },
+ {
+  "id": "watch-stats",
+  "name": "Watch Statistics",
+  "cat": "insights",
+  "master": "watchStatsOn",
+  "keys": [
+   "watchStatsOn",
+   "watchStatsDays"
+  ],
+  "summary": "Hours watched by channel and day, from local history."
+ },
+ {
+  "id": "weekly-report",
+  "name": "Weekly Report",
+  "cat": "insights",
+  "master": "weeklyReportOn",
+  "keys": [
+   "weeklyReportOn"
+  ],
+  "summary": "Seven-day watch summary, generated weekly."
+ },
+ {
+  "id": "random-pick",
+  "name": "Random Pick",
+  "cat": "insights",
+  "master": "randomPickOn",
+  "keys": [
+   "randomPickOn",
+   "randomPickUnwatched"
+  ],
+  "summary": "Plays a random video from a channel or playlist."
+ },
+ {
+  "id": "shuffle-tools",
+  "name": "Shuffle & Queue",
+  "cat": "insights",
+  "master": "shuffleToolsOn",
+  "keys": [
+   "shuffleToolsOn"
+  ],
+  "summary": "Reorders playlists randomly; manages your queue."
+ },
+ {
+  "id": "export-data",
+  "name": "Data Export",
+  "cat": "data",
+  "master": "exportDataOn",
+  "keys": [
+   "exportDataOn"
+  ],
+  "summary": "Exports history, notes, playlists and groups to a file."
+ },
+ {
+  "id": "sub-groups",
+  "name": "Subscription Groups",
+  "cat": "channels",
+  "master": "subGroupsOn",
+  "keys": [
+   "subGroupsOn",
+   "subGroupsActive"
+  ],
+  "summary": "Local channel folders plus a filtered subscriptions feed."
+ },
+ {
+  "id": "ui-restore-2026",
+  "name": "2026 UI Restores",
+  "cat": "appearance",
+  "master": "uiRestoreOn",
+  "keys": [
+   "uiRestoreOn",
+   "uiRestoreSubs",
+   "uiRestoreInlineLikes"
+  ],
+  "summary": "Restores the subscriber count and tidies the 2026 watch layout."
+ },
+ {
+  "id": "watch-tabs",
+  "name": "Watch Tabs",
+  "cat": "appearance",
+  "master": "watchTabsOn",
+  "keys": [
+   "watchTabsOn"
+  ],
+  "summary": "Details, comments, chapters and related videos as tabs."
+ },
+ {
+  "id": "keymap",
+  "name": "Keymap",
+  "cat": "tools",
+  "master": "keymapOn",
+  "keys": [
+   "keymapOn",
+   "keymap"
+  ],
+  "summary": "Rebinds the listed playback and SponsorBlock shortcuts."
+ },
+ {
+  "id": "sub-group-add",
+  "name": "Assign to Group",
+  "cat": "channels",
+  "master": "subGroupsOn",
+  "keys": [
+   "subGroupsOn"
+  ],
+  "summary": "Adds the open channel to one of your groups."
+ },
+ {
+  "id": "subs-only-home",
+  "name": "Subscriptions Home",
+  "cat": "feed",
+  "master": "subsOnlyHomeOn",
+  "keys": [
+   "subsOnlyHomeOn",
+   "subsOnlyRedirect"
+  ],
+  "summary": "Redirects the home feed to your subscriptions; optional full redirect."
+ },
+ {
+  "id": "sort-search",
+  "name": "Sort Results",
+  "cat": "feed",
+  "master": "sortSearchOn",
+  "keys": [
+   "sortSearchOn",
+   "sortSearchBy"
+  ],
+  "summary": "Reorders page results by date, views or length."
+ },
+ {
+  "id": "exact-upload-dates",
+  "name": "Exact Upload Dates",
+  "cat": "feed",
+  "master": "exactDatesOn",
+  "keys": [
+   "exactDatesOn",
+   "exactDatesCards",
+   "exactDatesWatch",
+   "exactDatesFormat",
+   "exactDatesMode"
+  ],
+  "summary": "Uses YouTube's own player endpoint to render the exact upload date instead of '3 weeks ago'."
+ },
+ {
+  "id": "static-header",
+  "name": "Static Header",
+  "cat": "appearance",
+  "master": "staticHeaderOn",
+  "keys": [
+   "staticHeaderOn"
+  ],
+  "summary": "Keeps the masthead and mini guide in the page flow so they scroll away."
+ },
+ {
+  "id": "unclamp-titles",
+  "name": "Unclamp Titles",
+  "cat": "appearance",
+  "master": "unclampTitlesOn",
+  "keys": [
+   "unclampTitlesOn"
+  ],
+  "summary": "Removes the line limit on video titles in cards and lockups."
+ },
+ {
+  "id": "hide-metadata-rows",
+  "name": "Hide Metadata Rows",
+  "cat": "appearance",
+  "master": "hideMetadataRowsOn",
+  "keys": [
+   "hideMetadataRowsOn"
+  ],
+  "summary": "Removes the games, movies and music metadata rows under a video."
+ },
+ {
+  "id": "hide-transcript-panel",
+  "name": "Hide Transcript Panel",
+  "cat": "playback",
+  "master": "hideTranscriptPanelOn",
+  "keys": [
+   "hideTranscriptPanelOn"
+  ],
+  "summary": "Keeps the transcript engagement panel out of the watch page."
+ },
+ {
+  "id": "hide-description-panel",
+  "name": "Hide Description Panel",
+  "cat": "playback",
+  "master": "hideDescriptionPanelOn",
+  "keys": [
+   "hideDescriptionPanelOn"
+  ],
+  "summary": "Keeps the structured description side panel out of the watch page."
+ },
+ {
+  "id": "no-double-tap-overlay",
+  "name": "No Double-Tap Overlay",
+  "cat": "playback",
+  "master": "noDoubleTapOverlayOn",
+  "keys": [
+   "noDoubleTapOverlayOn"
+  ],
+  "summary": "Removes the large rewind and forward animation over the player."
+ },
+ {
+  "id": "hide-video-shelves",
+  "name": "Hide Video Shelves",
+  "cat": "feed",
+  "master": "hideVideoShelvesOn",
+  "keys": [
+   "hideVideoShelvesOn"
+  ],
+  "summary": "Removes Shorts shelves that appear around a video."
+ },
+ {
+  "id": "fixed-player-size",
+  "name": "Player Size",
+  "cat": "playback",
+  "master": "playerSizeOn",
+  "keys": [
+   "playerSizeOn",
+   "playerHeightNormal",
+   "playerHeightTheater",
+   "playerAlign"
+  ],
+  "summary": "Sets a fixed player height in normal and theater mode and aligns it in its column."
+ },
+ {
+  "id": "description-width",
+  "name": "Description Width",
+  "cat": "appearance",
+  "master": "descriptionWidthOn",
+  "keys": [
+   "descriptionWidthOn",
+   "descriptionWidthPreset"
+  ],
+  "summary": "Sets the width of the watch page columns, including the suggested videos sidebar."
+ },
+ {
+  "id": "channel-banner-mode",
+  "name": "Channel Banner",
+  "cat": "channels",
+  "master": "channelBannerMode",
+  "keys": [
+   "channelBannerMode"
+  ],
+  "summary": "Scrolls the channel banner away or hides it entirely."
+ },
+ {
+  "id": "channel-landing-tab",
+  "name": "Channel Landing Tab",
+  "cat": "channels",
+  "master": "channelLandingTab",
+  "keys": [
+   "channelLandingTab"
+  ],
+  "summary": "Opens a channel on the tab you use most instead of its home page."
+ },
+ {
+  "id": "resume-timestamps",
+  "name": "Resume Timestamps",
+  "cat": "privacy",
+  "master": "resumeBarStyle",
+  "keys": [
+   "stripResumeTimesOn",
+   "resumeBarStyle"
+  ],
+  "summary": "Strips YouTube's resume timestamps from links and can restyle the red resume bar."
+ },
+ {
+  "id": "thumbnail-sizes",
+  "name": "Thumbnail Sizes",
+  "cat": "appearance",
+  "master": "thumbnailSizesOn",
+  "keys": [
+   "thumbnailSizesOn",
+   "searchThumbSize",
+   "watchSidebarThumbSize",
+   "channelGridThumbSize"
+  ],
+  "summary": "Sets fixed thumbnail widths in search, the watch sidebar and channel grids."
+ }
+]

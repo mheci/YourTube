@@ -6,7 +6,7 @@ const JOURNAL_DASHBOARD_CSS = `
   --acc:var(--j-green);--acc-dim:var(--j-wash);--accink:34,91,72;--shadowink:26,48,43;--critink:145,61,39;
   --panel:var(--j-paper);--panel2:var(--j-tint);--panel3:var(--j-field);--card:var(--j-field);--card-hi:var(--j-tint);--card-lo:var(--j-hair);
   --line:var(--j-hair);--line2:var(--j-rule);--ink:var(--j-ink);--ink2:var(--j-muted);--ink3:var(--j-muted);--ok:var(--j-fill);--crit:var(--j-danger);--mono:var(--j-mono);
-  position:fixed;z-index:2147483641;display:flex;flex-direction:column;isolation:isolate;overflow:hidden;box-sizing:border-box;
+  position:fixed;z-index:2147483646;display:flex;flex-direction:column;isolation:isolate;overflow:hidden;box-sizing:border-box;
   max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);color-scheme:light;background:var(--j-paper);color:var(--j-ink);
   border:1px solid var(--j-rule);border-radius:13px;box-shadow:0 18px 64px #122c2636,0 2px 10px #122c2614;
   font:13px/1.45 var(--j-ui);text-align:left;letter-spacing:normal;opacity:0;transition:opacity .12s;

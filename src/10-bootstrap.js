@@ -1771,6 +1771,7 @@ algoBlockChannels: "",
       } catch (_) {}
     };
     const onDone = (ok, payload, errMsg) => {
+      if (!force && (!S.updateCheckOn || S.safeMode || S.privacyPreset === "maximum")) return;
       if (!ok) {
 
         try {
@@ -2039,15 +2040,8 @@ algoBlockChannels: "",
     if (!d.size) return;
     (u("Cross-tab sync: " + d.size + " keys updated (v" + A + ")"),
       d.has("silentToasts") && ue());
-    const c = new Set();
-    for (const e of d) {
-      const t = ka.get(e);
-      if (t) for (const e of t) c.add(e.id);
-    }
-    queueMicrotask(() => {
-      for (const e of c) xa.apply(e);
-      for (const e of d) g.emit("cfg.changed", { key: e, val: S[e] });
-    });
+    queueLiveApply(d);
+    for (const key of d) g.emit("cfg.changed", {key, val:S[key]});
   }
   let Z = new AbortController();
 

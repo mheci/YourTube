@@ -300,5 +300,5 @@
       });
     };
 
-    return { parseFilter, parseFilterList, generateCSS, applyProcedural, unhideAll, escapeRegex };
+    return { parseFilter, parseFilterList, generateCSS, applyProcedural, unhideAll, escapeRegex, hostMatches };
   })();

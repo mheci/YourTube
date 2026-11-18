@@ -21,10 +21,11 @@
   }
   const ie = {
       el: () =>
+        (location.pathname.startsWith("/shorts/") && document.querySelector("ytd-reel-video-renderer[is-active] video,ytd-reel-video-renderer[active] video")) ||
         document.querySelector("video.html5-main-video") ||
         document.querySelector("#movie_player video") ||
         document.querySelector("video"),
-      api: () => document.querySelector("#movie_player"),
+      api: () => (location.pathname.startsWith("/shorts/") && ie.el()?.closest(".html5-video-player,#movie_player")) || document.querySelector("#movie_player"),
       isReady: () => !(!ie.el() || !ie.api()),
       videoId() {
         if (void 0 !== oe.vid && oe.vidHref === location.href) return oe.vid;

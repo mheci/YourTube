@@ -384,7 +384,11 @@
       const checkPathBlock = () => {
         let blocked = false;
         const path = (location.pathname || "").toLowerCase();
-        for (const f of parsed.pathFilters) {          if (f.domains.length > 0 && !hostMatches(f.domains)) continue;          if (f.excludedDomains.length > 0 && hostMatches(f.excludedDomains)) continue;          if (f.pathRegex && f.pathRegex.test(location.pathname || "/")) {       blocked = true;
+        for (const f of parsed.pathFilters) {
+          if (f.domains.length && !UBlockEngine.hostMatches(f.domains)) continue;
+          if (f.excludedDomains.length && UBlockEngine.hostMatches(f.excludedDomains)) continue;
+          if (f.pathRegex && f.pathRegex.test(location.pathname || "/")) {
+            blocked = true;
             break;
           }
         }
@@ -430,12 +434,12 @@
         } finally { scanning = false; }
       };
       const tickScan = async () => { await scanDOM(); await runProcedural(); };
-      e.addTimeout(tickScan, 600);
+      tickScan().catch(err => m("channel blocker", err));
       e.addInterval(() => { e.addTimeout(tickScan, 800); }, 3000);
 
 
       if (document.body) {
-        e.addObserver(document.body, ee(() => { e.addTimeout(scanDOM, 500); }, 350), { childList: true, subtree: true });
+        e.addObserver(document.body, e.debounce(() => { e.addTimeout(scanDOM, 500); }, 350), { childList: true, subtree: true });
       }
 
 
@@ -529,7 +533,7 @@
           try {
             document.querySelectorAll("[data-ytb-kw-hidden]").forEach((el) => {
               delete el.dataset.ytbKwHidden;
-              el.style.display = "";
+
             });
           } catch (_kwErr) {}
         };
@@ -542,6 +546,8 @@
           .map((e) => e.trim())
           .filter(Boolean);
         if (t.length) {
+          e.addStyle("[data-ytb-kw-hidden]{display:none!important}");
+          Yt["keyword-filter"].push(clearHidden);
           e.addStyle(
             t
               .map((e) => {
@@ -570,7 +576,7 @@
                 _a() ||
                   document
                     .querySelectorAll(
-                      "ytd-video-renderer,ytd-compact-video-renderer,ytd-rich-item-renderer",
+                      "ytd-video-renderer,ytd-compact-video-renderer,ytd-rich-item-renderer,yt-lockup-view-model",
                     )
                     .forEach((e) => {
 
@@ -583,19 +589,19 @@
                       const hit = a.some((k) => n.includes(k));
                       if (hit && !e.dataset.ytbKwHidden) {
                         e.dataset.ytbKwHidden = "1";
-                        e.style.display = "none";
+
                       } else if (!hit && e.dataset.ytbKwHidden) {
                         delete e.dataset.ytbKwHidden;
-                        e.style.display = "";
+
                       }
                     });
               };
             (document.body &&
-              e.addObserver(document.body, ee(n, 250), {
+              e.addObserver(document.body, e.debounce(n, 250), {
                 childList: !0,
                 subtree: !0,
               }),
-              e.addTimeout(n, 500));
+              n());
           }
         } else {
           clearHidden();
@@ -1804,7 +1810,7 @@
           e.onNav(() => {
             c(0), e.addTimeout(() => c(1), 1200);
           }),
-          (unsub = So("cfg.changed", ({ key: n }) => {
+          (unsub = g.on("cfg.changed", ({ key: n }) => {
             "fpsCounterOn" === n
               ? S.fpsCounterOn
                 ? c(1)
@@ -1960,7 +1966,7 @@
           e.addTimeout(startInterval, 1500);
           e.addTimeout(bindVideo, 1200);
         });
-        (unsub = So("cfg.changed", ({ key: k }) => {
+        (unsub = g.on("cfg.changed", ({ key: k }) => {
           "bufferHealthOn" === k &&
             (S.bufferHealthOn
               ? (startInterval(), i())
@@ -2080,7 +2086,7 @@
         e.onNav(() => {
           S.droppedFrameResetOnNav && c();
         });
-        (unsub = So("cfg.changed", ({ key: k }) => {
+        (unsub = g.on("cfg.changed", ({ key: k }) => {
           if ("droppedFrameOn" === k) {
             S.droppedFrameOn ? start() : stop();
           } else if ("droppedFramePos" === k && t) {
@@ -2437,8 +2443,15 @@
       summary: "Background check for new YourTube releases; disabled in Maximum privacy.",
       cat: "privacy",
       masterKey: "updateCheckOn",
-      keys: ["updateCheckOn", "updateCheckHours"],
-      apply() {},
+      keys: ["updateCheckOn", "updateCheckHours", "safeMode", "privacyPreset"],
+      apply(ctx) {
+        if (!S.updateCheckOn || S.safeMode || S.privacyPreset === "maximum") {
+          document.getElementById("ytb-update-banner")?.remove(); return;
+        }
+        const check = () => Fu(false);
+        if (liveApplyDepth) check(); else ctx.addTimeout(check, 60000);
+        ctx.addInterval(check, Math.max(6, Math.min(168, Number(S.updateCheckHours) || 24)) * 3600000);
+      },
       settings(e) {
         (e.appendChild(Io("Check for updates in the background", "updateCheckOn")),
           e.appendChild(
@@ -2715,7 +2728,7 @@
         S.flipVideoOn && (mount(), t());
         Mr("flip-video", () => S.flipVideoOn && mount());
         e.onNav(() => e.addTimeout(() => S.flipVideoOn && (mount(), t()), 1200));
-        const cfgSub = So("cfg.changed", ({ key: n }) => {
+        const cfgSub = g.on("cfg.changed", ({ key: n }) => {
           if ("flipVideoOn" === n) {
             if (S.flipVideoOn) mount(), t();
             else {
@@ -4222,7 +4235,7 @@
         ctx.addTimeout(scan, 3000);
         ctx.onNav(scan);
         if (document.body) {
-          ctx.addObserver(document.body, ee(scan, 500), { childList: true, subtree: true });
+          ctx.addObserver(document.body, ctx.debounce(scan, 500), { childList: true, subtree: true });
         }
       },
       settings(en) {
@@ -4367,7 +4380,7 @@
   }
   function br(e) {
     const t = e.querySelector(
-      "ytd-thumbnail-overlay-time-status-renderer span, #text.ytd-thumbnail-overlay-time-status-renderer, ytd-thumbnail-overlay-time-status-renderer",
+      "ytd-thumbnail-overlay-time-status-renderer span, #text.ytd-thumbnail-overlay-time-status-renderer, ytd-thumbnail-overlay-time-status-renderer, .yt-badge-shape__text, .yt-badge-shape-wiz__text",
     );
     return (function (e) {
       const t = String(e || "")
@@ -4585,13 +4598,13 @@
       r = !!S.hidePremieresOn,
       o = S.feedDimWatchedOn || S.feedHideWatchedOn;
     if (e || t || a || n || r || o)
-      if (performance.now() - Zt < 250) ae(Ir, 400);
+      if (!liveApplyDepth && performance.now() - Zt < 250) ae(Ir, 400);
       else {
         Pr = !0;
         try {
           const i = Array.from(
               document.querySelectorAll(
-                "ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,ytd-grid-video-renderer",
+                "ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,ytd-grid-video-renderer,yt-lockup-view-model:not(ytd-rich-item-renderer *)",
               ),
             ),
             c = Number(S.longVideoMinSec) || 1200,
@@ -4618,26 +4631,26 @@
           for (let l = 0; l < i.length; l++) {
             const p = i[l],
               u = fr(p);
-            if (e && !p.querySelector(".ytb-extra-num")) {
+            if (e && S.numberSearchResultsOn && !p.querySelector(".ytb-extra-num")) {
               const e = document.createElement("span");
               ((e.className = "ytb-extra-num"),
                 (e.textContent = String(l + 1)),
                 (p.querySelector("#thumbnail") || p).prepend(e));
             }
             const h = t || a ? br(p) : 0;
-            p.classList.toggle("ytb-extra-long", t && h >= c);
-            p.classList.toggle("ytb-extra-short", a && h > 0 && h <= s);
+            p.classList.toggle("ytb-extra-long", S.highlightLongVideosOn && h >= c);
+            p.classList.toggle("ytb-extra-short", S.highlightShortVideosOn && h > 0 && h <= s);
             if (n || r) {
               const e = vr(p);
               (n &&
                 p.classList.toggle(
                   "ytb-extra-live",
-                  /\bLIVE\b|watching now|live now/i.test(e),
+                  S.hideLiveContentOn && /\bLIVE\b|watching now|live now/i.test(e),
                 ),
                 r &&
                   p.classList.toggle(
                     "ytb-extra-premiere",
-                    /premiere|premieres/i.test(e),
+                    S.hidePremieresOn && /premiere|premieres/i.test(e),
                   ));
             } else {
               p.classList.remove("ytb-extra-live", "ytb-extra-premiere");
@@ -4658,6 +4671,7 @@
   }
   let _feedScanPending = 0;
   const Rr = () => {
+    if (liveApplyDepth) { Ir().catch(err => m("feed refresh", err)); return; }
     if (_feedScanPending) return;
     _feedScanPending = 1;
     ae(() => {
@@ -5009,6 +5023,10 @@ ytd-video-renderer{margin:2px 0!important}
       isOn: () =>
         S.highlightVideoLengthMode && "off" !== S.highlightVideoLengthMode,
       apply(e) {
+        if (!S.highlightVideoLengthMode || S.highlightVideoLengthMode === "off") {
+          document.querySelectorAll(".ytb-extra-long,.ytb-extra-short").forEach(el => el.classList.remove("ytb-extra-long", "ytb-extra-short"));
+          return;
+        }
         S.highlightVideoLengthMode &&
           "off" !== S.highlightVideoLengthMode &&
           (Rr(), e.addInterval(Rr, 2500));
@@ -5052,6 +5070,10 @@ ytd-video-renderer{margin:2px 0!important}
       masterKey: "hideLiveContentOn",
       keys: ["hideLiveContentOn"],
       apply(e) {
+        if (!S.hideLiveContentOn) {
+          document.querySelectorAll(".ytb-extra-live").forEach(el => el.classList.remove("ytb-extra-live"));
+          return;
+        }
         S.hideLiveContentOn &&
           (e.addStyle(".ytb-extra-live{display:none!important}"),
           Rr(),
@@ -5067,6 +5089,10 @@ ytd-video-renderer{margin:2px 0!important}
       masterKey: "hidePremieresOn",
       keys: ["hidePremieresOn"],
       apply(e) {
+        if (!S.hidePremieresOn) {
+          document.querySelectorAll(".ytb-extra-premiere").forEach(el => el.classList.remove("ytb-extra-premiere"));
+          return;
+        }
         S.hidePremieresOn &&
           (e.addStyle(".ytb-extra-premiere{display:none!important}"),
           Rr(),
@@ -5089,7 +5115,7 @@ ytd-video-renderer{margin:2px 0!important}
           );
           e && e.scrollIntoView({ block: "center" });
         };
-        (e.addInterval(t, 3e3), e.onNav(() => e.addTimeout(t, 1500)));
+        (t(), e.addInterval(t, 3e3), e.onNav(() => e.addTimeout(t, 1500)));
       },
       settings() {},
     }),
@@ -5117,14 +5143,15 @@ ytd-video-renderer{margin:2px 0!important}
       keys: ["shortsAutoMuteOn"],
       apply(e) {
         if (!S.shortsAutoMuteOn) return;
-        let lastVid = "";
+        let lastVid = "", owner = null, previous = false;
+        const release = () => { if (owner && owner.muted) owner.muted = previous; owner = null; };
+        Yt["shorts-auto-mute"].push(release);
         const t = () => {
-          if (!location.pathname.startsWith("/shorts/")) return;
+          if (!location.pathname.startsWith("/shorts/")) { release(); return; }
           const vid = (ie.videoId && ie.videoId()) || "";
-          if (!vid || vid === lastVid) return;
-          lastVid = vid;
           const v = ie.el();
-          if (v) v.muted = !0;
+          if (!v || !vid || (vid === lastVid && owner === v)) return;
+          release(); lastVid = vid; owner = v; previous = v.muted; v.muted = true;
         };
         (t(),
           e.onNav(() => {
@@ -5132,7 +5159,7 @@ ytd-video-renderer{margin:2px 0!important}
             (e.addTimeout(t, 300), e.addTimeout(t, 1e3));
           }),
           document.body &&
-            e.addObserver(document.body, ee(t, 250), {
+            e.addObserver(document.body, e.debounce(t, 250), {
               childList: !0,
               subtree: !0,
             }));
@@ -5195,8 +5222,13 @@ ytd-video-renderer{margin:2px 0!important}
       masterKey: "collapseLongCommentsOn",
       keys: ["collapseLongCommentsOn", "collapseLongCommentChars"],
       apply(e) {
-        if (!S.collapseLongCommentsOn)
-          return void Lr(".ytb-extra-expand-comment");
+        const clean = () => {
+          Lr(".ytb-extra-expand-comment");
+          document.querySelectorAll("[data-ytb-clamped]").forEach(el => { delete el.dataset.ytbClamped; el.classList.remove("ytb-extra-comment-clamp"); });
+        };
+        clean();
+        if (!S.collapseLongCommentsOn) return;
+        Yt["collapse-long-comments"].push(clean);
         const t = () =>
           document
             .querySelectorAll("ytd-comment-view-model #content-text, ytd-comment-thread-renderer #content-text, ytd-comment-renderer #content-text")

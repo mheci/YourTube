@@ -484,28 +484,6 @@
     }, 5e3);
 
     try {
-      const _ypLastUpd = "yourtube_idle_upd_ts";
-      const _ypDoUpd = () => {
-        try { typeof Fu === "function" && Fu(false); } catch (e) {}
-      };
-      const _ypShouldCheck = () => {
-        try {
-          const last = Number(GM_getValue && GM_getValue(_ypLastUpd, 0)) || 0;
-          return Date.now() - last > 6 * 60 * 60 * 1e3;
-        } catch (e) { return true; }
-      };
-      const _ypMarkChecked = () => {
-        try { GM_setValue && GM_setValue(_ypLastUpd, Date.now()); } catch (e) {}
-      };
-
-      setTimeout(() => {
-        if (_ypShouldCheck()) {
-          _ypDoUpd();
-          _ypMarkChecked();
-        }
-      }, 60e3);
-    } catch (e) {}
-    try {
       let _lastMarkerReapply = 0;
       setInterval(() => {
         try {

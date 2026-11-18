@@ -81,3 +81,31 @@ jobs:
           path: ${{ runner.temp }}/journal-dashboard
           if-no-files-found: error
           retention-days: 7
+
+  runtime-controls:
+    name: Dashboard runtime effect contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned browser driver
+        run: |
+          /usr/bin/python3.12 -m venv "$RUNNER_TEMP/runtime-venv"
+          "$RUNNER_TEMP/runtime-venv/bin/python" -m pip install --only-binary=:all: --require-hashes -r tests/requirements-guide-ci.txt
+          echo "CHROME_BIN=$(command -v google-chrome || command -v chromium)" >> "$GITHUB_ENV"
+      - name: Exercise all registered feature scenarios
+        run: '"$RUNNER_TEMP/runtime-venv/bin/python" tests/live_controls/features.py --browser "$CHROME_BIN" --workers 2 --out "$RUNNER_TEMP/runtime-features"'
+      - name: Exercise dashboard and player contracts
+        run: '"$RUNNER_TEMP/runtime-venv/bin/python" tests/live_controls/workbench.py --browser "$CHROME_BIN" --out "$RUNNER_TEMP/runtime-contracts"'
+      - name: Retain offline measurements
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runtime-controls-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/runtime-features
+            ${{ runner.temp }}/runtime-contracts
+          if-no-files-found: warn
+          retention-days: 7

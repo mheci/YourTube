@@ -454,7 +454,13 @@
         "ytb-danger",
       ),
     );
-    document.body.appendChild(shell);
+    const moveToTopLayer = () => {
+      const host = document.fullscreenElement || document.body;
+      if (shell.parentNode !== host) host.appendChild(shell);
+    };
+    moveToTopLayer();
+    document.addEventListener("fullscreenchange", moveToTopLayer);
+    Co.push(() => document.removeEventListener("fullscreenchange", moveToTopLayer));
     journalWindow(shell, header);
     const keys = (ev) => {
       if (wo !== shell || ev.defaultPrevented || ev.isComposing) return;
@@ -1447,41 +1453,38 @@
         return null;
       }
     }
+    const shortSlots = new Map(), shortLinks = new Map();
+    function parkShort(el) {
+      if (!el.isConnected) return;
+      const slot = document.createComment("yourtube:shorts");
+      el.replaceWith(slot); shortSlots.set(slot, el);
+    }
     function killShortsShells(scope) {
-      try {
-        const s = scope && scope.querySelectorAll ? scope : document;
-        const shelves = s.querySelectorAll("ytd-rich-shelf-renderer");
-        for (let i = 0; i < shelves.length; i++) {
-          const root = shortsShellRoot(shelves[i]);
-          if (root) {
-            root.style.display = "none";
-            root.setAttribute("data-ytb-shorts-dead", "1");
-          }
-        }
-      } catch (err) {}
+      for (const shelf of scope.querySelectorAll("ytd-rich-shelf-renderer")) {
+        const root = shortsShellRoot(shelf);
+        if (root) root.setAttribute("data-ytb-shorts-dead", "1");
+      }
     }
-
     function restoreShortsShells() {
-      try {
-        document.querySelectorAll("[data-ytb-shorts-dead]").forEach((el) => {
-          el.style.display = "";
-          el.removeAttribute("data-ytb-shorts-dead");
-        });
-      } catch (err) {}
+      for (const [slot, el] of shortSlots) if (slot.isConnected && !el.isConnected) slot.replaceWith(el);
+      shortSlots.clear();
+      for (const [a, link] of shortLinks) if (a.getAttribute("href") === link.written) a.setAttribute("href", link.original);
+      shortLinks.clear();
+      document.querySelectorAll("[data-ytb-shorts-dead]").forEach(el => el.removeAttribute("data-ytb-shorts-dead"));
     }
-
     function sanitizeShortsHrefs(scope) {
       if (!S.hideShortsRedirect) return;
-      try {
-        const s = scope && scope.querySelectorAll ? scope : document;
-        const links = s.querySelectorAll("a[href*='/shorts/']");
-        for (let i = 0; i < links.length; i++) {
-          const a = links[i];
-          const href = a.getAttribute("href") || "";
-          const m = href.match(/\/shorts\/([A-Za-z0-9_-]{4,})/);
-          if (m) a.setAttribute("href", "/watch?v=" + m[1]);
-        }
-      } catch (err) {}
+      const sel = "a[href*='/shorts/']";
+      const links = scope.matches?.(sel) ? [scope, ...scope.querySelectorAll(sel)] : scope.querySelectorAll(sel);
+      for (const a of links) {
+        const original = a.getAttribute("href");
+        let url; try { url = new URL(original, location.href); } catch (_) {continue;}
+        const hit = /^\/shorts\/([A-Za-z0-9_-]{4,})\/?$/.exec(url.pathname);
+        if (!hit || url.origin !== location.origin) continue;
+        url.searchParams.delete("v");
+        const written = "/watch?v="+hit[1]+(url.search ? "&"+url.search.slice(1) : "")+url.hash;
+        shortLinks.set(a,{original,written}); a.setAttribute("href",written);
+      }
     }
     const domActive = new Set();
     let domObs = null,
@@ -1492,6 +1495,9 @@
       const q = domQueue;
       domQueue = null;
       if (!q || !q.length || !domActive.has("shorts")) return;
+      // SPA navigation can discard an entire shelf (and its placeholder).
+      for (const slot of shortSlots.keys()) if (!slot.isConnected) shortSlots.delete(slot);
+      for (const a of shortLinks.keys()) if (!a.isConnected) shortLinks.delete(a);
       const doRemove = !!S.hideShortsDomClean;
       const doSanitize = !!S.hideShortsRedirect;
       for (let i = 0; i < q.length; i++) {
@@ -1500,13 +1506,13 @@
           if (!root || !root.isConnected) continue;
           if (doRemove) {
             if (matchesShorts(root)) {
-              root.remove();
+              parkShort(root);
               continue;
             }
             const hits = queryShorts(root);
             for (let k = 0; k < hits.length; k++) {
               try {
-                hits[k].remove();
+                parkShort(hits[k]);
               } catch (err) {}
             }
           }
@@ -1558,7 +1564,7 @@
           const hits = queryShorts(document);
           for (let i = 0; i < hits.length; i++) {
             try {
-              hits[i].remove();
+              parkShort(hits[i]);
             } catch (err) {}
           }
         } catch (err) {}
@@ -1613,7 +1619,8 @@
           return;
         }
 
-        ctx.addStyle(SHORTS_CSS);
+        ctx.addStyle(SHORTS_CSS + "\n[data-ytb-shorts-dead]{display:none!important}");
+        Yt["hide-shorts"].push(() => stopDom("shorts"));
 
         try { installInitialDataTrap(); } catch (err) {}
         shortsRedirect();
@@ -1647,6 +1654,24 @@
       keys: ["hideAutoDubbedOn", "hideAutoDubbedPreferOriginal"],
       apply(ctx) {
         if (!S.hideAutoDubbedOn) return;
+        const attr = "data-ytb-auto-dubbed";
+        const cards = "ytd-rich-item-renderer,ytd-video-renderer,ytd-grid-video-renderer,ytd-compact-video-renderer,yt-lockup-view-model,ytd-playlist-video-renderer";
+        const scan = () => {
+          for (const card of document.querySelectorAll(cards)) {
+            const badges = card.querySelectorAll("ytd-badge-supported-renderer,yt-badge-shape,.badge-shape-wiz,[aria-label]");
+            const dubbed = isDubbedCard(card.data || {}) || Array.from(badges).some(el => {
+              const label = el.getAttribute("aria-label") || "";
+              return DUB_TEXT_RE.test(label) || (el.matches("ytd-badge-supported-renderer,yt-badge-shape,.badge-shape-wiz") && DUB_TEXT_RE.test(el.textContent || ""));
+            });
+            if (card.hasAttribute(attr) !== dubbed) card.toggleAttribute(attr,dubbed);
+          }
+        };
+        ctx.addStyle("[data-ytb-auto-dubbed]{display:none!important}");
+        scan();
+        let frame = 0;
+        const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(() => {frame=0;scan();}); });
+        if (document.body) observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:["aria-label"]});
+        Yt["hide-auto-dubbed"].push(() => {observer.disconnect();cancelAnimationFrame(frame);document.querySelectorAll("["+attr+"]").forEach(el=>el.removeAttribute(attr));});
         try { installInitialDataTrap(); } catch (err) {}
         ensureApi();
 

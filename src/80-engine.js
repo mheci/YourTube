@@ -2445,171 +2445,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       info.innerHTML = Xy("<strong>Level presets:</strong> each preset turns on a set of optimizations. Changing level sets its defaults. You can then turn individual optimizations on or off. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.");
       en.appendChild(info);
     } });
-  xa.register({
-    id: "overlay-hub",
-    name: "Overlay Hub",
-    summary: "Docks every performance meter into one HUD.",
-      cat: "tools",
-    masterKey: "overlayHubOn",
-    keys: ["overlayHubOn", "overlayHubPos"],
-    apply(ctx) {
-      const CONTAINER_ID = "ytb-monolith";
-      const STYLE_ID = "ytb-monolith-style";
-      const ADOPT_SELECTOR = "#ytb-fps-box, #ytb-buf-box, #ytb-drop-box, #ytb-stats, #ytb-diag";
-      let container = null;
-      let collapsed = false;
 
-      const position = () => {
-        if (!container) return;
-        const pos = S.overlayHubPos || "bl";
-        container.style.top = "tl" === pos || "tr" === pos ? "8px" : "";
-        container.style.bottom = "bl" === pos || "br" === pos ? "48px" : "";
-        container.style.left = "tl" === pos || "bl" === pos ? "8px" : "";
-        container.style.right = "tr" === pos || "br" === pos ? "8px" : "";
-      };
-
-      const ensureStyle = () => {
-        if (document.getElementById(STYLE_ID)) return;
-        const st = document.createElement("style");
-        st.id = STYLE_ID;
-        st.textContent = [
-          "#ytb-monolith{position:fixed;z-index:2147483635;padding:6px 8px 7px;background:rgba(20,22,28,.82);border:1px solid rgba(255,255,255,.12);border-radius:10px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 6px 20px rgba(0,0,0,.4);font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:#ddd;min-width:180px;max-width:250px;pointer-events:none}",
-          "#ytb-monolith .ytb-mon-hdr{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;pointer-events:auto;cursor:move;user-select:none}",
-          "#ytb-monolith .ytb-mon-title{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#fff}",
-          "#ytb-monolith .ytb-mon-toggle{background:transparent;border:0;color:#8ab;cursor:pointer;font-size:11px;line-height:1;padding:2px 4px;border-radius:4px}",
-          "#ytb-monolith .ytb-mon-toggle:hover{background:rgba(255,255,255,.1)}",
-          "#ytb-monolith #ytb-fps-box,#ytb-monolith #ytb-buf-box,#ytb-monolith #ytb-drop-box,#ytb-monolith #ytb-stats,#ytb-monolith #ytb-diag{position:static!important;top:auto!important;bottom:auto!important;left:auto!important;right:auto!important;width:100%!important;min-width:0!important;box-sizing:border-box!important;margin:0 0 6px!important;padding:4px 6px!important;background:rgba(255,255,255,.05)!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:6px!important;box-shadow:none!important;pointer-events:none!important}",
-          "#ytb-monolith .ytb-mon-empty{color:#667;font-size:10.5px;padding:2px 0}",
-        ].join("\n");
-        (document.head || document.documentElement).appendChild(st);
-      };
-
-      const getHub = () => {
-        ensureStyle();
-        if (container && container.parentNode) return container;
-        container = document.createElement("div");
-        container.id = CONTAINER_ID;
-        const hdr = document.createElement("div");
-        hdr.className = "ytb-mon-hdr";
-        const title = document.createElement("span");
-        title.className = "ytb-mon-title";
-        title.textContent = "YourTube Monitors";
-        const toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "ytb-mon-toggle";
-        toggle.textContent = "–";
-        toggle.title = "Collapse / expand";
-        toggle.addEventListener("click", () => {
-          collapsed = !collapsed;
-          toggle.textContent = collapsed ? "+" : "–";
-          if (container) container.style.display = collapsed ? "none" : "";
-        });
-        hdr.append(title, toggle);
-        container.appendChild(hdr);
-        document.body.appendChild(container);
-        position();
-        return container;
-      };
-
-      const removeContainer = () => {
-        if (container) {
-          try {
-            for (const w of Array.from(container.querySelectorAll(ADOPT_SELECTOR))) {
-              if (document.body) document.body.appendChild(w);
-            }
-          } catch (_) {}
-        }
-        if (container && container.parentNode) { try { container.parentNode.removeChild(container); } catch (_) {} }
-        container = null;
-        const st = document.getElementById(STYLE_ID);
-        if (st) { try { st.remove(); } catch (_) {} }
-      };
-
-      const adopt = () => {
-        try {
-          if (!S.overlayHubOn || !document.body) { removeContainer(); return 0; }
-          const widgets = document.querySelectorAll(ADOPT_SELECTOR);
-          let count = 0;
-          for (const w of widgets) {
-            if (w.closest("#" + CONTAINER_ID)) continue;
-            const hub = getHub();
-            if (!hub) return count;
-            hub.appendChild(w);
-            count++;
-          }
-          const hub = document.getElementById(CONTAINER_ID);
-          if (!hub) return count;
-          if (count === 0) {
-            if (collapsed) return 0;
-            if (!hub.querySelector(".ytb-mon-empty")) {
-              const empty = document.createElement("div");
-              empty.className = "ytb-mon-empty";
-              empty.textContent = "Enable a monitor to attach it here.";
-              hub.appendChild(empty);
-            }
-            return 0;
-          }
-          const emptyEl = hub.querySelector(".ytb-mon-empty");
-          if (emptyEl) emptyEl.remove();
-          position();
-          return count;
-        } catch (_) {
-          return 0;
-        }
-      };
-
-      adopt();
-
-      const wakeSweep = () => {
-        quietScans = 0;
-        idleTicks = 0;
-        return adopt();
-      };
-      let quietScans = 0;
-      let idleTicks = 0;
-      ctx.addInterval(() => {
-        if (quietScans >= 6) {
-          idleTicks += 1;
-          if (idleTicks % 8 !== 0) return;
-          idleTicks = 0;
-        }
-        const found = adopt();
-        if (found > 0) { quietScans = 0; idleTicks = 0; }
-        else if (quietScans < 6) quietScans += 1;
-      }, 500);
-      ctx.onNav(() => ctx.addTimeout(wakeSweep, 600));
-
-      const unsub = g.on("cfg.changed", ({ key: k }) => {
-        if (k === "overlayHubOn") wakeSweep();
-        if (k === "overlayHubPos") position();
-      });
-      Yt["overlay-hub"].push(() => {
-        try { if (typeof unsub === "function") unsub(); } catch (_) {}
-        removeContainer();
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Monolith Overlay Hub", "overlayHubOn"));
-      en.appendChild(Ro("Hub Position", "overlayHubPos", {
-        tl: "Top-left",
-        tr: "Top-right",
-        bl: "Bottom-left",
-        br: "Bottom-right",
-      }));
-      en.appendChild(To("div", "ytb-elem-sec-title", "Monitors & Overlays"));
-      en.appendChild(Io("Live FPS Counter", "fpsCounterOn"));
-      en.appendChild(Io("Buffer Health Monitor", "bufferHealthOn"));
-      en.appendChild(Io("Dropped Frame Counter", "droppedFrameOn"));
-      en.appendChild(Io("Playback Performance Overlay", "statsOverlay"));
-      en.appendChild(Io("Activity Diagnostic Monitor", "diagConsole"));
-      en.appendChild(Io("Feature Performance Tracker", "perfProfilerOn"));
-      const info = document.createElement("div");
-      info.className = "ytb-hist-note";
-      info.style.marginTop = "8px";
-      info.innerHTML = Xy("<strong>Monolith Overlay Hub:</strong> Consolidates all active floating performance meters and diagnostic tools into a single, unified docked glass HUD.");
-      en.appendChild(info);
-    },
-  });
 
 
 
@@ -3286,57 +3122,59 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
 
   xa.register({
     id: "night-scheduler", name: "Theme Scheduler",
-    summary: "Switches dark/light themes on a schedule.",
-      cat: "appearance",
-    masterKey: "nightSchedulerOn", keys: ["nightSchedulerOn", "nightStart", "nightEnd"],
+    summary: "Choose clock or system color scheme, with a manual override policy.",
+    cat: "appearance", masterKey: "nightSchedulerOn",
+    keys: ["nightSchedulerOn", "nightStart", "nightEnd", "nightSchedulerMode", "nightOverridePolicy"],
     apply(ctx) {
       if (!S.nightSchedulerOn) return;
-      const valid = () => YourTubeResources.TimeWindow.parseHHMM(S.nightStart) !== null &&
-                          YourTubeResources.TimeWindow.parseHHMM(S.nightEnd) !== null;
-      const wantDark = () => !valid() ? null : YourTubeResources.TimeWindow.containsHHMM(S.nightStart, S.nightEnd);
-      let lastApplied = null;
-      let userOverride = false;
-
-      ctx.addObserver(document.querySelector("ytd-app") || document.documentElement, () => {
-        if (!document.body) return;
-        const app2 = document.querySelector("ytd-app");
-        if (!app2) return;
-        const isDark = document.documentElement.hasAttribute("dark") || app2.hasAttribute("dark");
-        if (lastApplied !== null && isDark !== lastApplied) {
-          // A manual toggle wins until the user's own choice matches the
-          // schedule again, so the scheduler can resume instead of latching off.
-          const w = wantDark();
-          userOverride = !(w !== null && isDark === w);
-        }
-      }, { attributes: true, attributeFilter: ["dark"] });
-      const enforce = () => {
-        const w = wantDark(); if (w === null) return;
-        if (userOverride) return;
-        const app = document.querySelector("ytd-app");
-        if (!app) return;
-        const isDark = document.documentElement.hasAttribute("dark") || app.hasAttribute("dark");
-        if (w && !isDark) { document.documentElement.setAttribute("dark", ""); app.setAttribute("dark", ""); lastApplied = true; }
-        else if (!w && isDark) { document.documentElement.removeAttribute("dark"); app.removeAttribute("dark"); lastApplied = false; }
+      const app = document.querySelector("ytd-app"), root = document.documentElement;
+      if (!app || !root) return;
+      const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+      const originals = [root.hasAttribute("dark"), app.hasAttribute("dark")];
+      let lastDesired = null, lastApplied = null, paused = false, wrote = false;
+      const desired = () => {
+        if (S.nightSchedulerMode === "system") return media ? media.matches : null;
+        if (YourTubeResources.TimeWindow.parseHHMM(S.nightStart) === null ||
+            YourTubeResources.TimeWindow.parseHHMM(S.nightEnd) === null) return null;
+        return YourTubeResources.TimeWindow.containsHHMM(S.nightStart, S.nightEnd);
       };
-      ctx.addInterval(enforce, 60000);
-      ctx.onNav(() => ctx.addTimeout(enforce, 800));
-      ctx.addTimeout(enforce, 1500);
-      Yt["night-scheduler"].push(() => {
-        // Undo the last forced state so disabling the card stops overriding
-        // YouTube's own theme handling.
+      const enforce = () => {
+        const next = desired();
+        if (next === null) return;
+        if (lastDesired !== null && next !== lastDesired && S.nightOverridePolicy !== "until-resume") paused = false;
+        lastDesired = next;
+        if (paused) return;
+        const nodes = [root, app];
+        nodes.forEach(node => {
+          if (node.hasAttribute("dark") !== next) { node.toggleAttribute("dark", next); wrote = true; }
+        });
+        lastApplied = next;
+      };
+      const detectManual = () => {
         if (lastApplied === null) return;
-        const app = document.querySelector("ytd-app");
-        try {
-          if (lastApplied) { document.documentElement.removeAttribute("dark"); app && app.removeAttribute("dark"); }
-          else { document.documentElement.setAttribute("dark", ""); app && app.setAttribute("dark", ""); }
-        } catch (_) {}
-        lastApplied = null;
+        if (root.hasAttribute("dark") !== lastApplied || app.hasAttribute("dark") !== lastApplied) paused = true;
+      };
+      ctx.addObserver(root, detectManual, {attributes:true, attributeFilter:["dark"]});
+      ctx.addObserver(app, detectManual, {attributes:true, attributeFilter:["dark"]});
+      if (media && S.nightSchedulerMode === "system") ctx.addListener(media, "change", enforce);
+      if (S.nightSchedulerMode !== "system") ctx.addInterval(enforce, 60000);
+      ctx.onNav(() => ctx.addTimeout(enforce, 100));
+      enforce();
+      Yt["night-scheduler"].push(() => {
+        if (!wrote || paused || lastApplied === null) return;
+        [root, app].forEach((node, i) => {
+          if (node.hasAttribute("dark") === lastApplied) node.toggleAttribute("dark", originals[i]);
+        });
       });
     },
     settings(en) {
-      en.appendChild(Io("Schedule dark theme by clock", "nightSchedulerOn"));
+      en.appendChild(Io("Enable automatic dark/light mode", "nightSchedulerOn"));
+      en.appendChild(Ro("Automatic source", "nightSchedulerMode", { clock: "Time schedule", system: "Browser color scheme" }));
+      en.appendChild(Ro("After a manual YouTube theme change", "nightOverridePolicy", { "until-change": "Manual until next automatic change", "until-resume": "Manual until I resume automation" }));
       en.appendChild(_o("Dark from (HH:MM)", "nightStart"));
       en.appendChild(_o("Light from (HH:MM)", "nightEnd"));
+      en.appendChild(Oo("Resume automatic theme", () => { if (S.nightSchedulerOn) xa.apply("night-scheduler"); }));
+      en.appendChild(To("div", "ytb-hist-note", "Browser mode follows your browser color scheme. In clock mode, times use your local clock. A manual choice can pause automation; use Resume to apply it again."));
     },
   });
 

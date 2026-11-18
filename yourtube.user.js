@@ -1263,7 +1263,7 @@ algoBlockChannels: "",
         commentFilterOn: !1, commentBlockWords: "",
         historyLocalHideOn: !1,
         copyLinkCleanerOn: !1,
-        nightSchedulerOn: !1, nightStart: "21:00", nightEnd: "07:00",
+        nightSchedulerOn: !1, nightStart: "21:00", nightEnd: "07:00", nightSchedulerMode: "clock", nightOverridePolicy: "until-change",
         textScaleOn: !1, textScalePct: 115, textScaleScope: "site", storageDashboardOn: !1,
         healthCheckOn: !1,
                 frameStepperOn: !1, frameFps: 30,
@@ -9972,8 +9972,7 @@ function mountWatchLibrary(parent) {
           m("perfInterval " + e.featureId, t);
         }
         const n = performance.now() - a;
-        (S.perfProfilerOn && aa(e.featureId, "interval", n),
-          n > 12 && e.backoff < 4
+        (n > 12 && e.backoff < 4
             ? (e.backoff = Math.min(4, 1.3 * e.backoff))
             : t && e.backoff > 1
               ? (e.backoff = Math.max(1, 0.8 * e.backoff))
@@ -10345,7 +10344,6 @@ function mountWatchLibrary(parent) {
         } catch (t) {
           return void fa(e, t);
         }
-        const a = S.perfProfilerOn ? performance.now() : 0;
         try {
           const a = t.apply(ua(e));
           a && "function" == typeof a.then && a.catch((t) => fa(e, t));
@@ -10355,10 +10353,6 @@ function mountWatchLibrary(parent) {
         } catch (t) {
           fa(e, t);
         }
-        if (S.perfProfilerOn)
-          try {
-            aa(e, "apply", performance.now() - a);
-          } catch (e) {}
       },
       isQuarantined: ba,
       clearQuarantine(e) {
@@ -11837,7 +11831,7 @@ function mountWatchLibrary(parent) {
           e.appendChild(Eo([Oo("Capture now", Ia, "primary")])));
       },
     }),
-    
+
     xa.register({
       id: "force-watched",
       name: "Mark as Watched",
@@ -11915,7 +11909,7 @@ function mountWatchLibrary(parent) {
       },
       settings() {},
     }),
-    
+
     xa.register({
       id: "cinema-mode",
       name: "Cinema Mode",
@@ -13980,87 +13974,7 @@ function mountWatchLibrary(parent) {
         ));
     },
   }),
-    xa.register({
-      id: "stats-overlay",
-      name: "Playback Stats Overlay",
-      summary: "On-player panel: resolution, quality, FPS, bitrate, time, rate, buffer.",
-      cat: "playback",
-      masterKey: "statsOverlay",
-      keys: ["statsOverlay"],
-      apply(e) {
-        if (!S.statsOverlay) return;
-        const t = document.createElement("div");
-        ((t.id = "ytb-stats"), document.body && document.body.appendChild(t));
-        let a = "",
-          _fps = 0,
-          _fFrames = 0,
-          _fAt = 0;
-        (e.addInterval(() => {
-          const e = ie.el();
-          if (!e) return !1;
-          const n = e.buffered.length
-              ? e.buffered.end(e.buffered.length - 1) - e.currentTime
-              : 0,
-            q = (() => {
-              try {
-                const p = ie.api && ie.api();
-                const lv = p && typeof p.getPlaybackQuality === "function" ? p.getPlaybackQuality() : "";
-                const fmt = _ytParseVideoStats((() => {
-                  try { return p && typeof p.getVideoStats === "function" ? p.getVideoStats() : null; } catch (_) { return null; }
-                })());
-                return [
-                  e.videoWidth && e.videoHeight ? e.videoWidth + "x" + e.videoHeight : "",
-                  lv && lv !== "auto" ? lv : "",
-                  fmt && fmt.fmt ? fmt.fmt : "",
-                ].filter(Boolean).join(" ");
-              } catch (_) { return ""; }
-            })(),
-            _br = (() => {
-              try {
-                const p = ie.api && ie.api();
-                const fmt = _ytParseVideoStats((() => {
-                  try { return p && typeof p.getVideoStats === "function" ? p.getVideoStats() : null; } catch (_) { return null; }
-                })());
-                return fmt && fmt.bitrate ? fmt.bitrate : "";
-              } catch (_) { return ""; }
-            })();
-          try {
-            const p = ie.api && ie.api();
-            if (p && typeof p.getVideoPlaybackQuality === "function") {
-              const vq = p.getVideoPlaybackQuality();
-              const frames = vq && Number(vq.totalVideoFrames);
-              const at = performance.now();
-              if (Number.isFinite(frames)) {
-                if (_fAt && at - _fAt > 400 && frames > _fFrames) {
-                  const d = (frames - _fFrames) / ((at - _fAt) / 1000);
-                  if (d > 1 && d < 240) _fps = Math.round(d);
-                }
-                _fFrames = frames;
-                _fAt = at;
-              }
-            }
-          } catch (_) {}
-          const _parts = [];
-          if (q) _parts.push(q);
-          if (_fps) _parts.push(_fps + "fps");
-          if (_br) _parts.push(_br);
-          _parts.push("t=" + e.currentTime.toFixed(1) + "s");
-          _parts.push("rate=" + e.playbackRate + "x");
-          _parts.push("buf=" + n.toFixed(1) + "s");
-          const r = _parts.join(" - ");
-          return (
-            r !== a &&
-            ((a = r),
-            pa(() => {
-              t.textContent = r;
-            }),
-            !0)
-          );
-        }, 500),
-          Yt["stats-overlay"].push(() => t.remove()));
-      },
-      settings() {},
-    }),
+
     xa.register({
       id: "diag-console",
       name: "Activity Console",
@@ -14095,408 +14009,10 @@ function mountWatchLibrary(parent) {
       },
       settings() {},
     }),
-    xa.register({
-      id: "perf-profiler",
-      name: "Feature Profiler",
-      summary: "Measures per-feature CPU cost.",
-      cat: "tools",
-      masterKey: "perfProfilerOn",
-      keys: ["perfProfilerOn"],
-      apply(e) {
-        S.perfProfilerOn || ta.clear();
-      },
-      settings(e) {
-        const t = To("div", "ytb-perf-panel");
-        (e.appendChild(t), Nn(t));
-        const a = setInterval(() => {
-          t.isConnected && S.perfProfilerOn && Nn(t);
-        }, 2e3);
-        Co.push(() => clearInterval(a));
-      },
-    }),
-    xa.register({
-      id: "fps-counter",
-      name: "FPS Counter",
-      summary: "Corner overlay reporting live rendering frame rate.",
-      cat: "playback",
-      masterKey: "fpsCounterOn",
-      keys: ["fpsCounterOn", "fpsCounterPos"],
-      apply(e) {
-        let t = null;
-        let a = null;
-        let r = 0;
-        let o = performance.now();
-        let unsub = null;
-        const i = () => {
-          if (!S.fpsCounterOn) return;
-          const s = S.fpsCounterPos || "tl";
-          if (t) {
-            if (t.dataset.pos !== s) {
-              (t.className = "ytb-fps-box ytb-fps-" + s),
-                (t.dataset.pos = s),
-                (t.style.top = "tl" === s || "tr" === s ? "8px" : ""),
-                (t.style.bottom = "bl" === s || "br" === s ? "48px" : ""),
-                (t.style.left = "tl" === s || "bl" === s ? "8px" : ""),
-                (t.style.right = "tr" === s || "br" === s ? "8px" : "");
-            }
-          } else {
-            t = document.createElement("div");
-            t.id = "ytb-fps-box";
-            t.className = "ytb-fps-box ytb-fps-" + s;
-            t.dataset.pos = s;
-            t.style.cssText =
-              "position:fixed;z-index:2147483635;padding:3px 7px;background:rgba(20,22,28,.78);color:#9ff;border:1px solid rgba(159,255,255,.28);border-radius:6px;font:11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:54px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.35)";
-            ("tl" === s || "tr" === s) && (t.style.top = "8px"),
-              ("bl" === s || "br" === s) && (t.style.bottom = "48px"),
-              ("tl" === s || "bl" === s) && (t.style.left = "8px"),
-              ("tr" === s || "br" === s) && (t.style.right = "8px"),
-              document.body && document.body.appendChild(t);
-          }
-        };
-        const d = () => {
-          if (!Xt.visible) {
-            a = setTimeout(d, 250);
-            return;
-          }
-          const n = performance.now();
-          r++;
-          if (n - o < 500) {
-            a = requestAnimationFrame(d);
-            return;
-          }
-          const c = Math.round((1e3 * r) / (n - o));
-          (r = 0), (o = n);
-          const s = (ie.el && ie.el()) ? (ie.el().paused ? "paused" : ie.el().ended ? "ended" : "playing") : "—";
-          const l = c < 24 ? "#ff5252" : c < 50 ? "#ffd166" : "#4caf50";
-          (i(),
-            t && (t.textContent = c + " fps (" + s + ")"),
-            t && (t.style.color = l),
-            (a = requestAnimationFrame(d)));
-        };
-        const c = (n) => {
-          a && "number" == typeof a
-            ? cancelAnimationFrame(a)
-            : a && clearTimeout(a),
-            (a = null),
-            n &&
-              ((r = 0), (o = performance.now()), (a = requestAnimationFrame(d)));
-        };
-        S.fpsCounterOn &&
-          ((r = 0), (o = performance.now()), (a = requestAnimationFrame(d))),
-          e.onNav(() => {
-            c(0), e.addTimeout(() => c(1), 1200);
-          }),
-          (unsub = g.on("cfg.changed", ({ key: n }) => {
-            "fpsCounterOn" === n
-              ? S.fpsCounterOn
-                ? c(1)
-                : (c(0),
-                  t && (function () { try { t.remove(); } catch (e) {} })(),
-                  (t = null))
-              : "fpsCounterPos" === n && t && i();
-          })),
-          Yt["fps-counter"].push(() => {
-            if (unsub) { unsub(); unsub = null; }
-            c(0);
-            if (t) {
-              try {
-                t.remove();
-              } catch (e) {}
-              t = null;
-            }
-          });
-      },
-      settings(e) {
-        e.appendChild(Io("Show live FPS overlay", "fpsCounterOn"));
-        e.appendChild(
-          Ro("Position", "fpsCounterPos", {
-            tl: "Top-left",
-            tr: "Top-right",
-            bl: "Bottom-left",
-            br: "Bottom-right",
-          }),
-        );
-      },
-    }),
-    xa.register({
-      id: "buffer-health",
-      name: "Buffer Monitor",
-      summary: "Buffer depth and rebuffer counters while playing.",
-      cat: "playback",
-      masterKey: "bufferHealthOn",
-      keys: ["bufferHealthOn"],
-      apply(e) {
-        let t = null;
-        let n = null;
-        let r = 0;
-        let o = 0;
-        let unsub = null;
-        const i = () => {
-          if (!S.bufferHealthOn) return;
-          const v = ie.el && ie.el();
-          if (t) {
-            v || (t.style.display = "none");
-            return;
-          }
-          if (!v || !document.body) return;
-          t = document.createElement("div");
-          t.id = "ytb-buf-box";
-          t.style.cssText =
-            "position:fixed;z-index:2147483635;left:8px;bottom:48px;padding:6px 10px;background:rgba(20,22,28,.78);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);min-width:160px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.4)";
-          const d = document.createElement("div");
-          (d.className = "ytb-buf-text"),
-            (d.style.cssText = "white-space:nowrap"),
-            t.appendChild(d);
-          const a = document.createElement("div");
-          (a.className = "ytb-buf-bar"),
-            (a.style.cssText =
-              "height:4px;background:rgba(255,255,255,.12);border-radius:3px;margin-top:4px;overflow:hidden");
-          const l = document.createElement("div");
-          (l.className = "ytb-buf-fill"),
-            (l.style.cssText =
-              "height:100%;width:0;background:#4caf50;border-radius:3px;transition:width .3s,background .3s");
-          a.appendChild(l);
-          t.appendChild(a);
-          document.body.appendChild(t);
-        };
-        const d = () => {
-          if (!S.bufferHealthOn) return;
-          if (!Xt.visible) {
-            n = setTimeout(d, 500);
-            return;
-          }
-          i();
-          if (!t) {
-            n = setTimeout(d, 1000);
-            return;
-          }
-          const v = ie.el();
-          if (!v) {
-            (t.style.display = "none"), (n = setTimeout(d, 1000));
-            return;
-          }
-          t.style.display = "";
-          let a = 0;
-          try {
-            const u = v.buffered;
-            if (u && u.length) {
-              const m = v.currentTime;
-              for (let p = 0; p < u.length; p++) {
-                if (u.end(p) >= m) {
-                  a = u.end(p) - m;
-                  break;
-                }
-              }
-            }
-          } catch (e) {}
-          const l = v.paused
-            ? "paused"
-            : v.ended
-              ? "ended"
-              : v.seeking
-                ? "seeking"
-                : v.readyState < 3
-                  ? "loading"
-                  : "playing";
-          const c = a < 2 ? "#ff5252" : a < 6 ? "#ffd166" : "#4caf50";
-          const s = t.querySelector(".ytb-buf-fill");
-          s && ((s.style.width = Math.min(100, a * 5) + "%"), (s.style.background = c));
-          const h = t.querySelector(".ytb-buf-text");
-          h &&
-            (h.textContent =
-              "Buffer: " +
-              a.toFixed(1) +
-              "s | Rebuffers: " +
-              o +
-              " | " +
-              l);
-          n = setTimeout(d, 750);
-        };
-        const a = () => {
-          const v = ie.el();
-          v && !v.paused && !v.ended && ((o += 1), r < 4 && (pe("Rebuffer #" + o, 1200, "info"), (r += 1)));
-        };
-        const l = () => {
-          r = 0;
-        };
-        const startInterval = () => {
-          n && clearTimeout(n);
-          n = setTimeout(d, 250);
-        };
-        const stopInterval = () => {
-          n && clearTimeout(n), (n = null);
-        };
-        S.bufferHealthOn && startInterval();
-        const boundEls = new WeakSet();
-        const bindVideo = () => {
-          const v = ie.el();
-          if (!v || boundEls.has(v)) return;
-          boundEls.add(v);
-          e.addListener(v, "waiting", a);
-          e.addListener(v, "stalled", a);
-          e.addListener(v, "playing", l);
-        };
-        bindVideo();
-        e.onNav(() => {
-          o = 0;
-          e.addTimeout(startInterval, 1500);
-          e.addTimeout(bindVideo, 1200);
-        });
-        (unsub = g.on("cfg.changed", ({ key: k }) => {
-          "bufferHealthOn" === k &&
-            (S.bufferHealthOn
-              ? (startInterval(), i())
-              : (stopInterval(),
-                t && (function () { try { t.remove(); } catch (e) {} })(),
-                (t = null),
-                (o = 0)));
-        }));
-        Yt["buffer-health"].push(() => {
-          if (unsub) { unsub(); unsub = null; }
-          stopInterval();
-          if (t) {
-            try {
-              t.remove();
-            } catch (e) {}
-            t = null;
-          }
-        });
-      },
-      settings(e) {
-        e.appendChild(Io("Show buffer health overlay", "bufferHealthOn"));
-      },
-    }),
-    
-    xa.register({
-      id: "dropped-frame-counter",
-      name: "Dropped Frames",
-      summary: "Reports frames dropped by the player to diagnose stutter.",
-      cat: "playback",
-      masterKey: "droppedFrameOn",
-      keys: ["droppedFrameOn", "droppedFramePos", "droppedFrameResetOnNav", "droppedFrameShowRate"],
-      apply(e) {
-        let t = null;
-        let a = 0;
-        let n = 0;
-        let r = 0;
-        let o = performance.now();
-        let running = false;
-        let unsub = null;
-        const i = () => {
-          if (!S.droppedFrameOn) return;
-          const p = S.droppedFramePos || "tr";
-          if (t && t.dataset.pos !== p) {
-            (t.dataset.pos = p),
-              (t.className = "ytb-drop-box ytb-drop-" + p),
-              (t.style.top = "tl" === p || "tr" === p ? "8px" : ""),
-              (t.style.bottom = "bl" === p || "br" === p ? "48px" : ""),
-              (t.style.left = "tl" === p || "bl" === p ? "8px" : ""),
-              (t.style.right = "tr" === p || "br" === p ? "8px" : "");
-            return;
-          }
-          if (!t && document.body) {
-            (t = document.createElement("div")),
-              (t.id = "ytb-drop-box"),
-              (t.className = "ytb-drop-box ytb-drop-" + p),
-              (t.dataset.pos = p),
-              (t.style.cssText =
-                "position:fixed;z-index:2147483635;padding:4px 8px;background:rgba(20,22,28,.78);color:#ff8a96;border:1px solid rgba(255,138,150,.28);border-radius:6px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:80px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.35)"),
-              ("tl" === p || "tr" === p) && (t.style.top = "8px"),
-              ("bl" === p || "br" === p) && (t.style.bottom = "48px"),
-              ("tl" === p || "bl" === p) && (t.style.left = "8px"),
-              ("tr" === p || "br" === p) && (t.style.right = "8px"),
-              document.body.appendChild(t);
-          }
-          if (!t) return;
-          const v = ie.el && ie.el();
-          if (!v || typeof v.getVideoPlaybackQuality !== "function") {
-            t.textContent = "dropped: —";
-            return;
-          }
-          let q = 0;
-          try {
-            q = v.getVideoPlaybackQuality().droppedVideoFrames || 0;
-          } catch (e) {}
-          const m = q - a;
-          a = q;
-          if (m > 0) {
-            n += m;
-            r += m;
-          }
-          const now = performance.now();
-          const dt = (now - o) / 1e3;
-          const rate = dt > 0 ? r / dt : 0;
-          const showRate = !!S.droppedFrameShowRate;
-          const color = n > 60 ? "#ff5252" : n > 15 ? "#ffd166" : "#9ff";
-          t.style.color = color;
-          t.textContent = showRate
-            ? "dropped: " + rate.toFixed(1) + "/s (total " + n + ")"
-            : "dropped: " + n;
-          (r = 0), (o = now);
-        };
-        const d = () => {
-          if (!running) return;
-          if (!Xt.visible) return void setTimeout(d, 500);
-          i();
-          setTimeout(d, 1000);
-        };
-        const c = () => {
-          (n = 0), (r = 0), (o = performance.now());
-        };
-        const start = () => {
-          if (running) return;
-          running = true;
-          c();
-          d();
-        };
-        const stop = () => {
-          running = false;
-          if (t) {
-            try {
-              t.remove();
-            } catch (e) {}
-            t = null;
-          }
-        };
-        S.droppedFrameOn && start();
-        e.onNav(() => {
-          S.droppedFrameResetOnNav && c();
-        });
-        (unsub = g.on("cfg.changed", ({ key: k }) => {
-          if ("droppedFrameOn" === k) {
-            S.droppedFrameOn ? start() : stop();
-          } else if ("droppedFramePos" === k && t) {
-            const p = S.droppedFramePos || "tr";
-            (t.dataset.pos = ""),
-              (t.className = "ytb-drop-box ytb-drop-" + p),
-              (t.dataset.pos = p),
-              (t.style.top = "tl" === p || "tr" === p ? "8px" : ""),
-              (t.style.bottom = "bl" === p || "br" === p ? "48px" : ""),
-              (t.style.left = "tl" === p || "bl" === p ? "8px" : ""),
-              (t.style.right = "tr" === p || "br" === p ? "8px" : "");
-          }
-        }));
-        Yt["dropped-frame-counter"].push(() => {
-          if (unsub) { unsub(); unsub = null; }
-          stop();
-        });
-      },
-      settings(e) {
-        (e.appendChild(Io("Show dropped-frame counter", "droppedFrameOn")),
-          e.appendChild(
-            Ro("Position", "droppedFramePos", {
-              tl: "Top-left",
-              tr: "Top-right",
-              bl: "Bottom-left",
-              br: "Bottom-right",
-            }),
-          ),
-          e.appendChild(Io("Show rate (frames/sec) instead of total", "droppedFrameShowRate")),
-          e.appendChild(
-            Io("Reset counter when the video changes", "droppedFrameResetOnNav"),
-          ));
-      },
-    }),
+
+
+
+
     xa.register({
       id: "default-audio-track",
       name: "Original Audio Track",
@@ -14781,33 +14297,7 @@ function mountWatchLibrary(parent) {
         e.appendChild(Io("Hide the 'Top live games' shelf on Home", "hideTopLiveGamesOn"));
       },
     }),
-    xa.register({
-      id: "hfr-allow",
-      name: "High Frame Rate Report",
-      summary: "Reports the frame rates the player offers (YouTube picks formats server-side).",
-      cat: "playback",
-      masterKey: "hfrAllowOn",
-      keys: ["hfrAllowOn"],
-      apply(e) {
-        if (!S.hfrAllowOn) return;
-        const report = () => {
-          try {
-            const api = ie.api && ie.api();
-            const levels = api && typeof api.getAvailableQualityLevels === "function" ? api.getAvailableQualityLevels() : [];
-            pe(
-              "Available qualities: " + (levels.length ? levels.filter((l) => l !== "auto").join(", ") : "unknown") + ". HFR is offered by the player when the video and your connection support it.",
-              3600,
-              "info",
-            );
-          } catch (_) {}
-        };
-        report();
-        e.onNav(() => e.addTimeout(report, 1500));
-      },
-      settings(e) {
-        e.appendChild(Io("Show available qualities (HFR info)", "hfrAllowOn"));
-      },
-    }),
+
     xa.register({
       id: "update-check",
       name: "Update Check",
@@ -15122,101 +14612,8 @@ function mountWatchLibrary(parent) {
         e.appendChild(Io("Flip vertically by default", "flipVideoV"));
       },
     }));
-  (xa.register({
-      id: "session-replay",
-      name: "Session Recorder",
-      summary: "Logs clicks and navigation locally (never uploaded).",
-      cat: "tools",
-      masterKey: "sessionReplay",
-      keys: ["sessionReplay"],
-      apply(e) {
-        if (!S.sessionReplay) return;
-
-        let _replayWrites = 0;
-        const _pruneReplay = () => {
-          try {
-            b().then((db2) => {
-              if (!db2) return;
-              try {
-                const tx = db2.transaction("replay", "readwrite");
-                const store = tx.objectStore("replay");
-                let kept = 0;
-                const cursorReq = store.openCursor(null, "prev");
-                cursorReq.onsuccess = () => {
-                  const cursor = cursorReq.result;
-                  if (!cursor) return;
-                  kept++;
-
-                  if (kept <= 500) { cursor.continue(); return; }
-                  cursor.delete();
-                  cursor.continue();
-                };
-              } catch (_pe) {}
-            });
-          } catch (_oe) {}
-        };
-        e.addListener(
-          document,
-          "click",
-          (ev) => {
-            k("replay", {
-              t: Date.now(),
-              kind: "click",
-              tag: ev.target && ev.target.tagName,
-              url: location.pathname,
-            });
-            if (++_replayWrites % 400 === 0) _pruneReplay();
-          },
-          !0,
-        ),
-          e.onNav(() => {
-            k("replay", { t: Date.now(), kind: "nav", url: location.href });
-            if (++_replayWrites % 400 === 0) _pruneReplay();
-          });
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "api-explorer",
-      name: "Developer Player API",
-      summary: "Exposes the player object to devtools for debugging.",
-      cat: "tools",
-      masterKey: "apiExplorer",
-      keys: ["apiExplorer", "apiExplorerMutations"],
-      apply(t) {
-        if (S.apiExplorer)
-          ((e.YourTube._api = {
-            get player() {
-              return ie.api();
-            },
-            call(e, ...t) {
-              if (!S.apiExplorerMutations)
-                throw new Error("Enable mutations in feature settings");
-              const a = ie.api();
-              if (!a || "function" != typeof a[e])
-                throw new Error("no such method");
-              return a[e](...t);
-            },
-          }),
-            Yt["api-explorer"].push(() => {
-              try {
-                delete e.YourTube._api;
-              } catch (e) {}
-            }));
-        else
-          try {
-            delete e.YourTube._api;
-          } catch (e) {}
-      },
-      settings(e) {
-        e.appendChild(
-          Io(
-            "Allow external tools to modify player settings",
-            "apiExplorerMutations",
-          ),
-        );
-      },
-    }));
+  (
+    void 0);
   const Dn = 36e5;
   function qn(e) {
     return Math.floor((e ?? Date.now()) / Dn);
@@ -15695,430 +15092,8 @@ function mountWatchLibrary(parent) {
       pe("⏹ Stopped", 1200, "info");
     } else pe("No video element", 1200, "error");
   }
-  (xa.register({
-    id: "net-monitor",
-    name: "Bandwidth Monitor",
-    summary: "Graphs transfer volume over time.",
-      cat: "tools",
-    masterKey: "netMonitorOn",
-    keys: [
-      "netMonitorOn",
-      "netMonitorRange",
-      "netMonitorBadge",
-      "netMonitorPatchFetch",
-      "netMonitorPatchXHR",
-      "netMonitorPatchBeacon",
-      "privacyPreset",
-    ],
-    apply(t) {
-      S.netMonitorOn && !S.privacyShieldOn
-        ? ((function () {
-            if (!Yn)
-              try {
-                ((Yn = new PerformanceObserver((e) => {
-                  const t = e.getEntries();
-                  for (let e = 0; e < t.length; e++) {
-                    const a = t[e],
-                      n = Xn(a.name);
-                    if (!Zn(n)) continue;
-                    let r = a.transferSize || 0;
-                    (!r && a.encodedBodySize && (r = a.encodedBodySize),
-                      !r && a.decodedBodySize && (r = a.decodedBodySize),
-                      r > 0 && $n(n, r, 0, a.name));
-                  }
-                })),
-                  Yn.observe({ type: "resource", buffered: !0 }));
-              } catch (e) {}
-          })(),
-          !zn &&
-            S.netMonitorPatchFetch &&
-            ((zn = e.fetch),
-            (e.fetch = _xp.fn(function (e, t) {
+  (
 
-              if (!(S.netMonitorOn && !S.privacyShieldOn && S.netMonitorPatchFetch))
-                return zn.call(this, e, t);
-              let a,
-                n = "";
-              try {
-                ((a = "string" == typeof e ? e : (e && e.url) || ""),
-                  (n = Xn(a)));
-              } catch (e2) {}
-              const r = t && t.body ? Qn(t.body) : e && e.body ? Qn(e.body) : 0,
-                o = zn.call(this, e, t);
-              return (
-                n &&
-                  Zn(n) &&
-                  o
-                    .then((e3) => {
-                      try {
-                        const t2 =
-                            e3.headers &&
-                            e3.headers.get &&
-                            e3.headers.get("content-length"),
-                          o2 = (t2 && parseInt(t2, 10)) || 0;
-                        $n(n, o2, r, a);
-                      } catch (e3) {
-                        $n(n, 0, r, a);
-                      }
-                    })
-                    .catch(() => {
-                      $n(n, 0, r, a);
-                    }),
-                o
-              );
-            }))),
-          !Wn &&
-            S.netMonitorPatchXHR &&
-            ((Wn = XMLHttpRequest.prototype.open),
-            (Un = XMLHttpRequest.prototype.send),
-            (XMLHttpRequest.prototype.open = _xp.fn(function (e2, t) {
-              try {
-                ((this.__ytbNetURL = t), (this.__ytbNetHost = Xn(t)));
-              } catch (e3) {}
-              return Wn.apply(this, arguments);
-            })),
-            (XMLHttpRequest.prototype.send = _xp.fn(function (e2) {
-
-              if (!(S.netMonitorOn && !S.privacyShieldOn && S.netMonitorPatchXHR))
-                return Un.apply(this, arguments);
-              const t = this.__ytbNetHost,
-                a = e2 ? Qn(e2) : 0;
-              if (t && Zn(t)) {
-                const cb = () => {
-                  let n = 0;
-                  try {
-                    const h =
-                      this.getResponseHeader &&
-                      this.getResponseHeader("content-length");
-                    (h && (n = parseInt(h, 10) || 0),
-                      !n &&
-                        this.response &&
-                        ("string" == typeof this.response
-                          ? (n = new Blob([this.response]).size)
-                          : this.response.byteLength
-                            ? (n = this.response.byteLength)
-                            : this.response.size && (n = this.response.size)));
-                  } catch (e3) {}
-                  $n(t, n, a, this.__ytbNetURL);
-                };
-                this.addEventListener("loadend", cb, { once: !0 });
-              }
-              return Un.apply(this, arguments);
-            }))),
-          (function () {
-            if (!Kn && S.netMonitorPatchBeacon && navigator.sendBeacon) {
-              try {
-                Kn = navigator.sendBeacon.bind(navigator);
-              } catch (e) {
-                return;
-              }
-              navigator.sendBeacon = _xp.fn(function (e2, t2) {
-
-                try {
-                  S.netMonitorOn &&
-                    !S.privacyShieldOn &&
-                    S.netMonitorPatchBeacon &&
-                    $n(Xn(e2), 0, Qn(t2), e2);
-                } catch (e3) {}
-                return Kn(e2, t2);
-              });
-            }
-          })(),
-          (Vn.h = qn()),
-          hr(),
-          t.addStyle(
-            "#ytb-net-badge{position:fixed;bottom:8px;left:8px;z-index:2147483636;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:5px 10px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);pointer-events:none;display:flex;gap:6px;align-items:center}#ytb-net-badge .ytb-net-badge-dn{color:#4dd0e1}#ytb-net-badge .ytb-net-badge-up{color:#ff8a65}#ytb-net-badge .ytb-net-badge-sep{color:var(--yt-spec-text-secondary,#888)}body.ytb-silent #ytb-net-badge{display:none!important}",
-          ),
-          t.addInterval(() => {
-            S.netMonitorBadge && hr();
-          }, 3e3),
-          Yt["net-monitor"].push(mr))
-        : mr();
-    },
-    settings(e) {
-      (e.appendChild(
-        Io("Show a small data badge in the corner", "netMonitorBadge"),
-      ),
-        e.appendChild(
-          Io("Include standard network requests", "netMonitorPatchFetch"),
-        ),
-        e.appendChild(
-          Io("Include legacy network requests", "netMonitorPatchXHR"),
-        ),
-        e.appendChild(
-          Io("Include background activity updates", "netMonitorPatchBeacon"),
-        ),
-        e.appendChild(
-          Ro("Show usage for", "netMonitorRange", {
-            hour: "Last hour",
-            day: "Last 24 hours",
-            week: "Last 7 days",
-            month: "Last 30 days",
-            year: "Last 365 days",
-            all: "All time",
-          }),
-        ),
-        e.appendChild(
-          Io(
-            "Also tell me what quality the data was for",
-            "netQualityAttribOn",
-          ),
-        ),
-        e.appendChild(
-          Io("Set a monthly data budget and alert me when near", "netBudgetOn"),
-        ),
-        e.appendChild(
-          No("Monthly data limit", "netBudgetGB", 1, 500, 1, (e) => e + " GB"),
-        ));
-      const t = To("div", "ytb-net-panel");
-      e.appendChild(t);
-      const a = async () => {
-        t.replaceChildren();
-        const e = S.netMonitorRange || "day",
-          n = await dr(e),
-          r = await pr(e, 48),
-          o = To("div", "ytb-net-cards"),
-          i = (e, t, a) => {
-            const n = To("div", "ytb-net-card");
-            return (
-              n.appendChild(To("div", "ytb-net-card-label", e)),
-              n.appendChild(To("div", "ytb-net-card-value", t)),
-              a && n.appendChild(To("div", "ytb-net-card-sub", a)),
-              n
-            );
-          };
-        (o.appendChild(i("Total", or(n.total), n.reqs + " requests")),
-          o.appendChild(i("dn Downloaded", or(n.down))),
-          o.appendChild(i("up Uploaded", or(n.up))),
-          t.appendChild(o));
-        const d = To("div", "ytb-net-session");
-        if (
-          ((d.textContent =
-            "This session: dn " +
-            or(Gn.sessionDown) +
-            " - up " +
-            or(Gn.sessionUp) +
-            " - " +
-            Gn.sessionReqs +
-            " reqs"),
-          t.appendChild(d),
-          r.length)
-        ) {
-          const e = To("div", "ytb-net-legend"),
-            a = To("span", "ytb-net-legend-item");
-          (a.appendChild(To("span", "ytb-net-swatch ytb-net-swatch-dn")),
-            a.appendChild(To("span", "ytb-net-legend-label", "dn Download")));
-          const n = To("span", "ytb-net-legend-item");
-          (n.appendChild(To("span", "ytb-net-swatch ytb-net-swatch-up")),
-            n.appendChild(To("span", "ytb-net-legend-label", "up Upload")),
-            e.appendChild(a),
-            e.appendChild(n),
-            t.appendChild(e));
-          const o = To("div", "ytb-net-chart"),
-            i = Math.max(1, ...r.map((e) => e.down + e.up));
-          for (const e of r) {
-            const t = To("div", "ytb-net-bar"),
-              a = To("div", "ytb-net-bar-dn");
-            a.style.height = ((e.down / i) * 100).toFixed(2) + "%";
-            const n = To("div", "ytb-net-bar-up");
-            ((n.style.height = ((e.up / i) * 100).toFixed(2) + "%"),
-              t.appendChild(n),
-              t.appendChild(a));
-            const r = new Date(e.from * Dn);
-            ((t.title =
-              r.toLocaleString() + "\ndn " + or(e.down) + "\nup " + or(e.up)),
-              o.appendChild(t));
-          }
-          t.appendChild(o);
-          const d = To("div", "ytb-net-axis"),
-            c = To(
-              "span",
-              null,
-              new Date(r[0].from * Dn).toLocaleString([], {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-              }),
-            ),
-            s = To(
-              "span",
-              null,
-              new Date(r[r.length - 1].to * Dn + Dn).toLocaleString([], {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-              }),
-            );
-          (d.appendChild(c), d.appendChild(s), t.appendChild(d));
-        }
-        if (S.netBudgetOn) {
-          const e = await lr(),
-            a = 1024 * (Number(S.netBudgetGB) || 0) * 1024 * 1024,
-            n = a > 0 ? Math.min(100, (e / a) * 100) : 0,
-            r = To("div", "ytb-net-budget"),
-            o = new Date().toLocaleString([], {
-              month: "long",
-              year: "numeric",
-            });
-          r.appendChild(
-            To("div", "ytb-elem-sec-title", "Monthly budget - " + o),
-          );
-          const i = To("div", "ytb-net-budget-bar"),
-            d = To("div", "ytb-net-budget-fill");
-          ((d.style.width = n.toFixed(1) + "%"),
-            n >= 100
-              ? d.classList.add("over")
-              : n >= 95
-                ? d.classList.add("crit")
-                : n >= 80 && d.classList.add("warn"),
-            i.appendChild(d),
-            r.appendChild(i));
-          const c = To("div", "ytb-net-budget-detail");
-          ((c.textContent =
-            or(e) + " / " + S.netBudgetGB + " GB used (" + n.toFixed(1) + "%)"),
-            r.appendChild(c),
-            t.appendChild(r));
-        }
-        if (S.netQualityAttribOn && n.qualities.length) {
-          const e = To("div", "ytb-net-qualities");
-          e.appendChild(To("div", "ytb-elem-sec-title", "By quality"));
-          const a = n.qualities.reduce((e, [, t]) => e + t, 0),
-            r = {
-              "4K+": "#e91e63",
-              "1440p": "#9c27b0",
-              "1080p": "#3f51b5",
-              "720p": "#4caf50",
-              "480p": "#ffc107",
-              "360p": "#ff9800",
-              "240p-": "#795548",
-              audio: "#00bcd4",
-              other: "#607d8b",
-            };
-          for (const [t, o] of n.qualities) {
-            const n = To("div", "ytb-net-q-row"),
-              i = To("span", "ytb-net-q-lbl", t);
-            i.style.background = r[t] || "#888";
-            const d = To("div", "ytb-net-q-track"),
-              c = To("div", "ytb-net-q-fill");
-            ((c.style.width = a ? ((o / a) * 100).toFixed(1) + "%" : "0%"),
-              (c.style.background = r[t] || "#888"),
-              d.appendChild(c));
-            const s = To(
-              "span",
-              "ytb-net-q-bytes",
-              or(o) + " - " + (a ? ((o / a) * 100).toFixed(0) : 0) + "%",
-            );
-            (n.appendChild(i),
-              n.appendChild(d),
-              n.appendChild(s),
-              e.appendChild(n));
-          }
-          t.appendChild(e);
-        }
-        if (n.hosts.length) {
-          const e = To("div", "ytb-net-hosts");
-          e.appendChild(To("div", "ytb-elem-sec-title", "Top hosts"));
-          for (const [t, a] of n.hosts) {
-            const n = To("div", "ytb-net-host-row");
-            (n.appendChild(To("span", "ytb-net-host-name", t)),
-              n.appendChild(To("span", "ytb-net-host-bytes", or(a))),
-              e.appendChild(n));
-          }
-          t.appendChild(e);
-        }
-        const c = To("div", "ytb-rowb");
-        (c.appendChild(Oo("Refresh", a)),
-          c.appendChild(
-            Oo("Export JSON", async () => {
-              const e = await nr(),
-                t = new Blob(
-                  [
-                    JSON.stringify(
-                      { exported: Date.now(), buckets: e },
-                      null,
-                      2,
-                    ),
-                  ],
-                  { type: "application/json" },
-                ),
-                a = URL.createObjectURL(t),
-                n = document.createElement("a");
-              ((n.href = a),
-                (n.download =
-                  "yourtube-network-" +
-                  new Date().toISOString().slice(0, 10) +
-                  ".json"),
-                document.body.appendChild(n),
-                n.click(),
-                n.remove(),
-                setTimeout(() => URL.revokeObjectURL(a), 6e3),
-                pe("Data usage saved to a file.", 1800, "success"));
-            }),
-          ),
-          c.appendChild(
-            Oo(
-              "Clear all history",
-              async () => {
-                e.confirm(
-                  "Clear all the data usage history? This can’t be undone.",
-                ) &&
-                  (await rr(), pe("Data usage cleared.", 1800, "success"), a());
-              },
-              "ytb-danger",
-            ),
-          ),
-          t.appendChild(c));
-        const s = To(
-          "div",
-          "ytb-hist-note",
-          "Data usage is measured directly from background video loading and network requests on YouTube servers. This information is saved securely on your own computer and stays available until you press Clear all history.",
-        );
-        t.appendChild(s);
-      };
-      (a(),
-        So("net.updated", ee(a, 500)),
-        So("cfg.changed", ee((e) => {
-          if (["netMonitorRange", "netBudgetOn", "netBudgetGB", "netQualityAttribOn"].includes(e.key)) a();
-        }, 200)));
-    },
-  }),
-    xa.register({
-      id: "adaptive-throttle",
-      name: "Adaptive Throttle",
-      summary: "Reduces processing work on battery-saving conditions.",
-      cat: "tools",
-      masterKey: "adaptiveThrottleOn",
-      keys: ["adaptiveThrottleOn"],
-      apply(e) {
-        if (!S.adaptiveThrottleOn) return;
-
-        let _hiddenSince = 0;
-        e.addListener(document, "visibilitychange", () => {
-          _hiddenSince = document.hidden ? Date.now() : 0;
-        });
-        if (document.hidden) _hiddenSince = Date.now();
-        const t = () => {
-
-          if ("hidden" !== document.visibilityState) return;
-          if (!_hiddenSince || Date.now() - _hiddenSince < 60000) return;
-          navigator.getBattery &&
-            navigator
-              .getBattery()
-              .then((e) => {
-                if (!e.charging && e.level < 0.15) {
-                  const vid = ie.el();
-                  if (vid && !vid.paused && !vid.ended && !_isLiveStream()) {
-                    ie.pause();
-                    pe("Battery critically low - paused to save power.", 3e3, "info");
-                  }
-                }
-              })
-              .catch(() => {});
-        };
-        (e.addListener(document, "visibilitychange", t), e.addInterval(t, 3e4, { pauseWhenHidden: !1 }));
-      },
-      settings() {},
-    }),
     (0),
 
     xa.register({
@@ -16631,7 +15606,7 @@ function mountWatchLibrary(parent) {
       },
       settings() {},
     }),
-    
+
     Ha(
       "always-progress-bar",
       "Persistent Seek Bar",
@@ -17159,7 +16134,7 @@ function mountWatchLibrary(parent) {
       settings() {},
     }),
     (0),
-    
+
     xa.register({
       id: "copy-timestamp-button",
       name: "Copy Timestamp Link",
@@ -17328,7 +16303,7 @@ function mountWatchLibrary(parent) {
       },
       settings() {},
     }),
-    
+
     xa.register({
       id: "number-search-results",
       name: "Number Results",
@@ -27767,171 +26742,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       info.innerHTML = Xy("<strong>Level presets:</strong> each preset turns on a set of optimizations. Changing level sets its defaults. You can then turn individual optimizations on or off. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.");
       en.appendChild(info);
     } });
-  xa.register({
-    id: "overlay-hub",
-    name: "Overlay Hub",
-    summary: "Docks every performance meter into one HUD.",
-      cat: "tools",
-    masterKey: "overlayHubOn",
-    keys: ["overlayHubOn", "overlayHubPos"],
-    apply(ctx) {
-      const CONTAINER_ID = "ytb-monolith";
-      const STYLE_ID = "ytb-monolith-style";
-      const ADOPT_SELECTOR = "#ytb-fps-box, #ytb-buf-box, #ytb-drop-box, #ytb-stats, #ytb-diag";
-      let container = null;
-      let collapsed = false;
 
-      const position = () => {
-        if (!container) return;
-        const pos = S.overlayHubPos || "bl";
-        container.style.top = "tl" === pos || "tr" === pos ? "8px" : "";
-        container.style.bottom = "bl" === pos || "br" === pos ? "48px" : "";
-        container.style.left = "tl" === pos || "bl" === pos ? "8px" : "";
-        container.style.right = "tr" === pos || "br" === pos ? "8px" : "";
-      };
-
-      const ensureStyle = () => {
-        if (document.getElementById(STYLE_ID)) return;
-        const st = document.createElement("style");
-        st.id = STYLE_ID;
-        st.textContent = [
-          "#ytb-monolith{position:fixed;z-index:2147483635;padding:6px 8px 7px;background:rgba(20,22,28,.82);border:1px solid rgba(255,255,255,.12);border-radius:10px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 6px 20px rgba(0,0,0,.4);font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:#ddd;min-width:180px;max-width:250px;pointer-events:none}",
-          "#ytb-monolith .ytb-mon-hdr{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;pointer-events:auto;cursor:move;user-select:none}",
-          "#ytb-monolith .ytb-mon-title{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#fff}",
-          "#ytb-monolith .ytb-mon-toggle{background:transparent;border:0;color:#8ab;cursor:pointer;font-size:11px;line-height:1;padding:2px 4px;border-radius:4px}",
-          "#ytb-monolith .ytb-mon-toggle:hover{background:rgba(255,255,255,.1)}",
-          "#ytb-monolith #ytb-fps-box,#ytb-monolith #ytb-buf-box,#ytb-monolith #ytb-drop-box,#ytb-monolith #ytb-stats,#ytb-monolith #ytb-diag{position:static!important;top:auto!important;bottom:auto!important;left:auto!important;right:auto!important;width:100%!important;min-width:0!important;box-sizing:border-box!important;margin:0 0 6px!important;padding:4px 6px!important;background:rgba(255,255,255,.05)!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:6px!important;box-shadow:none!important;pointer-events:none!important}",
-          "#ytb-monolith .ytb-mon-empty{color:#667;font-size:10.5px;padding:2px 0}",
-        ].join("\n");
-        (document.head || document.documentElement).appendChild(st);
-      };
-
-      const getHub = () => {
-        ensureStyle();
-        if (container && container.parentNode) return container;
-        container = document.createElement("div");
-        container.id = CONTAINER_ID;
-        const hdr = document.createElement("div");
-        hdr.className = "ytb-mon-hdr";
-        const title = document.createElement("span");
-        title.className = "ytb-mon-title";
-        title.textContent = "YourTube Monitors";
-        const toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "ytb-mon-toggle";
-        toggle.textContent = "–";
-        toggle.title = "Collapse / expand";
-        toggle.addEventListener("click", () => {
-          collapsed = !collapsed;
-          toggle.textContent = collapsed ? "+" : "–";
-          if (container) container.style.display = collapsed ? "none" : "";
-        });
-        hdr.append(title, toggle);
-        container.appendChild(hdr);
-        document.body.appendChild(container);
-        position();
-        return container;
-      };
-
-      const removeContainer = () => {
-        if (container) {
-          try {
-            for (const w of Array.from(container.querySelectorAll(ADOPT_SELECTOR))) {
-              if (document.body) document.body.appendChild(w);
-            }
-          } catch (_) {}
-        }
-        if (container && container.parentNode) { try { container.parentNode.removeChild(container); } catch (_) {} }
-        container = null;
-        const st = document.getElementById(STYLE_ID);
-        if (st) { try { st.remove(); } catch (_) {} }
-      };
-
-      const adopt = () => {
-        try {
-          if (!S.overlayHubOn || !document.body) { removeContainer(); return 0; }
-          const widgets = document.querySelectorAll(ADOPT_SELECTOR);
-          let count = 0;
-          for (const w of widgets) {
-            if (w.closest("#" + CONTAINER_ID)) continue;
-            const hub = getHub();
-            if (!hub) return count;
-            hub.appendChild(w);
-            count++;
-          }
-          const hub = document.getElementById(CONTAINER_ID);
-          if (!hub) return count;
-          if (count === 0) {
-            if (collapsed) return 0;
-            if (!hub.querySelector(".ytb-mon-empty")) {
-              const empty = document.createElement("div");
-              empty.className = "ytb-mon-empty";
-              empty.textContent = "Enable a monitor to attach it here.";
-              hub.appendChild(empty);
-            }
-            return 0;
-          }
-          const emptyEl = hub.querySelector(".ytb-mon-empty");
-          if (emptyEl) emptyEl.remove();
-          position();
-          return count;
-        } catch (_) {
-          return 0;
-        }
-      };
-
-      adopt();
-
-      const wakeSweep = () => {
-        quietScans = 0;
-        idleTicks = 0;
-        return adopt();
-      };
-      let quietScans = 0;
-      let idleTicks = 0;
-      ctx.addInterval(() => {
-        if (quietScans >= 6) {
-          idleTicks += 1;
-          if (idleTicks % 8 !== 0) return;
-          idleTicks = 0;
-        }
-        const found = adopt();
-        if (found > 0) { quietScans = 0; idleTicks = 0; }
-        else if (quietScans < 6) quietScans += 1;
-      }, 500);
-      ctx.onNav(() => ctx.addTimeout(wakeSweep, 600));
-
-      const unsub = g.on("cfg.changed", ({ key: k }) => {
-        if (k === "overlayHubOn") wakeSweep();
-        if (k === "overlayHubPos") position();
-      });
-      Yt["overlay-hub"].push(() => {
-        try { if (typeof unsub === "function") unsub(); } catch (_) {}
-        removeContainer();
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Enable Monolith Overlay Hub", "overlayHubOn"));
-      en.appendChild(Ro("Hub Position", "overlayHubPos", {
-        tl: "Top-left",
-        tr: "Top-right",
-        bl: "Bottom-left",
-        br: "Bottom-right",
-      }));
-      en.appendChild(To("div", "ytb-elem-sec-title", "Monitors & Overlays"));
-      en.appendChild(Io("Live FPS Counter", "fpsCounterOn"));
-      en.appendChild(Io("Buffer Health Monitor", "bufferHealthOn"));
-      en.appendChild(Io("Dropped Frame Counter", "droppedFrameOn"));
-      en.appendChild(Io("Playback Performance Overlay", "statsOverlay"));
-      en.appendChild(Io("Activity Diagnostic Monitor", "diagConsole"));
-      en.appendChild(Io("Feature Performance Tracker", "perfProfilerOn"));
-      const info = document.createElement("div");
-      info.className = "ytb-hist-note";
-      info.style.marginTop = "8px";
-      info.innerHTML = Xy("<strong>Monolith Overlay Hub:</strong> Consolidates all active floating performance meters and diagnostic tools into a single, unified docked glass HUD.");
-      en.appendChild(info);
-    },
-  });
 
 
 
@@ -28608,57 +27419,59 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
 
   xa.register({
     id: "night-scheduler", name: "Theme Scheduler",
-    summary: "Switches dark/light themes on a schedule.",
-      cat: "appearance",
-    masterKey: "nightSchedulerOn", keys: ["nightSchedulerOn", "nightStart", "nightEnd"],
+    summary: "Choose clock or system color scheme, with a manual override policy.",
+    cat: "appearance", masterKey: "nightSchedulerOn",
+    keys: ["nightSchedulerOn", "nightStart", "nightEnd", "nightSchedulerMode", "nightOverridePolicy"],
     apply(ctx) {
       if (!S.nightSchedulerOn) return;
-      const valid = () => YourTubeResources.TimeWindow.parseHHMM(S.nightStart) !== null &&
-                          YourTubeResources.TimeWindow.parseHHMM(S.nightEnd) !== null;
-      const wantDark = () => !valid() ? null : YourTubeResources.TimeWindow.containsHHMM(S.nightStart, S.nightEnd);
-      let lastApplied = null;
-      let userOverride = false;
-
-      ctx.addObserver(document.querySelector("ytd-app") || document.documentElement, () => {
-        if (!document.body) return;
-        const app2 = document.querySelector("ytd-app");
-        if (!app2) return;
-        const isDark = document.documentElement.hasAttribute("dark") || app2.hasAttribute("dark");
-        if (lastApplied !== null && isDark !== lastApplied) {
-          // A manual toggle wins until the user's own choice matches the
-          // schedule again, so the scheduler can resume instead of latching off.
-          const w = wantDark();
-          userOverride = !(w !== null && isDark === w);
-        }
-      }, { attributes: true, attributeFilter: ["dark"] });
-      const enforce = () => {
-        const w = wantDark(); if (w === null) return;
-        if (userOverride) return;
-        const app = document.querySelector("ytd-app");
-        if (!app) return;
-        const isDark = document.documentElement.hasAttribute("dark") || app.hasAttribute("dark");
-        if (w && !isDark) { document.documentElement.setAttribute("dark", ""); app.setAttribute("dark", ""); lastApplied = true; }
-        else if (!w && isDark) { document.documentElement.removeAttribute("dark"); app.removeAttribute("dark"); lastApplied = false; }
+      const app = document.querySelector("ytd-app"), root = document.documentElement;
+      if (!app || !root) return;
+      const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+      const originals = [root.hasAttribute("dark"), app.hasAttribute("dark")];
+      let lastDesired = null, lastApplied = null, paused = false, wrote = false;
+      const desired = () => {
+        if (S.nightSchedulerMode === "system") return media ? media.matches : null;
+        if (YourTubeResources.TimeWindow.parseHHMM(S.nightStart) === null ||
+            YourTubeResources.TimeWindow.parseHHMM(S.nightEnd) === null) return null;
+        return YourTubeResources.TimeWindow.containsHHMM(S.nightStart, S.nightEnd);
       };
-      ctx.addInterval(enforce, 60000);
-      ctx.onNav(() => ctx.addTimeout(enforce, 800));
-      ctx.addTimeout(enforce, 1500);
-      Yt["night-scheduler"].push(() => {
-        // Undo the last forced state so disabling the card stops overriding
-        // YouTube's own theme handling.
+      const enforce = () => {
+        const next = desired();
+        if (next === null) return;
+        if (lastDesired !== null && next !== lastDesired && S.nightOverridePolicy !== "until-resume") paused = false;
+        lastDesired = next;
+        if (paused) return;
+        const nodes = [root, app];
+        nodes.forEach(node => {
+          if (node.hasAttribute("dark") !== next) { node.toggleAttribute("dark", next); wrote = true; }
+        });
+        lastApplied = next;
+      };
+      const detectManual = () => {
         if (lastApplied === null) return;
-        const app = document.querySelector("ytd-app");
-        try {
-          if (lastApplied) { document.documentElement.removeAttribute("dark"); app && app.removeAttribute("dark"); }
-          else { document.documentElement.setAttribute("dark", ""); app && app.setAttribute("dark", ""); }
-        } catch (_) {}
-        lastApplied = null;
+        if (root.hasAttribute("dark") !== lastApplied || app.hasAttribute("dark") !== lastApplied) paused = true;
+      };
+      ctx.addObserver(root, detectManual, {attributes:true, attributeFilter:["dark"]});
+      ctx.addObserver(app, detectManual, {attributes:true, attributeFilter:["dark"]});
+      if (media && S.nightSchedulerMode === "system") ctx.addListener(media, "change", enforce);
+      if (S.nightSchedulerMode !== "system") ctx.addInterval(enforce, 60000);
+      ctx.onNav(() => ctx.addTimeout(enforce, 100));
+      enforce();
+      Yt["night-scheduler"].push(() => {
+        if (!wrote || paused || lastApplied === null) return;
+        [root, app].forEach((node, i) => {
+          if (node.hasAttribute("dark") === lastApplied) node.toggleAttribute("dark", originals[i]);
+        });
       });
     },
     settings(en) {
-      en.appendChild(Io("Schedule dark theme by clock", "nightSchedulerOn"));
+      en.appendChild(Io("Enable automatic dark/light mode", "nightSchedulerOn"));
+      en.appendChild(Ro("Automatic source", "nightSchedulerMode", { clock: "Time schedule", system: "Browser color scheme" }));
+      en.appendChild(Ro("After a manual YouTube theme change", "nightOverridePolicy", { "until-change": "Manual until next automatic change", "until-resume": "Manual until I resume automation" }));
       en.appendChild(_o("Dark from (HH:MM)", "nightStart"));
       en.appendChild(_o("Light from (HH:MM)", "nightEnd"));
+      en.appendChild(Oo("Resume automatic theme", () => { if (S.nightSchedulerOn) xa.apply("night-scheduler"); }));
+      en.appendChild(To("div", "ytb-hist-note", "Browser mode follows your browser color scheme. In clock mode, times use your local clock. A manual choice can pause automation; use Resume to apply it again."));
     },
   });
 

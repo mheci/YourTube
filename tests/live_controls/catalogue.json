@@ -380,16 +380,6 @@
   "summary": "Changes YouTube client locale hints. It does not change your IP address or guarantee regional availability."
  },
  {
-  "id": "stats-overlay",
-  "name": "Playback Stats Overlay",
-  "cat": "playback",
-  "master": "statsOverlay",
-  "keys": [
-   "statsOverlay"
-  ],
-  "summary": "On-player panel: resolution, quality, FPS, bitrate, time, rate, buffer."
- },
- {
   "id": "diag-console",
   "name": "Activity Console",
   "cat": "tools",
@@ -398,50 +388,6 @@
    "diagConsole"
   ],
   "summary": "Live log of what YourTube is applying and why."
- },
- {
-  "id": "perf-profiler",
-  "name": "Feature Profiler",
-  "cat": "tools",
-  "master": "perfProfilerOn",
-  "keys": [
-   "perfProfilerOn"
-  ],
-  "summary": "Measures per-feature CPU cost."
- },
- {
-  "id": "fps-counter",
-  "name": "FPS Counter",
-  "cat": "playback",
-  "master": "fpsCounterOn",
-  "keys": [
-   "fpsCounterOn",
-   "fpsCounterPos"
-  ],
-  "summary": "Corner overlay reporting live rendering frame rate."
- },
- {
-  "id": "buffer-health",
-  "name": "Buffer Monitor",
-  "cat": "playback",
-  "master": "bufferHealthOn",
-  "keys": [
-   "bufferHealthOn"
-  ],
-  "summary": "Buffer depth and rebuffer counters while playing."
- },
- {
-  "id": "dropped-frame-counter",
-  "name": "Dropped Frames",
-  "cat": "playback",
-  "master": "droppedFrameOn",
-  "keys": [
-   "droppedFrameOn",
-   "droppedFramePos",
-   "droppedFrameResetOnNav",
-   "droppedFrameShowRate"
-  ],
-  "summary": "Reports frames dropped by the player to diagnose stutter."
  },
  {
   "id": "default-audio-track",
@@ -524,16 +470,6 @@
   "summary": "Removes 'Top live games' carousels from feeds."
  },
  {
-  "id": "hfr-allow",
-  "name": "High Frame Rate Report",
-  "cat": "playback",
-  "master": "hfrAllowOn",
-  "keys": [
-   "hfrAllowOn"
-  ],
-  "summary": "Reports the frame rates the player offers (YouTube picks formats server-side)."
- },
- {
   "id": "update-check",
   "name": "Update Check",
   "cat": "privacy",
@@ -597,53 +533,6 @@
    "videoFiltersOn"
   ],
   "summary": "Mirrors or flips the video frame horizontally/vertically."
- },
- {
-  "id": "session-replay",
-  "name": "Session Recorder",
-  "cat": "tools",
-  "master": "sessionReplay",
-  "keys": [
-   "sessionReplay"
-  ],
-  "summary": "Logs clicks and navigation locally (never uploaded)."
- },
- {
-  "id": "api-explorer",
-  "name": "Developer Player API",
-  "cat": "tools",
-  "master": "apiExplorer",
-  "keys": [
-   "apiExplorer",
-   "apiExplorerMutations"
-  ],
-  "summary": "Exposes the player object to devtools for debugging."
- },
- {
-  "id": "net-monitor",
-  "name": "Bandwidth Monitor",
-  "cat": "tools",
-  "master": "netMonitorOn",
-  "keys": [
-   "netMonitorOn",
-   "netMonitorRange",
-   "netMonitorBadge",
-   "netMonitorPatchFetch",
-   "netMonitorPatchXHR",
-   "netMonitorPatchBeacon",
-   "privacyPreset"
-  ],
-  "summary": "Graphs transfer volume over time."
- },
- {
-  "id": "adaptive-throttle",
-  "name": "Adaptive Throttle",
-  "cat": "tools",
-  "master": "adaptiveThrottleOn",
-  "keys": [
-   "adaptiveThrottleOn"
-  ],
-  "summary": "Reduces processing work on battery-saving conditions."
  },
  {
   "id": "cookie-control",
@@ -1117,17 +1006,6 @@
   "summary": "Five presets scaling work from light to maximum."
  },
  {
-  "id": "overlay-hub",
-  "name": "Overlay Hub",
-  "cat": "tools",
-  "master": "overlayHubOn",
-  "keys": [
-   "overlayHubOn",
-   "overlayHubPos"
-  ],
-  "summary": "Docks every performance meter into one HUD."
- },
- {
   "id": "silence-skipper",
   "name": "Silence Skip",
   "cat": "audio",
@@ -1273,9 +1151,11 @@
   "keys": [
    "nightSchedulerOn",
    "nightStart",
-   "nightEnd"
+   "nightEnd",
+   "nightSchedulerMode",
+   "nightOverridePolicy"
   ],
-  "summary": "Switches dark/light themes on a schedule."
+  "summary": "Clock or browser color scheme, with manual override policy."
  },
  {
   "id": "text-scale",

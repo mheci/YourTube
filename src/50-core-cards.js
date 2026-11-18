@@ -936,8 +936,7 @@
           m("perfInterval " + e.featureId, t);
         }
         const n = performance.now() - a;
-        (S.perfProfilerOn && aa(e.featureId, "interval", n),
-          n > 12 && e.backoff < 4
+        (n > 12 && e.backoff < 4
             ? (e.backoff = Math.min(4, 1.3 * e.backoff))
             : t && e.backoff > 1
               ? (e.backoff = Math.max(1, 0.8 * e.backoff))
@@ -1309,7 +1308,6 @@
         } catch (t) {
           return void fa(e, t);
         }
-        const a = S.perfProfilerOn ? performance.now() : 0;
         try {
           const a = t.apply(ua(e));
           a && "function" == typeof a.then && a.catch((t) => fa(e, t));
@@ -1319,10 +1317,6 @@
         } catch (t) {
           fa(e, t);
         }
-        if (S.perfProfilerOn)
-          try {
-            aa(e, "apply", performance.now() - a);
-          } catch (e) {}
       },
       isQuarantined: ba,
       clearQuarantine(e) {
@@ -2801,7 +2795,7 @@
           e.appendChild(Eo([Oo("Capture now", Ia, "primary")])));
       },
     }),
-    
+
     xa.register({
       id: "force-watched",
       name: "Mark as Watched",
@@ -2879,7 +2873,7 @@
       },
       settings() {},
     }),
-    
+
     xa.register({
       id: "cinema-mode",
       name: "Cinema Mode",

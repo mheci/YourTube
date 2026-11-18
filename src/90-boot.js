@@ -1,6 +1,9 @@
   (async function () {
     try {
       z();
+      // Arm before the asynchronous config/DOM hydration and chunked card apply.
+      WatchSessions.configure();
+      g.on('cfg.changed', ({key}) => {if (['sessionRestoreOn','sessionResumeMode','sessionResumeDesign'].includes(key)) WatchSessions.configure();});
     } catch (e) {}
     try {
       u("inject mode: " + ((typeof GM_info !== "undefined" && GM_info && GM_info.injectInto) || "unknown"));
@@ -131,7 +134,7 @@
         const _spec = typeof _ytKeySpec === "function" ? _ytKeySpec(e) : "";
         const _bound = (action) => {
           if (!_spec) return false;
-          const map = S.keymap && typeof S.keymap === "object" ? S.keymap : null;
+          const map = S.keymapOn && S.keymap && typeof S.keymap === "object" ? S.keymap : null;
           const custom = map && typeof map[action] === "string" ? map[action].toLowerCase() : "";
           const fallback = (typeof _YT_KEYMAP_DEFAULTS === "object" && _YT_KEYMAP_DEFAULTS[action]) || "";
           return _spec === (custom || fallback);
@@ -259,7 +262,7 @@
         };
         try {
           window.addEventListener("beforeunload", (ev) => {
-            try { Ze(); } catch (e2) {}
+            try { WatchSessions.flush(); } catch (e2) {}
             e(ev);
           }, { capture: !0 });
         } catch (e) {}

@@ -9,3 +9,4 @@ npm-debug.log*
 .agent/
 scripts/*.results.json
 scripts/*.results.md
+__pycache__/

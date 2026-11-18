@@ -89,21 +89,6 @@
     _cache: new Map(),
     _failed: new Map(),
     _pending: new Map(),
-    _page: null,
-    _pageAt: 0,
-
-    _getPage() {
-      const now = Date.now();
-      if (this._page && now - this._pageAt < 60000) return this._page;
-      try {
-        this._page = _fwParsePage();
-      } catch (_) {
-        this._page = { apiKey: "" };
-      }
-      this._pageAt = now;
-      return this._page;
-    },
-
     dateFor(videoId) {
       if (!videoId) return Promise.resolve("");
       const pending = this._pending.get(videoId);
@@ -118,22 +103,22 @@
       if (this._cache.has(videoId)) return this._cache.get(videoId);
       const failedAt = this._failed.get(videoId);
       if (failedAt && Date.now() - failedAt < 600000) return "";
-      const page = this._getPage();
-      if (!page || !page.apiKey) return "";
-      let auth = null;
+      // Use metadata already on this watch page when it belongs to this ID.
+      // The _fw* helpers are private to the Force Watched action and were
+      // never in scope here. A date lookup does not need its account machinery.
+      let json = null;
       try {
-        auth = await _fwSapisidHeader();
+        const current = e.ytInitialPlayerResponse;
+        if (current && current.videoDetails && current.videoDetails.videoId === videoId &&
+            current.microformat && current.microformat.playerMicroformatRenderer) json = current;
       } catch (_) {}
-      let resp = null;
-      try {
-        resp = await _fwInnerTube(page, "player", {
-          context: Mt(),
-          videoId,
-          contentCheckOk: true,
-          racyCheckOk: true,
-        }, auth);
-      } catch (_) {}
-      const json = resp && resp.json;
+      if (!json) {
+        try {
+          const result = await Ot("player", { context: Mt(), videoId }, { parseJson: true });
+          if (result && result.ok) json = result.json;
+          if (json && json.videoDetails && json.videoDetails.videoId && json.videoDetails.videoId !== videoId) json = null;
+        } catch (_) {}
+      }
       const micro = json && json.microformat && json.microformat.playerMicroformatRenderer;
       let when = "";
       if (micro) {

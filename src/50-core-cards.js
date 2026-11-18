@@ -1802,9 +1802,6 @@
     lastEngagedVid: null,
     lastTrackVid: null,
     lastEngageT: 0,
-    awaitingResume: !1,
-    awaitingResumeVid: null,
-    awaitingResumeSince: 0,
     lastVerifyFix: 0,
   };
   function La() {
@@ -1992,7 +1989,7 @@
       a = null;
     }
     const n = !!a && a.languageCode;
-    const r = document.querySelector(".ytb-subtitles-button");
+    const r = document.querySelector(".ytp-subtitles-button");
     const o = r && "true" === r.getAttribute("aria-pressed");
     const i = document.querySelector(
       ".ytp-caption-window-container,.ytp-caption-window",
@@ -2254,7 +2251,7 @@
                 "function" == typeof t.toggleSubtitlesOn &&
                 (t.toggleSubtitlesOn(), (a = !0));
             } catch (e) {}
-            const n = ca(".ytb-subtitles-button", 800);
+            const n = ca(".ytp-subtitles-button", 800);
             if (!a && n && "false" === n.getAttribute("aria-pressed"))
               try {
                 (n.click(), (a = !0));
@@ -2293,7 +2290,7 @@
       };
       r();
       const o = () => {
-        const t = ca(".ytb-subtitles-button", 800);
+        const t = ca(".ytp-subtitles-button", 800);
         t &&
           !boundCcBtn.has(t) &&
           (boundCcBtn.add(t),
@@ -2471,7 +2468,7 @@
             const e = document.querySelector(
               ".ytp-ad-skip-button,.ytp-skip-ad-button,.ytp-ad-skip-button-modern",
             );
-            if (e)
+            if (e && !e.disabled && e.getClientRects().length && getComputedStyle(e).visibility !== "hidden")
               try {
                 return (e.click(), !0);
               } catch (e) {}
@@ -2482,9 +2479,10 @@
 
             if (!a || boundAdSkip.has(a)) return;
             boundAdSkip.add(a);
+            t(); // The ad and skip control may both predate feature activation.
             e.addObserver(a, ee(t, 200), {
-              attributes: !0,
-              attributeFilter: ["class"],
+              attributes: !0, childList: !0, subtree: !0,
+              attributeFilter: ["class", "hidden", "disabled"],
             });
           },
           boundAdSkip = new WeakSet();
@@ -2706,225 +2704,15 @@
     }),
 
     xa.register({
-      id: "session-restore",
-      name: "Session History",
-      summary: "Local watch history with resume positions, bookmarks and search.",
-      cat: "data",
-      masterKey: "sessionRestoreOn",
-      keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
-      apply(e) {
-        if (!S.sessionRestoreOn) return void Ue();
-        e.addStyle(
-          "#ytb-resume-card{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483640;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto;background:rgba(20,22,28,.94);border:1px solid rgba(255,255,255,.14);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.55),0 4px 14px rgba(0,0,0,.4);color:#fff;font:13px/1.4 system-ui,-apple-system,sans-serif;backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);animation:ytbResumeCardIn .18s ease-out}" +
-          "@keyframes ytbResumeCardIn{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}" +
-          "@media (prefers-reduced-motion:reduce){#ytb-resume-card{animation:none}}" +
-          "body.ytb-calm #ytb-resume-card{border-color:var(--ytbc-line2)!important;box-shadow:var(--ytbc-shadow)!important}" +
-          "body.ytb-calm #ytb-resume-card .ytb-resume-cta{color:var(--ytbc-acc)!important}" +
-          "body.ytb-calm #ytb-resume-card .ytb-resume-title{color:var(--ytbc-ink3)!important}" +
-          "body.ytb-calm #ytb-resume-card .ytb-resume-btn-secondary{background:var(--ytbc-card-hi)!important;color:var(--ytbc-ink)!important;border:1px solid var(--ytbc-line2)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-eyebrow{color:var(--ytbc-acc)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-title{color:var(--ytbc-ink)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-meta{color:var(--ytbc-ink3)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-body{color:var(--ytbc-ink2)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-footer{color:var(--ytbc-ink3)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-dismiss{color:var(--ytbc-ink3)!important}",
-        );
-        const t = () => {
-            const e = ie.videoId();
-            e && Xe(e, { duration: ie.el() ? ie.el().duration : 0 });
-          },
-          u = () => {
-            const a = ie.el();
-            if (!a || a._ytbHistEndedBound) return;
-            try {
-              (a._ytbHistEndedBound = !0),
-                a.addEventListener("ended", t),
-                Yt["session-restore"].push(() => {
-                  try {
-                    a.removeEventListener("ended", t), (a._ytbHistEndedBound = !1);
-                  } catch (e) {}
-                });
-            } catch (e) {}
-          };
-        (e.onNav(() => {
-          (Ke(), e.addTimeout(Ke, 1200), e.addTimeout(u, 1200));
-        }),
-          Ke(),
-          u());
-        for (const t of [400, 1500, 3e3]) e.addTimeout(Ke, t);
-        Yt["session-restore"].push(Ue);
-        u();
-      },
-      settings(e) {
-        e.appendChild(
-          Ro("On return to a video", "sessionResumeMode", {
-            card: "Small card (bottom)",
-            overlay: "Full overlay",
-            silent: "Silent Resume",
-          }),
-        );
-        e.appendChild(
-          Ro("Resume design", "sessionResumeDesign", {
-            default: "Default (balanced)",
-            compact: "Compact (small, bottom card)",
-            detailed: "Detailed (large, more info)",
-            cinema: "Cinema (max glass + glow)",
-          }),
-        );
-        const t = To("div", "ytb-hist-panel");
-        (e.appendChild(t),
-          (function (e) {
-            e.replaceChildren();
-            const t = To("div", "ytb-hist-toolbar"),
-              a = document.createElement("input");
-            ((a.type = "search"),
-              (a.className = "ytb-hist-search"),
-              (a.placeholder = "Search what you’ve watched…"),
-              (a.value = qo.query));
-            const r = To("span", "ytb-hist-count", "");
-            (t.appendChild(a), t.appendChild(r), e.appendChild(t));
-            const o = To("div", "ytb-hist-list");
-            e.appendChild(o);
-            const i = Oo("Show more", () => {
-              ((qo.limit += 30), c());
-            });
-            (i.classList.add("ytb-hist-loadmore"), e.appendChild(i));
-            const d = To("div", "ytb-rowb");
-            async function c() {
-              o.replaceChildren(To("div", "ytb-hist-loading", "Loading…"));
-
-              _backfillMetadata().catch(() => {});
-              const e = (qo.query || "").trim().toLowerCase(),
-                t = await Ie(),
-                a = e
-                  ? t.filter(
-                      (t) =>
-                        (t.title || "").toLowerCase().includes(e) ||
-                        (t.channel || "").toLowerCase().includes(e) ||
-                        (t.videoId || "").toLowerCase().includes(e),
-                    )
-                  : t;
-              if (
-                ((r.textContent =
-                  a.length +
-                  (e ? " match" + (1 === a.length ? "" : "es") : " total")),
-                o.replaceChildren(),
-                !a.length)
-              )
-                return (
-                  o.appendChild(
-                    To(
-                      "div",
-                      "ytb-hist-empty",
-                      e ? "No matches." : "No history yet.",
-                    ),
-                  ),
-                  void (i.style.display = "none")
-                );
-              const n = a.slice(0, qo.limit),
-                d = document.createDocumentFragment();
-              for (const e of n) d.appendChild(Vo(e, c));
-              (o.appendChild(d),
-                (i.style.display = a.length > n.length ? "" : "none"));
-            }
-            (d.appendChild(
-              Oo("Export", () =>
-                (async function () {
-                  const e = await Ie(),
-                    t = new Blob(
-                      [
-                        JSON.stringify(
-                          { version: n, ts: Date.now(), history: e },
-                          null,
-                          2,
-                        ),
-                      ],
-                      { type: "application/json" },
-                    ),
-                    a = URL.createObjectURL(t),
-                    r = document.createElement("a");
-                  ((r.href = a),
-                    (r.download =
-                      "yourtube-history-" +
-                      new Date().toISOString().slice(0, 10) +
-                      ".json"),
-                    document.body.appendChild(r),
-                    r.click(),
-                    r.remove(),
-                    setTimeout(() => URL.revokeObjectURL(a), 6e3),
-                    pe(
-                      "Saved " + e.length + " entries to a file.",
-                      1800,
-                      "success",
-                    ));
-                })(),
-              ),
-            ),
-              d.appendChild(
-                Oo("Import", () =>
-                  (function (e) {
-                    const t = document.createElement("input");
-                    ((t.type = "file"),
-                      (t.accept = ".json,application/json"),
-                      t.addEventListener(
-                        "change",
-                        () => {
-                          const a = t.files && t.files[0];
-                          if (!a) return;
-                          const n = new FileReader();
-                          ((n.onload = (t) => {
-                            try {
-                              const rawText = String(t.target.result || "");
-                              if (rawText.length > 8388608) throw new Error("import too large");
-                              const a = JSON.parse(rawText),
-                                n = (a.history || (Array.isArray(a) ? a : [])).slice(-5000);
-                              Promise.all(
-                                n
-                                  .filter((e) => e && e.videoId)
-                                  .map((e) => Be(_ytSanitizeHistoryRow(e))),
-                              ).then(() => {
-                                (pe(
-                                  "Imported " + n.length + " entries",
-                                  1800,
-                                  "success",
-                                ),
-                                  e && e());
-                              });
-                            } catch (e) {
-                              pe("Couldn’t read that file.", 1800, "error");
-                            }
-                          }),
-                            n.readAsText(a));
-                        },
-                        { once: !0 },
-                      ),
-                      t.click());
-                  })(c),
-                ),
-              ),
-              d.appendChild(
-                Oo(
-                  "Clear all",
-                  () => {
-                    Re()
-                      .then(() => C("thumbCache"))
-                      .then(() => {
-                        (pe("History cleared.", 1600, "success"), c());
-                      });
-                  },
-                  "ytb-danger",
-                ),
-              ),
-              e.appendChild(d),
-              a.addEventListener(
-                "input",
-                ee(() => {
-                  ((qo.query = a.value), c());
-                }, 150),
-              ),
-              So("history.updated", c),
-              c());
-          })(t));
+      id: "session-restore", name: "Session History",
+      summary: "A private watch journal. Choose your saved time or start fresh before playback.",
+      cat: "data", masterKey: "sessionRestoreOn", keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
+      apply() { WatchSessions.configure(); },
+      settings(panel) {
+        panel.appendChild(Ro("When returning to a video", "sessionResumeMode", {ask:"Pause and ask (recommended)",record:"Record only · use YouTube playback"}));
+        panel.appendChild(Ro("Resume prompt", "sessionResumeDesign", {folio:"Folio · reading card",signal:"Signal · time display",dock:"Dock · compact bar"}));
+        panel.appendChild(To("div","ytb-hist-note","A timestamped link takes precedence. Ads and live streams are not saved. Minimize keeps a saved video paused; it does not make the choice for you."));
+        mountWatchLibrary(panel);
       },
     }),
     xa.register({

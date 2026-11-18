@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.12.4
+// @version      1.12.5-rc.3
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.12.4", // stamped at build time; was a drifting hard-coded literal
+      "1.12.5-rc.3", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -969,9 +969,6 @@ algoBlockChannels: "",
         cookieControlOn: !1,
         cookieControlLive: !1,
         cookieControlNotify: !1,
-        cookieControlAutoBackup: !1,
-        cookieControlFavorites: "",
-        cookieControlCategories: "",
         loopVideo: !1,
         abLoopOn: !1,
         abA: -1,
@@ -1013,8 +1010,8 @@ algoBlockChannels: "",
         sbSeekbar: !0,
         sbHud: !1,
         sessionRestoreOn: !1,
-        sessionResumeMode: "card",
-        sessionResumeDesign: "default",
+        sessionResumeMode: "ask",
+        sessionResumeDesign: "folio",
         sessionResumePromptMigrated: !1,
         fpsCounterOn: !1,
         fpsCounterPos: "tl",
@@ -1410,7 +1407,7 @@ algoBlockChannels: "",
             try { clearTimeout(_stall); } catch (_) {}
             const _db = t.result;
             // Release the handle so a newer tab's schema upgrade is not blocked.
-            try { _db.onversionchange = () => _db.close(); } catch (_) {}
+            try { _db.onversionchange = () => { f = null; _db.close(); }; _db.onclose = () => { f = null; }; } catch (_) {}
             e(_db);
           }),
           (t.onerror = () => _finish(null, "IDB open failed", t.error)),
@@ -1674,10 +1671,14 @@ algoBlockChannels: "",
       (S.highlightShortVideosOn =
         "short" === S.highlightVideoLengthMode ||
         "both" === S.highlightVideoLengthMode));
-    if (!S.sessionResumePromptMigrated && "silent" === S.sessionResumeMode) {
-      S.sessionResumeMode = "card";
+    // Old card/overlay/silent modes now require an explicit decision. Record-only
+    // is a deliberate new selection; the history master remains opt-in.
+    if (!['ask','record'].includes(S.sessionResumeMode)) S.sessionResumeMode='ask';
+    if (!['folio','signal','dock'].includes(S.sessionResumeDesign)) {
+      S.sessionResumeDesign = S.sessionResumeDesign==='cinema'?'signal':
+        (S.sessionResumeDesign==='compact'||e.sessionResumeMode==='card')?'dock':'folio';
     }
-    S.sessionResumePromptMigrated = !0;
+    S.sessionResumePromptMigrated = true;
     if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
     else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
     else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";
@@ -2093,22 +2094,6 @@ algoBlockChannels: "",
       Z.abort();
     } catch (er) {}
 
-    try {
-      if (typeof Ma !== "undefined" && Ma) {
-        Ma.awaitingResume = !1;
-        Ma.awaitingResumeVid = null;
-      }
-    } catch (er) {}
-
-    try { Ze(); } catch (er) {}
-    try { Qe(); } catch (er) {}
-    try {
-      // The resume gate must not stay installed after the feature is reset.
-      if (window.__ytbRealPlay && HTMLMediaElement.prototype.play !== window.__ytbRealPlay) {
-        HTMLMediaElement.prototype.play = window.__ytbRealPlay;
-      }
-      Je._playGate = !1;
-    } catch (er) {}
     try { _fwDisarm(); } catch (er) {}
     Z = new AbortController();
     oe.vid = void 0;
@@ -4298,25 +4283,11 @@ algoBlockChannels: "",
       return fetch(e, t);
     }
   }
-  let mt = 0,
-    ve = 0,
-    ke = null,
-    xe = !1,
-    we = 0,
-    Ce = !1,
-    Se = null,
-    _genomeVid = "",
-    Te = null,
-    Oe = null,
-    Me = null,
-    Le = null,
-    Ae = null,
-    _resumeEsc = null;
   const Ee = (e) => v("history", e),
     Be = (e) => k("history", e),
-    Pe = (e) => x("history", e),
+    Pe = (e) => CheckpointStore.erase(e),
     Ie = () => w("history", "lw", "prev"),
-    Re = () => C("history");
+    Re = () => CheckpointStore.erase(null);
   function Ne() {
 
     try {
@@ -4378,127 +4349,6 @@ algoBlockChannels: "",
       if (b && b.getClientRects().length > 0) return true;
     } catch (e) {}
     return false;
-  }
-  function He(e) {
-    return !!(e && e.title && e.channel && e.thumbnail);
-  }
-  function De(e, t) {
-    return new Promise((a) => {
-      const n = Date.now() + (t || 3e3);
-
-      let lastSnap = null;
-      const r = () => {
-        if (ie.videoId() !== e) return void a(lastSnap);
-        const t = (function (e) {
-          return {
-            videoId: e,
-            title: ie.title() || "",
-            channel: ie.channel() || "",
-            channelId: Ne() || "",
-            thumbnail: ie.thumb(e, "mqdefault"),
-            duration: _e(),
-          };
-        })(e);
-        lastSnap = t;
-        (t.title && t.channel) || Date.now() >= n ? a(t) : setTimeout(r, 200);
-      };
-      r();
-    });
-  }
-
-  const _oembedInFlight = new Set();
-  async function _oembedFetch(e) {
-    if (!e) return null;
-    const cacheKey = "oembed:" + e;
-    const ttl = 7 * 24 * 60 * 60 * 1000; 
-    return YourTubeCache.getOrFetch(cacheKey, async () => {
-      try {
-        const r = await he(
-          "https://www.youtube.com/oembed?url=" +
-            encodeURIComponent("https://www.youtube.com/watch?v=" + e) +
-            "&format=json",
-        );
-        if (!r.ok) return null;
-        const j = await r.json();
-        if (!j || !j.title) return null;
-        return {
-          videoId: e,
-          title: j.title || "",
-          channel: j.author_name || "",
-          channelId: "",
-          thumbnail: j.thumbnail_url || ie.thumb(e, "hqdefault"),
-          duration: 0,
-        };
-      } catch (err) {
-        return null;
-      }
-    }, ttl, { source: "idb", version: 1 });
-  }
-
-  async function _backfillMetadata() {
-    if (!S.sessionRestoreOn) return;
-    try {
-      const list = await Ie();
-
-      const need = list
-        .filter((x) => x && x.videoId && (!x.title || !x.channel))
-        .sort((a, b) => (b.lastWatched || 0) - (a.lastWatched || 0))
-        .slice(0, 20);
-      if (!need.length) return;
-
-      for (const r of need) {
-        if (!_oembedInFlight.has(r.videoId)) {
-
-          _oembedInFlight.add(r.videoId);
-          try {
-            const data = await _oembedFetch(r.videoId);
-            if (data) {
-            const cur = await Ee(r.videoId);
-            if (cur) {
-              let n = !1;
-              if (!cur.title && data.title) ((cur.title = data.title), (n = !0));
-              if (!cur.channel && data.channel) ((cur.channel = data.channel), (n = !0));
-              if (!cur.thumbnail && data.thumbnail) ((cur.thumbnail = data.thumbnail), (n = !0));
-              if (n) {
-                await Be(cur);
-                if (cur.thumbnail) We(cur.videoId, cur.thumbnail).catch(() => {});
-                g.emit("history.updated", { videoId: cur.videoId });
-              }
-            }
-          }
-          } finally {
-            _oembedInFlight.delete(r.videoId);
-          }
-        }
-
-        await new Promise((r) => setTimeout(r, 300));
-      }
-    } catch (e) {}
-  }
-  function qe(e, t) {
-    if (!e) return !1;
-    let a = !1;
-    if (!e.title || e.title === t) {
-      const n = ie.title();
-      n && n !== t && ((e.title = n), (a = !0));
-    }
-    if (!e.channel) {
-      const t = ie.channel();
-      t && ((e.channel = t), (a = !0));
-    }
-    if (!e.channelId) {
-      const t = Ne();
-      t && ((e.channelId = t), (a = !0));
-    }
-    if (!e.thumbnail) {
-      const n = ie.thumb(t, "hqdefault");
-      n && ((e.thumbnail = n), (a = !0));
-    }
-    if (!e.duration || e.duration < 1) {
-      const t = _e();
-      t > 0.5 && ((e.duration = t), (a = !0));
-    }
-    return a;
   }
   const Ve = new YourTubeResources.BoundedCache(64, "thumb-blob"),
     Fe = re();
@@ -4580,466 +4430,8 @@ algoBlockChannels: "",
         } catch (e) {}
       });
   }
-  function Ue() {
-    try { clearTimeout(mt); } catch (e) {}
-    mt = 0;
-    if ((clearInterval(ve), (ve = 0), (ke = null), Te)) {
-      try {
-        Te();
-      } catch (e) {}
-      Te = null;
-    }
-    Ze();
-    Qe();
-  }
-  async function Ke() {
-    if (!S.sessionRestoreOn) return;
-
-    if (!Ke._gateInstalled) {
-      Ke._gateInstalled = !0;
-      try {
-        const orig = HTMLMediaElement.prototype.play;
-        HTMLMediaElement.prototype.play = _xp.fn(function () {
-          try {
-
-            if (this && this.closest && !this.closest("#movie_player"))
-              return orig.apply(this, arguments);
-            if (Ma && Ma.awaitingResume) {
-
-              if (Ma.awaitingResumeSince && Date.now() - Ma.awaitingResumeSince > 30000) {
-                Ma.awaitingResume = !1;
-                Ma.awaitingResumeVid = null;
-              } else {
-                try {
-                  this.pause && this.pause();
-                } catch (e2) {}
-
-                return _pPromise.resolve();
-              }
-            }
-          } catch (e2) {}
-          return orig.apply(this, arguments);
-        });
-      } catch (e) {}
-    }
-
-    const e = ie.videoId();
-    if (!e || e === ke) return;
-    Ma.awaitingResume = !1;
-    Ma.awaitingResumeVid = null;
-    Ze();
-    Qe();
-    if (((ke = e), (xe = !1), (we = Date.now()), clearInterval(ve), Te)) {
-      try {
-        Te();
-      } catch (e) {}
-      Te = null;
-    }
-    ve = setInterval(() => {
-      _a() || document.hidden || Ye();
-    }, 5e3);
-
-    window.__ytbZeTimer = setTimeout(() => { try { Qe(); Ze(); } catch (e) {} }, 30000);
-    const t = Date.now();
-    let a = await Ee(e);
-    (a
-      ? ((a.watchCount = (a.watchCount || 0) + 1),
-        (a.sessions = (a.sessions || []).slice(-49).concat({ start: t })))
-      : (a = {
-          videoId: e,
-          title: "",
-          channel: "",
-          channelId: "",
-          thumbnail: "",
-          firstWatched: t,
-          watchCount: 1,
-          totalWatchTime: 0,
-          sessions: [{ start: t }],
-          lastPosition: 0,
-          progress: 0,
-          completed: !1,
-          remaining: 0,
-          duration: 0,
-          pinned: 0,
-          tags: [],
-          notes: "",
-        }),
-      (a.lastWatched = t),
-      qe(a, e),
-      await Be(a),
-      a.thumbnail && We(e, a.thumbnail),
-      He(a) ||
-        De(e, 3e3).then(async (t) => {
-
-          if (!t) return;
-          const a = await Ee(e);
-          if (!a) return;
-          let n = !1;
-          (!a.title && t.title && ((a.title = t.title), (n = !0)),
-            !a.channel && t.channel && ((a.channel = t.channel), (n = !0)),
-            !a.channelId &&
-              t.channelId &&
-              ((a.channelId = t.channelId), (n = !0)),
-            !a.thumbnail &&
-              t.thumbnail &&
-              ((a.thumbnail = t.thumbnail), (n = !0)),
-            (!a.duration || a.duration < 1) &&
-              t.duration > 0.5 &&
-              ((a.duration = t.duration),
-              a.lastPosition >= 0 &&
-                (a.remaining = Math.max(0, a.duration - a.lastPosition)),
-              (n = !0)),
-            n &&
-              (await Be(a),
-              a.thumbnail && We(e, a.thumbnail),
-              g.emit("history.updated", { videoId: e })));
-        }));
-    if (!a.completed && !(a.lastPosition > 0) && a.progress > 1 && a.duration > 0) {
-      a.lastPosition = Math.min(a.duration, Math.round((a.progress / 100) * a.duration));
-      await Be(a);
-    }
-    const n = (() => {
-      try {
-        const e = location.href.match(/[?&#]t=([0-9]+)/);
-        return e ? parseInt(e[1], 10) : 0;
-      } catch (e) {
-        return 0;
-      }
-    })();
-    if (
-      (!a.completed &&
-        !n &&
-        (a.lastPosition || 0) > 5 &&
-        !xe &&
-        ((xe = !0),
-        "silent" === S.sessionResumeMode
-          ? (function (e) {
-              const t = () => {
-                const t = ie.el();
-                if (t) {
-                  try {
-                    t.currentTime = e.lastPosition;
-                  } catch (e) {}
-                  try {
-                    const e = ie.api();
-                    e && "function" == typeof e.playVideo
-                      ? e.playVideo()
-                      : t.play && t.play().catch(() => {});
-                  } catch (e) {}
-                }
-              };
-              if (
-                (document.querySelector("#movie_player") ||
-                  document.querySelector(".html5-video-player")) &&
-                ie.el()
-              ) {
-                t();
-                return;
-              }
-              const n = document.querySelector("ytd-app") || document.documentElement;
-              if (!n) return;
-              let r = !1;
-              const o = new MutationObserver(() => {
-                if (r) return;
-
-                try { if (e.videoId && ie.videoId() && ie.videoId() !== e.videoId) return; } catch (_) {}
-                const n = document.querySelector("#movie_player"),
-                  i = ie.el();
-                if (n && i) {
-                  r = !0;
-                  try { o.disconnect(); } catch (e) {}
-                  t();
-                }
-              });
-              try {
-                o.observe(n, { childList: !0, subtree: !0 });
-              } catch (e) {}
-              setTimeout(() => {
-                if (!r) { try { o.disconnect(); } catch (e) {} }
-              }, 8e3);
-            })(a)
-          : "overlay" === S.sessionResumeMode
-          ? (function (e) {
-              const t = () => {
-                  const t = ie.el();
-                  if (t) {
-                    try {
-                      t.currentTime = e.lastPosition;
-                    } catch (e) {}
-                    try {
-                      const e = ie.api();
-                      e && "function" == typeof e.playVideo
-                        ? e.playVideo()
-                        : t.play && t.play().catch(() => {});
-                    } catch (e) {}
-                  }
-                },
-                a = () => {
-                  const e = ie.el();
-                  if (e) {
-                    try {
-                      e.currentTime = 0;
-                    } catch (e) {}
-                    try {
-                      const t = ie.api();
-                      t && "function" == typeof t.playVideo
-                        ? t.playVideo()
-                        : e.play && e.play().catch(() => {});
-                    } catch (e) {}
-                  }
-                };
-              if (
-                (document.querySelector("#movie_player") ||
-                  document.querySelector(".html5-video-player")) &&
-                ie.el()
-              )
-                return void Je(e, t, a);
-              const n =
-                document.querySelector("ytd-app") || document.documentElement;
-              if (!n) return;
-              let r = !1;
-              const o = new MutationObserver(() => {
-                if (r) return;
-
-                try { if (e.videoId && ie.videoId() && ie.videoId() !== e.videoId) return; } catch (_) {}
-                const n = document.querySelector("#movie_player"),
-                  i = ie.el();
-                if (n && i) {
-                  r = !0;
-                  try {
-                    o.disconnect();
-                  } catch (e) {}
-                  Je(e, t, a);
-                }
-              });
-              try {
-                o.observe(n, { childList: !0, subtree: !0 });
-              } catch (e) {
-                return;
-              }
-              setTimeout(() => {
-                if (!r)
-                  try {
-                    o.disconnect();
-                  } catch (e) {}
-              }, 2e4);
-            })(a)
-          : (function () {
-              let _cardTries = 40;
-              const _showCard = () => {
-                const e = ie.el();
-                if (!(e && isFinite(e.duration) && e.duration > 0)) {
-                  if (--_cardTries > 0 && ie.videoId() === a.videoId) setTimeout(_showCard, 500);
-                  return;
-                }
-                (function (e, t) {
-                  Ze();
-                  if (!document.body) return;
-                  if (e) {
-                    Ma.awaitingResume = !0;
-                    Ma.awaitingResumeVid = e.videoId || null;
-                    Ma.awaitingResumeSince = Date.now();
-                    try {
-                      const v = ie.el();
-                      if (v && e.lastPosition > 0 && isFinite(e.lastPosition)) v.currentTime = e.lastPosition;
-                      if (v && !v.paused) v.pause();
-                    } catch (_) {}
-                  }
-                  const a = document.createElement("div");
-                  a.id = "ytb-resume-card";
-                  a.className = "ytb-resume-card-small";
-                  const n = ce(e.lastPosition || 0),
-                    r = e.duration ? ce(e.duration) : "",
-                    o = document.createElement("div");
-                  o.className = "ytb-resume-card-row";
-                  o.style.cssText =
-                    "display:flex;align-items:center;gap:12px;padding:10px 14px";
-                  const i = document.createElement("div");
-                  i.className = "ytb-resume-thumb";
-                  i.style.cssText =
-                    "width:64px;height:36px;border-radius:6px;background:#1a1a1a center/cover no-repeat;flex-shrink:0";
-                  if (e.thumbnail) {
-
-                    try {
-                      const safeThumbUrl = sanitizeUrlForCSS(e.thumbnail || "");
-                      i.style.backgroundImage =
-                        safeThumbUrl ? ("url('" + encodeURI(safeThumbUrl).replace(/'/g, "%27") + "')") : "none";
-                    } catch (err) {
-                      i.style.backgroundImage = "none";
-                    }
-                  }
-                  o.appendChild(i);
-                  const d = document.createElement("div");
-                  d.className = "ytb-resume-info";
-                  d.style.cssText =
-                    "flex:1;min-width:0;display:flex;flex-direction:column;gap:2px";
-                  const c = document.createElement("div");
-                  c.className = "ytb-resume-cta";
-                  c.style.cssText = "font:600 12px system-ui;color:#fff";
-                  c.textContent = "Continue from " + n + (r ? " / " + r : "") + "?";
-                  const s = document.createElement("div");
-                  s.className = "ytb-resume-title";
-                  s.style.cssText =
-                    "font:11px system-ui;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
-                  s.textContent = e.title || e.videoId;
-                  d.appendChild(c);
-                  d.appendChild(s);
-                  o.appendChild(d);
-                  const l = document.createElement("div");
-                  l.className = "ytb-resume-actions";
-                  function p(e, t, a) {
-                    const n = document.createElement("button");
-                    n.type = "button";
-                    n.className = t ? "ytb-resume-btn-primary" : "ytb-resume-btn-secondary";
-                    n.textContent = e;
-                    n.style.cssText =
-                      "appearance:none;border:0;border-radius:6px;padding:7px 12px;font:600 11px system-ui;cursor:pointer;transition:background .12s,transform .08s;" +
-                      (t
-                        ? "background:#ff0033;color:#fff"
-                        : "background:rgba(255,255,255,.1);color:#ddd");
-                    n.addEventListener("click", (e) => {
-                      e.stopPropagation();
-                      a();
-                    });
-                    n.addEventListener("mouseenter", () => {
-                      n.style.transform = "translateY(-1px)";
-                    });
-                    n.addEventListener("mouseleave", () => {
-                      n.style.transform = "translateY(0)";
-                    });
-                    return n;
-                  }
-                  l.style.cssText = "display:flex;gap:6px;flex-shrink:0;align-items:center";
-                  l.appendChild(
-                    p("Resume", !0, () => {
-
-                      Ze();
-                      try { t(); } catch (e) {}
-                    }),
-                  );
-                  l.appendChild(
-                    p("Start over", !1, () => {
-
-                      Ze();
-                      try {
-                        const e = ie.el();
-                        if (e) {
-                          e.currentTime = 0;
-                          if (e.paused) e.play && e.play().catch(() => {});
-                        }
-                      } catch (e) {}
-                    }),
-                  );
-                  const closeBtn = p("×", !1, () => Ze());
-                  closeBtn.className = "ytb-resume-close";
-                  l.appendChild(closeBtn);
-                  o.appendChild(l);
-                  a.appendChild(o);
-                  document.body.appendChild(a);
-                  Oe = a;
-                  setTimeout(() => {
-                    Oe === a && Ze();
-                  }, 30e3);
-                })(a, () => {
-                  try {
-                    if (ie.videoId() && a.videoId && ie.videoId() !== a.videoId) { Ze(); return; } ((e.currentTime = a.lastPosition), e.play && e.play().catch(() => {}));
-                  } catch (e) {}
-                  pe("Resumed at " + ce(a.lastPosition), 1800, "success");
-                });
-              };
-              _showCard();
-            })()),
-      !Te)
-    ) {
-      const e = () => {
-          ie.videoId() === ke && Ye();
-        },
-        t = ie.el();
-      t &&
-        (t.addEventListener("loadedmetadata", e),
-        t.addEventListener("durationchange", e),
-        (Te = () => {
-          try {
-            (t.removeEventListener("loadedmetadata", e),
-              t.removeEventListener("durationchange", e));
-          } catch (e) {}
-        }));
-    }
-  }
-  async function Ye() {
-    if (!Ce) {
-      Ce = !0;
-      try {
-        if (!S.sessionRestoreOn) return;
-        if (Ma.awaitingResume) return;
-        if (document.hidden) {
-          const e = ie.el();
-          if (e && e.paused) return;
-        }
-        const e = ie.videoId();
-        if (!e) return;
-        const t = ie.el();
-        if (!t) return;
-        const a = t.currentTime,
-          n = _e();
-        if (!isFinite(n) || n < 5) return;
-        const r = (await Ee(e)) || {
-            videoId: e,
-            firstWatched: Date.now(),
-            watchCount: 1,
-            sessions: [],
-            pinned: 0,
-            tags: [],
-            notes: "",
-            title: "",
-            channel: "",
-            channelId: "",
-            thumbnail: "",
-          },
-          o = qe(r, e),
-          i = Se && Se.vid === e ? Math.abs(Se.pos - a) : 1 / 0,
-          d = !Se || Se.paused !== t.paused;
-        if (!o && i < 0.5 && !d) return;
-        ((r.lastWatched = Date.now()),
-          (r.lastPosition = a),
-          (r.duration = n),
-          (r.progress = n > 0 ? Math.min(100, Math.round((a / n) * 100)) : 0),
-          (r.remaining = Math.max(0, n - a)),
-          (r.completed = r.remaining < 15 || r.progress >= 97),
-          r.completed && ((r.lastPosition = 0), (r.remaining = 0)));
-        const c = Date.now();
-        if (!t.paused && we) {
-          const e = Math.min((c - we) / 1e3, 10);
-          e > 0 && e < 60 && (r.totalWatchTime = (r.totalWatchTime || 0) + e);
-
-          try {
-            if (S.algoIntelligenceOn && typeof AlgoEngine !== "undefined") {
-              AlgoEngine.SignalTracker.trackWatch(r.videoId, a, n);
-            }
-          } catch (_) {}
-          try {
-            if (typeof YourTubeSession !== "undefined" && YourTubeSession.genome && r.videoId && r.videoId !== _genomeVid) {
-              _genomeVid = r.videoId;
-              YourTubeSession.genome.record({
-                topic: r.title,
-                duration: r.duration,
-                handle: typeof Ne === "function" ? Ne() : "",
-                channelName: r.channel,
-              });
-            }
-          } catch (_) {}
-        }
-        ((we = c),
-          await Be(r),
-          r.thumbnail && We(e, r.thumbnail),
-          (Se = { vid: e, pos: a, paused: t.paused }),
-          g.emit("history.updated", { videoId: e }));
-      } finally {
-        Ce = !1;
-      }
-    }
-  }
   async function Ge() {
+    await CheckpointStore.pruneTickets();
     const e = await Ie(),
       t = e
         .slice()
@@ -5075,378 +4467,22 @@ algoBlockChannels: "",
     })(Math.max(50, 500)),
       g.emit("history.pruned"));
   }
-  async function Xe(e, t) {
-    t = t || {};
-    let a = await Ee(e);
-    const n = Date.now();
-    return (
-      a ||
-        (a = {
-          videoId: e,
-          title: "",
-          channel: "",
-          channelId: "",
-          thumbnail: "",
-          firstWatched: n,
-          watchCount: 0,
-          totalWatchTime: 0,
-          sessions: [],
-          pinned: 0,
-          tags: [],
-          notes: "",
-        }),
-      qe(a, e),
-      !t.title || (a.title && a.title !== e) || (a.title = t.title),
-      t.channel && !a.channel && (a.channel = t.channel),
-      t.channelId && !a.channelId && (a.channelId = t.channelId),
-      t.thumbnail && !a.thumbnail && (a.thumbnail = t.thumbnail),
-      a.title || (a.title = e),
-      a.thumbnail || (a.thumbnail = ie.thumb(e, "mqdefault")),
-      (a.lastWatched = n),
-      (a.lastPosition = 0),
-      (a.progress = 100),
-      (a.completed = !0),
-      (a.remaining = 0),
-      (a.watchCount = (a.watchCount || 0) + 1),
-      t.duration &&
-        (!a.duration || t.duration > a.duration) &&
-        (a.duration = t.duration),
-      (a.totalWatchTime = (a.totalWatchTime || 0) + (a.duration || 0)),
-      (a.sessions = (a.sessions || [])
-        .slice(-49)
-        .concat({ start: n, kind: "forced" })),
-      await Be(a),
-      a.thumbnail && We(e, a.thumbnail),
-      g.emit("history.updated", { videoId: e, forced: !0 }),
-      He(a) ||
-        (ie.videoId() === e &&
-          De(e, 3e3).then(async (t) => {
-            if (!t) return;
-            const a = await Ee(e);
-            if (!a) return;
-            let n = !1;
-            ((a.title && a.title !== e) ||
-              (t.title && ((a.title = t.title), (n = !0))),
-              !a.channel && t.channel && ((a.channel = t.channel), (n = !0)),
-              !a.channelId &&
-                t.channelId &&
-                ((a.channelId = t.channelId), (n = !0)),
-              n &&
-                (await Be(a),
-                a.thumbnail && We(e, a.thumbnail),
-                g.emit("history.updated", { videoId: e })));
-          })),
-      a
-    );
-  }
-  function Ze() {
-    if (Oe) {
-      try {
-        Oe.remove();
-      } catch (e) {}
-      Oe = null;
-    }
-    Ma.awaitingResume = !1;
-    Ma.awaitingResumeVid = null;
-    try { if (window.__ytbZeTimer) { clearTimeout(window.__ytbZeTimer); window.__ytbZeTimer = 0; } } catch (_) {}
-    try { if (window.__ytbDashEsc) { document.removeEventListener("keydown", window.__ytbDashEsc); window.__ytbDashEsc = null; } } catch (_) {}
-  }
-  function Qe() {
-    if (Le) {
-      try {
-        Le.disconnect();
-      } catch (e) {}
-      Le = null;
-    }
-    if (Ae) {
-      try {
-        Ae();
-      } catch (e) {}
-      Ae = null;
-    }
-    if (_resumeEsc) {
-      try {
-        document.removeEventListener("keydown", _resumeEsc, !0);
-      } catch (e) {}
-      _resumeEsc = null;
-    }
-    if (Me) {
-      try {
-        Me.remove();
-      } catch (e) {}
-      Me = null;
-    }
-    Ma.awaitingResume = !1;
-    Ma.awaitingResumeVid = null;
-    try { if (window.__ytbZeTimer) { clearTimeout(window.__ytbZeTimer); window.__ytbZeTimer = 0; } } catch (_) {}
-    try { if (window.__ytbDashEsc) { document.removeEventListener("keydown", window.__ytbDashEsc); window.__ytbDashEsc = null; } } catch (_) {}
-  }
-    function Je(e, t, a) {
-    if (e) {
-      }
-    if ((Qe(), !e)) return;
-    Ma.awaitingResume = !0;
-    Ma.awaitingResumeVid = e.videoId || null;
-    Ma.awaitingResumeSince = Date.now();
-    const n =
-      document.querySelector("#movie_player") ||
-      document.querySelector(".html5-video-player") ||
-      document.querySelector("ytd-player");
-    if (!n) return;
-
-    if (!Je._playGate) {
-      Je._playGate = !0;
-      try {
-        const _orig = window.__ytbRealPlay || HTMLMediaElement.prototype.play;
-        window.__ytbRealPlay = _orig;
-        HTMLMediaElement.prototype.play = _xp.fn(function () {
-          try {
-
-            if (this && this.closest && !this.closest("#movie_player"))
-              return _orig.apply(this, arguments);
-            if (Ma && Ma.awaitingResume) {
-
-              if (Ma.awaitingResumeSince && Date.now() - Ma.awaitingResumeSince > 30000) {
-                Ma.awaitingResume = !1;
-                Ma.awaitingResumeVid = null;
-              } else {
-                try { this.pause && this.pause(); } catch (e2) {}
-                return _pPromise.resolve();
-              }
-            }
-          } catch (e2) {}
-          return _orig.apply(this, arguments);
-        });
-      } catch (e) {}
-    }
-
-    const _entry = e;
-    Ae = (function () {
-      const e = ie.api();
-      const t = ie.el();
-      const a = {};
-      try {
-        if (e) {
-          for (const k of ["playVideo", "playVideoAt"]) {
-            if ("function" == typeof e[k]) {
-              a[k] = e[k];
-              e[k] = _xp.fn(function () {});
-            }
-          }
-        }
-      } catch (e) {}
-
-      try {
-        if (t && _entry.lastPosition > 0 && isFinite(_entry.lastPosition)) t.currentTime = _entry.lastPosition;
-        if (t && !t.paused) t.pause();
-      } catch (e) {}
-      try { e && "function" == typeof e.pauseVideo && e.pauseVideo(); } catch (e) {}
-      return function () {
-        try { if (e) for (const k of Object.keys(a)) e[k] = a[k]; } catch (e) {}
-      };
-    })();
-
-    const r = document.createElement("div");
-    r.id = "ytb-resume-overlay";
-    r.classList.add("ytb-resume-" + (S.sessionResumeDesign || "default"));
-    r.setAttribute("role", "dialog");
-    r.setAttribute("aria-modal", "true");
-    r.setAttribute("aria-label", "Resume playback");
-    r.style.cssText =
-      "position:absolute;inset:0;z-index:2147483640;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(0,0,0,.85) 0%,rgba(0,0,0,.95) 50%,rgba(0,0,0,.85) 100%);backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);font:14px/1.45 system-ui,-apple-system,sans-serif;color:#fff;opacity:0;transition:opacity .22s ease-out";
-
-    const o = document.createElement("div");
-    o.className = "ytb-resume-card";
-    o.style.cssText =
-      "max-width:520px;width:min(86%,520px);background:rgba(20,22,28,.6);border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:24px 26px 22px;box-shadow:0 30px 80px rgba(0,0,0,.65),0 8px 24px rgba(0,0,0,.4);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);display:flex;flex-direction:column;gap:14px;transform:translateY(8px);transition:transform .25s ease-out";
-
-    const i = document.createElement("div");
-    i.className = "ytb-resume-head";
-    i.style.cssText = "display:flex;gap:14px;align-items:center";
-
-    const d = document.createElement("div");
-    d.className = "ytb-resume-thumb";
-    d.style.cssText =
-      "width:120px;height:68px;border-radius:10px;flex-shrink:0;background:#000 center/cover no-repeat;box-shadow:0 4px 12px rgba(0,0,0,.5);position:relative;overflow:hidden";
-    if (e.thumbnail) {
-
-        try {
-          const safeThumbUrl = sanitizeUrlForCSS(e.thumbnail || "");
-          d.style.backgroundImage =
-            safeThumbUrl ? ("url('" + encodeURI(safeThumbUrl).replace(/'/g, "%27") + "')") : "none";
-        } catch (e2) {
-          d.style.backgroundImage = "none";
-        }
-    }
-    const c = document.createElement("div");
-    c.style.cssText =
-      "position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.18)";
-    const s = document.createElement("div");
-    const l = e.duration
-      ? Math.min(100, Math.max(0, ((e.lastPosition || 0) / e.duration) * 100))
-      : 0;
-    s.style.cssText =
-      "height:100%;background:#ff0033;width:" + l.toFixed(1) + "%;transition:width .3s";
-    c.appendChild(s);
-    d.appendChild(c);
-    i.appendChild(d);
-
-    const p = document.createElement("div");
-    p.className = "ytb-resume-info";
-    p.style.cssText =
-      "flex:1;min-width:0;display:flex;flex-direction:column;gap:4px";
-    const u = document.createElement("div");
-    u.className = "ytb-resume-eyebrow";
-    u.style.cssText =
-      "font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#ff8a96;font-weight:600";
-    u.textContent = "Resume watching";
-    const h = document.createElement("div");
-    h.className = "ytb-resume-title";
-    h.style.cssText =
-      "font-size:15px;font-weight:600;color:#fff;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden";
-    h.textContent = e.title || e.videoId || "this video";
-    const m = document.createElement("div");
-    m.className = "ytb-resume-meta";
-    m.style.cssText = "font-size:12px;color:#aaa";
-    const y = ce(e.lastPosition || 0);
-    const g = e.duration ? ce(e.duration) : null;
-    m.textContent = (e.channel ? e.channel + " - " : "") + (g ? y + " / " + g : "from " + y);
-    p.appendChild(u);
-    p.appendChild(h);
-    p.appendChild(m);
-    i.appendChild(p);
-    o.appendChild(i);
-
-    const f = document.createElement("div");
-    f.className = "ytb-resume-body";
-    f.style.cssText = "font-size:13.5px;color:#cdd;line-height:1.5";
-    f.textContent =
-      "You watched this before. Continue from " + y + " or start over?";
-    o.appendChild(f);
-
-    const b = document.createElement("div");
-    b.className = "ytb-resume-actions";
-    b.style.cssText = "display:flex;gap:10px;flex-wrap:wrap;margin-top:2px";
-    function v(e, t, a, n) {
-      const r = document.createElement("button");
-      r.type = "button";
-      r.className = t ? "ytb-resume-btn-primary" : "ytb-resume-btn-secondary";
-      r.style.cssText =
-        "appearance:none;border:0;cursor:pointer;flex:1;min-width:140px;padding:12px 18px;border-radius:24px;font:600 14px/1.2 inherit;display:flex;flex-direction:column;align-items:center;gap:2px;transition:transform .1s,box-shadow .15s;" +
-        (t
-          ? "background:#fff;color:#0f0f0f;box-shadow:0 4px 16px rgba(255,255,255,.15)"
-          : "background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.14)");
-      const o2 = document.createElement("span");
-      o2.textContent = e;
-      r.appendChild(o2);
-      if (a) {
-        const e2 = document.createElement("span");
-        e2.style.cssText =
-          "font-size:10.5px;font-weight:500;opacity:.7;letter-spacing:.02em";
-        e2.textContent = a;
-        r.appendChild(e2);
-      }
-      r.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        ev.preventDefault();
-        try { n(); } catch (e) {}
-      });
-      r.addEventListener("mouseenter", () => {
-        r.style.transform = "translateY(-1px)";
-        r.style.boxShadow = t
-          ? "0 6px 20px rgba(255,255,255,.25)"
-          : "0 4px 16px rgba(0,0,0,.4)";
-      });
-      r.addEventListener("mouseleave", () => {
-        r.style.transform = "translateY(0)";
-        r.style.boxShadow = t
-          ? "0 4px 16px rgba(255,255,255,.15)"
-          : "0 0 0 rgba(0,0,0,0)";
-      });
+  // Manual completion is distinct from actually watching an entire video's duration.
+  async function Xe(id, meta = {}) {
+    if (!CheckpointStore.validId(id)) return null;
+    const now = Date.now();
+    const row = await CheckpointStore.edit(id, old => {
+      const r = old || CheckpointStore.blank(id, now);
+      for (const k of ['title','channel','channelId','thumbnail']) if (meta[k] && !r[k]) r[k]=String(meta[k]).slice(0,400);
+      if (Number.isFinite(meta.duration) && meta.duration>0) r.duration=meta.duration;
+      r.title ||= id; r.thumbnail ||= ie.thumb(id,'mqdefault');
+      r.completed=true; r.lastPosition=0; r.progress=100; r.remaining=0; r.lastWatched=now;
+      r.watchCount=(Number(r.watchCount)||0)+1; r.sessions=(Array.isArray(r.sessions)?r.sessions:[]).slice(-49).concat({start:now,kind:'forced'});
+      r._checkpoint={start:Math.max(now,(r._checkpoint?.start||0)+1),sid:CheckpointStore.nonce(),seq:1};
       return r;
-    }
-    const k = v(
-      "Resume from " + y,
-      !0,
-      "Continue where you left off",
-      () => {
-        Qe();
-        try { t && t(); } catch (e) {}
-      }
-    );
-    const x = v(
-      "Start over",
-      !1,
-      "Play from the beginning",
-      () => {
-        Qe();
-        try { a && a(); } catch (e) {}
-      }
-    );
-    b.appendChild(k);
-    b.appendChild(x);
-    o.appendChild(b);
-
-    const w = document.createElement("div");
-    w.className = "ytb-resume-footer";
-    w.style.cssText =
-      "display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#777;margin-top:4px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)";
-    const C = document.createElement("span");
-    C.textContent = "YourTube Session History";
-    const S2 = document.createElement("button");
-    S2.type = "button";
-    S2.className = "ytb-resume-dismiss";
-    S2.style.cssText =
-      "background:none;border:0;color:#888;cursor:pointer;font:inherit;text-decoration:underline;padding:2px 4px";
-    S2.textContent = "Dismiss";
-    S2.addEventListener("click", (e) => {
-      e.stopPropagation();
-      Qe();
     });
-    w.appendChild(C);
-    w.appendChild(S2);
-    o.appendChild(w);
-    r.appendChild(o);
-    for (const e of [
-      "click",
-      "mousedown",
-      "mouseup",
-      "dblclick",
-      "contextmenu",
-    ])
-      r.addEventListener(e, (e) => e.stopPropagation());
-    r.addEventListener("wheel", (e) => e.stopPropagation(), { passive: !0 });
-    try {
-      const cs = getComputedStyle(n);
-      if (cs.position === "static") n.style.position = "relative";
-    } catch (e) {}
-    n.appendChild(r);
-    Me = r;
-    requestAnimationFrame(() => {
-      if (Me) {
-        Me.style.opacity = "1";
-        o.style.transform = "translateY(0)";
-      }
-    });
-    try { k.focus(); } catch (e) {}
-    const T = (e) => {
-      if ("Escape" === e.key && Me) {
-        e.stopPropagation();
-        Qe();
-      }
-    };
-    document.addEventListener("keydown", T, !0);
-    _resumeEsc = T;
-    try {
-      Le = new MutationObserver(() => {
-        if (Me && Me.parentNode !== n) {
-          n.appendChild(Me);
-        }
-      });
-      Le.observe(n, { childList: !0 });
-    } catch (e) {}
+    g.emit('history.updated',{videoId:id,forced:true});return row;
   }
-
   const $e = {
     all: Ie,
     get: Ee,
@@ -5520,25 +4556,1354 @@ algoBlockChannels: "",
     markWatched: Xe,
     cacheThumb: We,
     getCachedThumb: je,
-    pin: async (e) => {
-      const t = await Ee(e);
-      t &&
-        ((t.pinned = Date.now()),
-        await Be(t),
-        g.emit("history.updated", { videoId: e }));
-    },
-    unpin: async (e) => {
-      const t = await Ee(e);
-      t &&
-        ((t.pinned = 0),
-        await Be(t),
-        g.emit("history.updated", { videoId: e }));
-    },
+    pin: async id => { await CheckpointStore.edit(id,r => r && {...r,pinned:Date.now()});g.emit('history.updated',{videoId:id}); },
+    unpin: async id => { await CheckpointStore.edit(id,r => r && {...r,pinned:0});g.emit('history.updated',{videoId:id}); },
     prune: Ge,
-    saveNow: Ye,
+    saveNow: () => WatchSessions.flush(),
+    recorderState: () => WatchSessions.status(),
     forceWatched: Xe,
   };
 
+
+// The existing yourtube_v2/history schema stays authoritative. A small, synchronous
+// write-ahead record bridges the interval between pagehide and an IndexedDB commit.
+// Its key is removed only after that exact revision (or a newer one) is durable.
+const CheckpointStore = (() => {
+  const prefix = 'yourtube.checkpoint.v1:',
+    resetKey = 'checkpoint/erase-generation',
+    tickets = 'checkpoint/open/';
+  const validId = (id) => typeof id === 'string' && /^[\w-]{11}$/.test(id);
+  const finite = (x) => typeof x === 'number' && Number.isFinite(x);
+  const compare = (a, b) =>
+    !b ? 1 : a.start - b.start || String(a.sid).localeCompare(String(b.sid)) || a.seq - b.seq;
+  const nonce = () =>
+    crypto.randomUUID
+      ? crypto.randomUUID()
+      : Date.now().toString(36) + Math.random().toString(36).slice(2);
+  function pending(id) {
+    try {
+      const j = JSON.parse(localStorage.getItem(prefix + id));
+      if (
+        j &&
+        j.id === id &&
+        typeof j.sid === 'string' &&
+        j.sid.length <= 80 &&
+        [j.start, j.seq, j.at, j.pos, j.dur, j.played].every(finite) &&
+        j.seq >= 1 &&
+        j.pos >= 0 &&
+        j.dur > 0 &&
+        j.pos <= j.dur &&
+        j.played >= 0 &&
+        Date.now() - j.at < 7 * 86400000
+      )
+        return j;
+    } catch (_) {}
+    return null;
+  }
+  function remember(s) {
+    try {
+      const key = prefix + s.id,
+        prior = pending(s.id);
+      if (compare(s, prior) <= 0) return;
+      if (!prior) {
+        const keys = Object.keys(localStorage).filter((k) => k.startsWith(prefix));
+        if (keys.length >= 24) {
+          keys.sort(
+            (a, b) =>
+              (pending(a.slice(prefix.length))?.at || 0) -
+              (pending(b.slice(prefix.length))?.at || 0),
+          );
+          for (const k of keys.slice(0, keys.length - 23)) localStorage.removeItem(k);
+        }
+      }
+      // No title, URL, channel name, tags, notes or thumbnail in the journal.
+      const { id, sid, start, seq, at, pos, dur, played, done, epoch, life } = s;
+      localStorage.setItem(
+        key,
+        JSON.stringify({ id, sid, start, seq, at, pos, dur, played, done, epoch, life }),
+      );
+    } catch (_) {
+      /* Private storage / quota: IDB is still attempted independently. */
+    }
+  }
+  function acknowledge(s) {
+    try {
+      const j = pending(s.id);
+      if (j && compare(j, s) === 0) localStorage.removeItem(prefix + s.id);
+    } catch (_) {}
+  }
+  // Both reads and a potential write happen in ONE transaction, not across awaits.
+  async function rowTx(id, mode, edit) {
+    if (!validId(id)) throw new Error('Invalid video ID');
+    const db = await b();
+    if (!db) throw new Error('History storage unavailable');
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['history', 'kv'], mode),
+        store = tx.objectStore('history');
+      const kv = tx.objectStore('kv'),
+        row = store.get(id),
+        fence = kv.get(resetKey),
+        ticket = kv.get(tickets + id);
+      let result;
+      ticket.onsuccess = () => {
+        try {
+          result = edit(
+            row.result || null,
+            fence.result?.v || '',
+            store,
+            kv,
+            row.result?._checkpointLife || ticket.result?.v || '',
+          );
+        } catch (error) {
+          tx.abort();
+          reject(error);
+        }
+      };
+      tx.oncomplete = () => resolve(result);
+      tx.onabort = tx.onerror = () => reject(tx.error || new Error('History transaction failed'));
+    });
+  }
+  function blank(id, now) {
+    return {
+      videoId: id,
+      firstWatched: now,
+      lastWatched: now,
+      watchCount: 0,
+      totalWatchTime: 0,
+      sessions: [],
+      title: '',
+      channel: '',
+      channelId: '',
+      thumbnail: '',
+      lastPosition: 0,
+      duration: 0,
+      remaining: 0,
+      progress: 0,
+      completed: false,
+      pinned: 0,
+      tags: [],
+      notes: '',
+    };
+  }
+  async function persist(s) {
+    const changed = await rowTx(s.id, 'readwrite', (old, epoch, store, kv, life) => {
+      // Both fences are checked inside the same transaction as the put. Erasing
+      // one film must not silence older tabs recording a DIFFERENT film.
+      if (epoch !== s.epoch || !life || life !== s.life) return false;
+      if (old?._checkpoint && compare(s, old._checkpoint) <= 0) return false;
+      if (!old?._checkpoint && old && (old.lastWatched || 0) > s.at) return false;
+      const row = old || blank(s.id, s.start),
+        visits = Array.isArray(row.sessions) ? row.sessions.slice(-50) : [];
+      const previous = visits.find((v) => v?.sid === s.sid);
+      row.totalWatchTime =
+        (Number(row.totalWatchTime) || 0) + Math.max(0, s.played - (previous?.played || 0));
+      if (!previous) {
+        visits.push({ sid: s.sid, start: s.start });
+        row.watchCount = (Number(row.watchCount) || 0) + 1;
+      }
+      Object.assign(previous || visits[visits.length - 1], { end: s.at, played: s.played });
+      row.sessions = visits.slice(-50);
+      row.lastWatched = s.at;
+      row.lastPosition = s.done ? 0 : s.pos;
+      row.duration = s.dur;
+      row.progress = s.done ? 100 : Math.min(99, Math.round((100 * s.pos) / s.dur));
+      row.remaining = s.done ? 0 : Math.max(0, s.dur - s.pos);
+      row.completed = !!s.done;
+      for (const k of ['title', 'channel', 'channelId'])
+        if (s.meta?.[k]) row[k] = String(s.meta[k]).slice(0, 300);
+      if (!row.thumbnail) row.thumbnail = ie.thumb(s.id, 'mqdefault');
+      row._checkpointLife = life;
+      row._checkpoint = { start: s.start, sid: s.sid, seq: s.seq };
+      store.put(row);
+      kv.delete(tickets + s.id);
+      return true;
+    });
+    acknowledge(s);
+    if (changed) g.emit('history.updated', { videoId: s.id });
+    return changed;
+  }
+  async function load(id) {
+    const j = pending(id);
+    if (j) await persist(j);
+    return rowTx(id, 'readwrite', (row, epoch, store, kv, life) => {
+      // Reserve an incarnation, NOT a watch-history entry. The temporary ticket
+      // has no title or position; first durable playback moves it into the row.
+      if (!life) {
+        life = nonce();
+        kv.put({ k: tickets + id, v: life, at: Date.now() });
+      }
+      return { row, epoch, life };
+    });
+  }
+  function commit(s) {
+    remember(s);
+    return persist(s);
+  }
+  function edit(id, fn) {
+    return rowTx(id, 'readwrite', (r, epoch, store) => {
+      const updated = fn(r);
+      if (updated) store.put(updated);
+      return updated;
+    });
+  }
+  async function erase(id) {
+    if (id != null && !validId(id)) return;
+    WatchSessions.forget(id); // Stop this visit before a final flush can resurrect it.
+    try {
+      for (const k of Object.keys(localStorage))
+        if (id == null ? k.startsWith(prefix) : k === prefix + id) localStorage.removeItem(k);
+    } catch (_) {}
+    const db = await b();
+    if (!db) throw new Error('History storage unavailable');
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(['history', 'kv'], 'readwrite'),
+        store = tx.objectStore('history');
+      const kv = tx.objectStore('kv');
+      if (id == null) {
+        kv.put({ k: resetKey, v: nonce() });
+        kv.delete(IDBKeyRange.bound(tickets, tickets + '\uffff'));
+        store.clear();
+      } else {
+        kv.delete(tickets + id);
+        store.delete(id);
+      }
+      tx.oncomplete = resolve;
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('Erase failed'));
+    });
+    // Wake other open prompts without leaving a persistent log of erased IDs.
+    try {
+      localStorage.setItem('yourtube.journal.erase', JSON.stringify({ id, nonce: nonce() }));
+      localStorage.removeItem('yourtube.journal.erase');
+    } catch (_) {}
+    g.emit('history.updated', { videoId: id, removed: true });
+  }
+  async function pruneTickets() {
+    const db = await b();
+    if (!db) return;
+    const store = db.transaction('kv', 'readwrite').objectStore('kv');
+    const req = store.openCursor(IDBKeyRange.bound(tickets, tickets + '\uffff'));
+    req.onsuccess = () => {
+      const cur = req.result;
+      if (!cur) return;
+      if (Date.now() - (cur.value.at || 0) > 7 * 86400000) cur.delete();
+      cur.continue();
+    };
+  }
+  return { load, commit, edit, erase, blank, nonce, validId, pruneTickets };
+})();
+
+// One accessible decision surface, three layouts. Shadow DOM isolates the controls
+// from both YouTube's player styles and all YourTube theme/overhaul combinations.
+function createCheckpointPrompt(actions) {
+  const host = document.createElement('div');
+  host.id = 'yourtube-checkpoint';
+  const root = host.attachShadow({ mode: 'open' }),
+    style = document.createElement('style');
+  style.textContent = `
+:host{all:initial;display:block!important;position:absolute!important;inset:0!important;z-index:2147483000!important;pointer-events:none!important;color-scheme:normal;container:checkpoint / size}
+*,*::before,*::after{box-sizing:border-box} [hidden]{display:none!important}
+.stage{--ink:#1a302b;--muted:#49605a;--paper:#fff9e9;--rule:#c9d0bd;--key:#195848;--keyink:#fff;--lime:#cced95;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:clamp(9px,3cqw,38px);background:linear-gradient(115deg,#07151193,#091a1459);font:14px/1.38 system-ui,-apple-system,sans-serif;color:var(--ink);pointer-events:auto}
+.panel{position:relative;max-width:100%;width:450px;max-height:100%;overflow:auto;overscroll-behavior:contain;background:var(--paper);border:1px solid var(--rule);border-radius:11px;box-shadow:0 18px 52px #0a141c48;padding:20px 24px 17px;text-align:left;direction:ltr}
+.top,.brand,.badge,.marks,.buttons,.clockrow{display:flex;align-items:center}.top{justify-content:space-between;gap:10px}.brand,.badge,.marks,.eyeline,.timecode,.small,.minimize,.chip{font:600 10px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.07em}.brand{gap:9px;text-transform:uppercase}.stamp{width:19px;height:23px;background:var(--key);clip-path:polygon(0 0,100% 0,100% 100%,50% 77%,0 100%);position:relative}.stamp:after{content:'';position:absolute;inset:6px 5px auto;height:2px;border-block:1px solid var(--paper)}
+.badge{gap:5px;background:color-mix(in srgb,var(--key) 9%,var(--paper));color:var(--key);padding:4px 7px;border-radius:4px;letter-spacing:0}.lamp{width:6px;height:6px;background:var(--key);border-radius:50%}
+.eyeline{color:var(--muted);text-transform:uppercase;margin:20px 0 3px}.headline{margin:0;font:normal clamp(26px,5.4cqw,46px)/1.03 Georgia,serif;letter-spacing:-.045em}.subject{font:600 13px/1.4 system-ui,sans-serif;margin:8px 0 0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted)}
+.timeline{margin:18px 0 16px}.track{height:5px;border-radius:5px;background:var(--rule);position:relative}.fill{height:100%;background:var(--key);border-radius:5px;position:relative}.fill:after{content:'';width:9px;height:9px;background:var(--key);border:2px solid var(--paper);outline:1px solid var(--key);border-radius:50%;position:absolute;right:-4px;top:-2px}.marks{color:var(--muted);justify-content:space-between;margin-top:7px;font-weight:500;letter-spacing:.01em}
+.buttons{gap:8px;flex-wrap:wrap}.buttons button,.minimize,.chip{cursor:pointer}.buttons button{border:1px solid var(--rule);border-radius:5px;background:transparent;color:var(--ink);padding:9px 13px;min-height:40px;font:650 13px/1.2 system-ui,sans-serif}.buttons .primary{background:var(--key);color:var(--keyink);border-color:var(--key)}button:focus-visible{outline:3px solid #ef811b;outline-offset:3px}.buttons button:hover{box-shadow:inset 0 0 0 1px currentColor}.buttons button:disabled{opacity:.62;cursor:wait}.footer{border-top:1px solid var(--rule);margin-top:16px;padding-top:9px;display:flex;align-items:center;justify-content:space-between;gap:6px}.small{font-weight:450;letter-spacing:0;color:var(--muted)}.minimize{border:0;background:none;color:var(--muted);text-decoration:underline;text-underline-offset:3px;letter-spacing:0;padding:4px;white-space:nowrap}.timecode{display:none}.chip{border:1px solid #a9c8b9;background:#122d27;color:#ecf7ea;border-radius:6px;padding:11px 15px;box-shadow:0 4px 16px #0003;letter-spacing:.01em}.stage.folded{background:transparent;pointer-events:none;align-items:flex-end;justify-content:flex-start}.chip{pointer-events:auto}
+.stage[data-style=signal]{--ink:#eff7e7;--muted:#acbfb3;--paper:#112421;--key:#d4f19c;--keyink:#142622;--rule:#3f5950;background:linear-gradient(90deg,#0715109c,#08191761)}.stage[data-style=signal] .panel{border-radius:7px;background:repeating-linear-gradient(90deg,transparent 0 24px,#a4caab09 24px 25px),var(--paper);border-top:3px solid var(--key)}.stage[data-style=signal] .headline{font:600 clamp(32px,6.8cqw,61px)/1.02 ui-monospace,monospace;letter-spacing:-.08em;font-variant-numeric:tabular-nums}.stage[data-style=signal] .timecode{display:inline;color:var(--muted);margin-left:10px;font-size:11px;align-self:flex-end;line-height:2}.stage[data-style=signal] .track{height:9px;border-radius:0}.stage[data-style=signal] .track:after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 8px,var(--paper) 8px 10px)}
+.stage[data-style=dock]{--paper:#152723;--ink:#f2f5e9;--muted:#c2d1c5;--key:#d0eca4;--keyink:#172822;--rule:#465b50;align-items:flex-end;background:linear-gradient(0deg,#0c191a85,transparent 60%)}.stage[data-style=dock] .panel{width:min(720px,100%);padding:13px 17px;border-radius:8px;display:grid;grid-template-columns:1fr auto;column-gap:16px;align-items:center}.stage[data-style=dock] .top{grid-column:1/-1;margin-bottom:8px}.stage[data-style=dock] .eyeline,.stage[data-style=dock] .timeline{display:none}.stage[data-style=dock] .headline{font:650 19px/1.12 system-ui,sans-serif;letter-spacing:-.03em}.stage[data-style=dock] .subject{font-size:11px;margin-top:3px}.stage[data-style=dock] .footer{grid-column:1/-1;margin-top:9px;padding-top:5px}
+@container checkpoint (max-width:490px){.panel{padding:13px 15px}.eyeline{margin:9px 0 2px}.headline{font-size:27px}.timeline{margin:11px 0}.footer{margin-top:9px;padding-top:5px}.stage[data-style=dock] .panel{display:block}.stage[data-style=dock] .buttons{margin-top:9px}.buttons button{min-height:36px;padding:7px 11px}.subject{margin-top:4px}.stage{padding:7px}}
+@container checkpoint (max-height:265px){.eyeline{display:none}.top{margin-bottom:7px}.headline{font-size:25px}.timeline{margin:9px 0}.panel{padding:10px 13px}.buttons button{min-height:40px}.footer{margin-top:8px;padding-top:4px}.subject{margin:3px 0}.stage[data-style=signal] .headline{font-size:30px}}
+@container checkpoint (max-height:185px){.timeline,.subject{display:none}.headline{font-size:19px}.buttons{margin-top:6px}.panel{padding:6px 10px}.top{margin-bottom:3px}}
+@media(forced-colors:active){.panel,.buttons button,.chip{border:1px solid ButtonText}.fill,.stamp{background:Highlight}.badge{color:CanvasText}}`;
+  root.append(style);
+  const node = (tag, cls, text, parent) => {
+    const n = document.createElement(tag);
+    n.className = cls;
+    if (text) n.textContent = text;
+    parent.append(n);
+    return n;
+  };
+  const stage = node('div', 'stage', '', root),
+    panel = node('section', 'panel', '', stage);
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-labelledby', 'cp-title');
+  panel.setAttribute('aria-describedby', 'cp-status');
+  const top = node('div', 'top', '', panel),
+    brand = node('div', 'brand', '', top);
+  node('i', 'stamp', '', brand);
+  node('span', '', 'Watch journal', brand);
+  const badge = node('span', 'badge', '', top);
+  node('i', 'lamp', '', badge);
+  const state = node('span', '', 'On hold', badge);
+  const text = node('div', 'copy', '', panel),
+    eyebrow = node('p', 'eyeline', 'Your saved place', text),
+    clock = node('div', 'clockrow', '', text);
+  const title = node('h2', 'headline', '', clock);
+  title.id = 'cp-title';
+  node('span', 'timecode', '/ SAVED', clock);
+  const subject = node('p', 'subject', '', text),
+    line = node('div', 'timeline', '', panel),
+    rail = node('div', 'track', '', line),
+    fill = node('div', 'fill', '', rail);
+  rail.setAttribute('role', 'progressbar');
+  rail.setAttribute('aria-label', 'Saved video progress');
+  rail.setAttribute('aria-valuemin', '0');
+  rail.setAttribute('aria-valuemax', '100');
+  const marks = node('div', 'marks', '', line),
+    at = node('span', '', '', marks),
+    end = node('span', '', '', marks),
+    buttons = node('div', 'buttons', '', panel);
+  const make = (parent, cls, action, fn) => {
+    const b = node('button', cls, '', parent);
+    b.type = 'button';
+    b.dataset.action = action;
+    b.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      fn();
+    });
+    return b;
+  };
+  let folded = false,
+    model = null,
+    parent = null,
+    priorPosition = null,
+    oldFocus = null;
+  const yes = make(buttons, 'primary', 'resume', () => actions.choose('resume')),
+    fresh = make(buttons, 'secondary', 'restart', () => actions.choose('restart'));
+  const footer = node('div', 'footer', '', panel),
+    note = node('span', 'small', '', footer);
+  note.id = 'cp-status';
+  note.setAttribute('role', 'status');
+  const fold = make(footer, 'minimize', 'fold', () => collapse(true));
+  fold.textContent = 'Minimize';
+  const chip = make(stage, 'chip', 'expand', () => collapse(false));
+  chip.hidden = true;
+  function collapse(v) {
+    folded = v;
+    panel.hidden = v;
+    chip.hidden = !v;
+    stage.classList.toggle('folded', v);
+    (v ? chip : yes.hidden ? fresh : yes).focus({ preventScroll: true });
+  }
+  for (const type of [
+    'click',
+    'dblclick',
+    'pointerdown',
+    'pointerup',
+    'mousedown',
+    'mouseup',
+    'touchstart',
+    'touchend',
+  ])
+    host.addEventListener(type, (ev) => ev.stopPropagation());
+  host.addEventListener('keydown', (ev) => {
+    ev.stopPropagation();
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      collapse(!folded);
+    }
+  });
+  host.addEventListener('keyup', (ev) => ev.stopPropagation());
+  function restoreParent() {
+    if (parent && priorPosition !== null && parent.style.position === 'relative')
+      parent.style.position = priorPosition;
+    priorPosition = null;
+  }
+  function render(container, m) {
+    if (container !== parent) {
+      restoreParent();
+      parent = container;
+      if (getComputedStyle(parent).position === 'static') {
+        priorPosition = parent.style.position;
+        parent.style.position = 'relative';
+      }
+    }
+    const mounted = host.parentNode === parent;
+    if (!mounted) {
+      oldFocus ||= document.activeElement;
+      parent.append(host);
+    }
+    const key = JSON.stringify(m);
+    if (model === key && mounted) return;
+    model = key;
+    const design = ['folio', 'signal', 'dock'].includes(m.style) ? m.style : 'folio',
+      pos = ce(m.pos),
+      dur = m.dur > 0 ? ce(m.dur) : '—';
+    const pct = m.dur ? Math.max(0, Math.min(100, Math.round((m.pos / m.dur) * 100))) : 0;
+    stage.dataset.style = design;
+    host.dataset.phase = m.phase;
+    host.dataset.design = design;
+    const shortened = m.phase === 'shortened',
+      retry = m.phase === 'seek-error',
+      play = m.phase === 'play-blocked',
+      wait = m.phase === 'seeking';
+    title.textContent = shortened
+      ? 'This film changed.'
+      : play
+        ? 'Ready to play.'
+        : design === 'signal'
+          ? pos
+          : design === 'dock'
+            ? 'Continue at ' + pos + '?'
+            : 'Back to your place.';
+    eyebrow.textContent = play
+      ? 'Position restored'
+      : design === 'signal'
+        ? 'Transport / saved time'
+        : 'Your saved place';
+    subject.textContent = m.title || 'This video';
+    subject.title = subject.textContent;
+    at.textContent = pos + ' saved';
+    end.textContent = pct + '%  ·  ' + dur;
+    fill.style.width = pct + '%';
+    rail.setAttribute('aria-valuenow', String(pct));
+    state.textContent = play ? 'Paused' : wait ? 'Seeking' : 'On hold';
+    note.textContent = shortened
+      ? 'Your saved time is past the new ending.'
+      : retry
+        ? 'Seek not ready. Retry or start fresh.'
+        : play
+          ? 'Your browser needs a play gesture.'
+          : wait
+            ? 'Waiting for the player to seek…'
+            : 'Playback waits for your choice.';
+    yes.textContent = play ? 'Play at ' + pos : retry ? 'Retry ' + pos : 'Resume at ' + pos;
+    fresh.textContent = 'Start fresh';
+    fresh.title = 'Start this video at 0:00; keep your history and notes';
+    yes.hidden = shortened;
+    yes.disabled = wait;
+    fresh.disabled = wait && m.pos === 0;
+    fresh.className = shortened ? 'primary' : 'secondary';
+    line.hidden = shortened;
+    chip.textContent = 'Ⅱ  Paused at ' + pos + '  ·  Show choices';
+    if (
+      !mounted &&
+      (!oldFocus ||
+        oldFocus === document.body ||
+        oldFocus === document.documentElement ||
+        parent.contains(oldFocus))
+    )
+      (folded ? chip : yes.hidden ? fresh : yes).focus({ preventScroll: true });
+  }
+  function remove() {
+    const restore = host.contains(document.activeElement) || document.activeElement === host;
+    host.remove();
+    restoreParent();
+    if (restore && oldFocus?.isConnected)
+      try {
+        oldFocus.focus({ preventScroll: true });
+      } catch (_) {}
+    parent = null;
+  }
+  return { host, render, remove };
+}
+
+// The visit object is the cancellation token. No async result may act on a different
+// visit or player. A media element is never the identity of a YouTube SPA route.
+const WatchSessions = (() => {
+  let hooks = null,
+    observer = null,
+    timer = 0,
+    current = null,
+    retired = null,
+    busy = false,
+    suspended = false,
+    queued = false;
+  const finite = Number.isFinite,
+    noop = () => {},
+    tick = () => performance.now();
+  const mainSelector = '#movie_player, #shorts-player, .html5-video-player';
+  function route() {
+    const u = new URL(location.href),
+      part = u.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]{11})(?:\/|$)/);
+    const id = u.pathname === '/watch' ? u.searchParams.get('v') : part?.[1];
+    const hash = new URLSearchParams(u.hash.slice(1));
+    const explicit = ['t', 'start', 'time_continue'].some((k) =>
+      [u.searchParams.get(k), hash.get(k)].some(
+        (v) => v !== null && /^(?:\d+(?:\.\d+)?s?|(?=\d)(?:\d+h)?(?:\d+m)?(?:\d+s)?)$/i.test(v),
+      ),
+    );
+    return { id: CheckpointStore.validId(id) ? id : null, explicit };
+  }
+  function provider(host) {
+    try {
+      return host.getVideoData?.() || {};
+    } catch (_) {
+      return {};
+    }
+  }
+  const noticeSelector =
+    'yt-playability-error-supported-renderers,ytm-playability-error-supported-renderers,ytd-player-error-message-renderer,ytm-player-error-message-renderer,.ytp-error-content-wrap';
+  function nativeNotice(player, owner) {
+    // Some watch layouts render the notice BESIDE a hidden #movie_player.
+    // Never take focus from the site's sign-in, age, rights or error UI.
+    const notices = document.querySelectorAll(noticeSelector);
+    for (const n of notices) {
+      if (
+        !n.getClientRects().length ||
+        !n.textContent.trim() ||
+        getComputedStyle(n).visibility === 'hidden'
+      )
+        continue;
+      if (player.contains(n) || (owner && owner.contains(n))) return true;
+      const box = n.getBoundingClientRect(),
+        other = player.getBoundingClientRect();
+      if (
+        box.width > 0 &&
+        box.height > 0 &&
+        Math.min(box.right, other.right) > Math.max(box.left, other.left) &&
+        Math.min(box.bottom, other.bottom) > Math.max(box.top, other.top)
+      )
+        return true;
+    }
+    return false;
+  }
+  function candidate(s) {
+    for (const p of document.querySelectorAll(mainSelector)) {
+      if (p.closest('[hidden], ytd-miniplayer, ytd-video-preview, ytd-moving-thumbnail-renderer'))
+        continue;
+      const video = p.querySelector('video.html5-main-video') || p.querySelector('video');
+      if (!video || !p.getClientRects().length) continue;
+      const data = provider(p),
+        owner = p.closest('ytd-watch-flexy,ytd-watch-grid,ytm-watch,ytd-reel-video-renderer');
+      const identity = data.video_id || owner?.getAttribute('video-id');
+      if (identity && identity !== s.id) continue;
+      // Without a provider ID a reused element is not proof of a new source.
+      if (
+        !identity &&
+        retired?.id !== s.id &&
+        retired?.v === video &&
+        retired.src === video.currentSrc &&
+        !s.reloaded.has(video)
+      )
+        continue;
+      const live =
+        video.duration === Infinity ||
+        data.isLive === true ||
+        !!Array.from(p.querySelectorAll('.ytp-live-badge')).find((n) => n.getClientRects().length);
+      if (
+        live ||
+        p.matches('.ad-showing,.ad-interrupting,.ytp-error') ||
+        video.error ||
+        nativeNotice(p, owner)
+      )
+        continue;
+      return { v: video, p };
+    }
+    return null;
+  }
+  function belongs(s) {
+    return hooks && !suspended && current === s && S.sessionRestoreOn && route().id === s.id;
+  }
+  function locked(s) {
+    return (
+      !!s &&
+      ((s.phase === 'lookup' && s.ask) ||
+        ['hold', 'shortened', 'seeking', 'seek-error', 'play-blocked'].includes(s.phase))
+    );
+  }
+  function canGuard(s, v) {
+    return belongs(s) && locked(s) && candidate(s)?.v === v;
+  }
+  function releaseGate(s) {
+    if (s.unpatch) s.unpatch();
+    s.unpatch = null;
+  }
+  function gate(s) {
+    const v = s.v;
+    if (!v || !locked(s)) return releaseGate(s);
+    if (!s.unpatch) {
+      const own = Object.getOwnPropertyDescriptor(v, 'play'),
+        prior = v.play;
+      const guarded = _xp.fn(function (...args) {
+        if (this !== v || !canGuard(s, v)) return prior.apply(this, args);
+        if (s.phase === 'lookup') s.wanted = true;
+        return _pPromise.reject(
+          new DOMException('Choose a playback position in YourTube.', 'AbortError'),
+        );
+      });
+      try {
+        Object.defineProperty(v, 'play', { configurable: true, writable: true, value: guarded });
+        s.unpatch = () => {
+          try {
+            if (v.play === guarded) {
+              if (own) Object.defineProperty(v, 'play', own);
+              else delete v.play;
+            }
+          } catch (_) {}
+        };
+      } catch (_) {
+        s.unpatch = noop;
+      } // Read-only / isolated realm: capture-phase pause remains active.
+    }
+    if (!v.paused) {
+      if (s.phase === 'lookup') s.wanted = true;
+      v.pause();
+    }
+  }
+  function clearUI(s) {
+    s.ui?.remove();
+    s.ui = null;
+  }
+  function detach(s) {
+    if (s.v && s.phase === 'active' && s.last) s.verifySource = true;
+    releaseGate(s);
+    s.ui?.remove();
+    s.v = null;
+    s.p = null;
+    s.prev = null;
+    s.seekSent = false;
+  }
+  function active(s) {
+    s.phase = 'active';
+    releaseGate(s);
+    clearUI(s);
+  }
+  function writer(s) {
+    if (!s.sid) {
+      s.sid = CheckpointStore.nonce();
+      s.start = Math.max(Date.now(), (s.row?._checkpoint?.start || 0) + 1);
+    }
+  }
+  function metadata(s) {
+    const data = provider(s.p);
+    let details;
+    try {
+      details = e.ytInitialPlayerResponse?.videoDetails;
+    } catch (_) {}
+    const pd = details?.videoId === s.id ? details : {};
+    return {
+      title:
+        data.title ||
+        pd.title ||
+        document.querySelector('ytd-watch-metadata h1, h1.title')?.textContent?.trim() ||
+        '',
+      channel:
+        data.author ||
+        pd.author ||
+        document.querySelector('#owner ytd-channel-name a,#owner-name a')?.textContent?.trim() ||
+        '',
+      channelId: data.channel_id || pd.channelId || '',
+    };
+  }
+  function sample(s, kind) {
+    const v = s.v;
+    if (
+      s.readOnly ||
+      s.phase !== 'active' ||
+      !v ||
+      !belongs(s) ||
+      candidate(s)?.v !== v ||
+      !finite(v.duration) ||
+      v.duration <= 0 ||
+      !finite(v.currentTime)
+    )
+      return;
+    // A replacement player often reports a perfectly finite paused 0:00. It
+    // is not a new stopping point until playback or an actual seek on it.
+    if (s.verifySource) {
+      if (
+        v.seeking ||
+        v.readyState < 2 ||
+        (v.paused && kind !== 'seeked' && Math.abs(v.currentTime - (s.last?.pos || 0)) > 0.2)
+      )
+        return;
+      s.verifySource = false;
+    }
+    // A passive visit, a pending choice, an ad or a metadata event is never a view.
+    if (!s.sid) {
+      if (v.paused || v.ended || !['playing', 'play', 'tick', 'timeupdate'].includes(kind)) return;
+      writer(s);
+    }
+    const now = tick(),
+      pos = Math.max(0, Math.min(v.duration, v.currentTime)),
+      rate = v.playbackRate || 1;
+    const prev = s.prev;
+    if (prev?.running && !v.seeking && kind !== 'seeking') {
+      const wall = Math.max(0, (now - prev.t) / 1000),
+        media = pos - prev.pos;
+      if (media > 0 && media <= wall * prev.rate + 0.35)
+        s.played += Math.min(wall, media / prev.rate);
+    }
+    s.prev = { t: now, pos, rate, running: !v.paused && !v.seeking && !v.ended };
+    if (v.seeking || kind === 'seeking') return;
+    s.last = { pos, dur: v.duration, done: v.ended, meta: metadata(s) };
+  }
+  function flush(s = current, force = true) {
+    if (!s?.last || !s.sid || s.readOnly || (s.phase !== 'active' && s.phase !== 'play-blocked'))
+      return Promise.resolve(false);
+    const z = s.last,
+      signature = [z.pos, z.dur, z.done, Math.floor(s.played * 10)].join('/');
+    if (signature === s.sent || (!force && tick() - s.lastWrite < 3500))
+      return s.job || Promise.resolve(false);
+    s.sent = signature;
+    s.lastWrite = tick();
+    const seq = ++s.seq;
+    const snap = {
+      ...z,
+      id: s.id,
+      epoch: s.epoch,
+      life: s.life,
+      sid: s.sid,
+      start: s.start,
+      seq,
+      at: Date.now(),
+      played: s.played,
+    };
+    s.job = CheckpointStore.commit(snap)
+      .then((changed) => {
+        if (changed && belongs(s) && !s.signalled && s.played > 0) {
+          s.signalled = true;
+          try {
+            if (typeof YourTubeSession !== 'undefined')
+              YourTubeSession.genome?.record({
+                topic: z.meta.title,
+                duration: z.dur,
+                handle: z.meta.channelId,
+                channelName: z.meta.channel,
+              });
+          } catch (_) {}
+        }
+        if (changed && belongs(s) && S.algoIntelligenceOn && typeof AlgoEngine !== 'undefined')
+          try {
+            AlgoEngine.SignalTracker.trackWatch(s.id, z.pos, z.dur);
+          } catch (_) {}
+        return changed;
+      })
+      .catch(() => {
+        if (s.seq === seq) s.sent = null;
+        warn(s, 'History storage is unavailable. Your last checkpoint will be retried.');
+        return false;
+      });
+    return s.job;
+  }
+  function warn(s, msg) {
+    if (!s.warned && current === s) {
+      s.warned = true;
+      try {
+        pe(msg, 4000, 'info');
+      } catch (_) {}
+    }
+  }
+  function safePlay(s, selected) {
+    const v = s.v;
+    if (!v || !belongs(s)) return;
+    function denied() {
+      if (selected && belongs(s) && s.v === v && v.paused && s.phase === 'active') {
+        s.phase = 'play-blocked';
+        sync();
+      }
+    }
+    try {
+      const result = v.play();
+      result?.catch(denied);
+    } catch (_) {
+      denied();
+    }
+  }
+  function choose(s, action) {
+    if (!belongs(s) || !s.v) return;
+    if (
+      !['hold', 'seek-error', 'play-blocked'].includes(s.phase) &&
+      !(action === 'restart' && ['shortened', 'seeking'].includes(s.phase))
+    )
+      return;
+    if (candidate(s)?.v !== s.v) {
+      sync();
+      return;
+    }
+    s.target =
+      action === 'restart'
+        ? 0
+        : s.phase === 'play-blocked' || s.phase === 'seek-error'
+          ? s.target
+          : s.pos;
+    s.phase = 'seeking';
+    s.seekSent = false;
+    s.deadline = tick() + 8000;
+    sync();
+  }
+  function seek(s) {
+    if (tick() > s.deadline) {
+      s.phase = 'seek-error';
+      return;
+    }
+    const v = s.v;
+    if (!v || v.readyState < 1 || !finite(v.duration) || v.duration <= 0) return;
+    if (s.target > 0 && s.target >= v.duration - 0.25) {
+      s.phase = 'shortened';
+      return;
+    }
+    const target = Math.max(0, Math.min(s.target, Math.max(0, v.duration - 0.1)));
+    if (!v.seeking && Math.abs(v.currentTime - target) <= 0.2) {
+      s.target = target;
+      active(s);
+      writer(s);
+      s.prev = null;
+      sample(s, 'choice');
+      flush(s);
+      safePlay(s, true);
+      return;
+    }
+    if (!s.seekSent) {
+      s.seekSent = true;
+      try {
+        v.currentTime = target;
+      } catch (_) {
+        s.phase = 'seek-error';
+      }
+    }
+  }
+  function open(r) {
+    const s = {
+      id: r.id,
+      explicit: r.explicit,
+      ask: S.sessionResumeMode !== 'record' && !r.explicit,
+      phase: 'lookup',
+      v: null,
+      p: null,
+      ui: null,
+      unpatch: null,
+      wanted: false,
+      row: null,
+      sid: null,
+      start: 0,
+      seq: 0,
+      played: 0,
+      epoch: '',
+      last: null,
+      prev: null,
+      sent: null,
+      lastWrite: -Infinity,
+      reloaded: new WeakSet(),
+    };
+    current = s;
+    // Only an UNKNOWN storage lookup has a deadline. A known saved point never
+    // unlocks on a timer. Fail open without recording over an unread record.
+    const unavailable = () => {
+      if (!belongs(s) || s.phase !== 'lookup') return;
+      s.readOnly = true;
+      active(s);
+      if (s.wanted) safePlay(s, false);
+      warn(s, 'Could not read local history. Playing normally without replacing your saved place.');
+    };
+    s.lookupTimer = setTimeout(unavailable, 2600);
+    CheckpointStore.load(s.id).then(({ row, epoch, life }) => {
+      if (!belongs(s) || s.phase !== 'lookup') return;
+      clearTimeout(s.lookupTimer);
+      s.row = row;
+      s.epoch = epoch;
+      s.life = life;
+      const dur = Number(row?.duration) || 0,
+        raw = Number(row?.lastPosition);
+      const legacy =
+        !raw && !row?._checkpoint && row?.progress > 1 && row.progress < 100 && dur > 0;
+      s.pos = legacy ? (dur * Number(row.progress)) / 100 : raw;
+      if (
+        s.ask &&
+        row &&
+        !row.completed &&
+        finite(s.pos) &&
+        s.pos >= 5 &&
+        (!dur || s.pos < dur - 0.5)
+      ) {
+        s.phase = 'hold';
+      } else {
+        active(s);
+        if (s.wanted) safePlay(s, false);
+      }
+      sync();
+    }, unavailable);
+    return s;
+  }
+  function retire() {
+    const s = current;
+    if (!s) return;
+    clearTimeout(s.lookupTimer);
+    flush(s);
+    if (s.v) retired = { id: s.id, v: s.v, src: s.v.currentSrc };
+    detach(s);
+    current = null;
+  }
+  function sync() {
+    if (!hooks || busy || suspended || !S.sessionRestoreOn) return;
+    busy = true;
+    try {
+      const r = route();
+      if (current?.id !== r.id) {
+        retire();
+        if (r.id) open(r);
+      }
+      const s = current;
+      if (!s) return;
+      if ((r.explicit && !s.explicit) || S.sessionResumeMode === 'record') {
+        s.ask = false;
+        if (s.phase !== 'lookup' && locked(s)) active(s);
+      }
+      s.explicit ||= r.explicit;
+      const next = candidate(s);
+      if ((next?.v || null) !== s.v || (next?.p || null) !== s.p) {
+        detach(s);
+        if (next) {
+          s.v = next.v;
+          s.p = next.p;
+        }
+      }
+      if (!s.v) return;
+      if (
+        s.phase === 'hold' &&
+        s.v.readyState >= 1 &&
+        finite(s.v.duration) &&
+        s.v.duration > 0 &&
+        s.pos >= s.v.duration - 0.25
+      )
+        s.phase = 'shortened';
+      gate(s);
+      if (s.phase === 'seeking') seek(s);
+      if (['hold', 'shortened', 'seeking', 'seek-error', 'play-blocked'].includes(s.phase)) {
+        s.ui ||= createCheckpointPrompt({ choose: (action) => choose(s, action) });
+        s.ui.render(s.p, {
+          style: S.sessionResumeDesign,
+          phase: s.phase,
+          pos: ['seeking', 'seek-error', 'play-blocked'].includes(s.phase) ? s.target : s.pos,
+          dur: finite(s.v.duration) ? s.v.duration : s.row?.duration || 0,
+          title: s.row?.title || metadata(s).title,
+        });
+      } else if (s.phase === 'active') {
+        sample(s, 'tick');
+        flush(s, false);
+      }
+    } finally {
+      busy = false;
+    }
+  }
+  function schedule() {
+    if (!queued) {
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        sync();
+      });
+    }
+  }
+  function onMedia(ev) {
+    const v = ev.target;
+    if (v?.tagName !== 'VIDEO' || !v.closest(mainSelector)) return;
+    if (current?.id !== route().id) sync();
+    if (current && ['loadstart', 'loadedmetadata'].includes(ev.type)) current.reloaded.add(v);
+    // Reconcile the URL/player before accepting an event, including events that
+    // arrive before yt-navigate-finish or before the mutation observer runs.
+    if (!current || current.id !== route().id || current.v !== v || ev.type === 'loadedmetadata')
+      sync();
+    const s = current;
+    if (!s || s.v !== v || !belongs(s) || candidate(s)?.v !== v) return;
+    if (locked(s)) {
+      if (ev.type === 'play' || ev.type === 'playing') {
+        if (s.phase === 'lookup') s.wanted = true;
+        if (!v.paused) v.pause();
+      }
+      if (['seeked', 'loadedmetadata', 'canplay'].includes(ev.type)) schedule();
+      return;
+    }
+    if (ev.type === 'emptied' || ev.type === 'loadstart') {
+      if (s.last) s.verifySource = true;
+      s.prev = null;
+      return;
+    }
+    if (ev.type === 'ended' && !v.ended) return;
+    sample(s, ev.type);
+    flush(s, ['pause', 'ended', 'seeked'].includes(ev.type));
+  }
+  function edge() {
+    const s = current;
+    if (!s) return;
+    sample(s, 'edge');
+    flush(s);
+  }
+  function configure() {
+    if (!S.sessionRestoreOn) {
+      stop();
+      return;
+    }
+    if (hooks) {
+      sync();
+      return;
+    }
+    hooks = new AbortController();
+    const opts = { capture: true, signal: hooks.signal };
+    for (const type of [
+      'play',
+      'playing',
+      'pause',
+      'timeupdate',
+      'seeking',
+      'seeked',
+      'ended',
+      'loadedmetadata',
+      'canplay',
+      'durationchange',
+      'emptied',
+      'loadstart',
+    ])
+      document.addEventListener(type, onMedia, opts);
+    document.addEventListener(
+      'visibilitychange',
+      () => {
+        if (document.hidden) edge();
+        else sync();
+      },
+      opts,
+    );
+    window.addEventListener(
+      'pagehide',
+      () => {
+        edge();
+        suspended = true;
+        retire();
+      },
+      opts,
+    );
+    window.addEventListener(
+      'pageshow',
+      () => {
+        suspended = false;
+        sync();
+      },
+      opts,
+    );
+    window.addEventListener(
+      'storage',
+      (ev) => {
+        if (ev.key !== 'yourtube.journal.erase' || !ev.newValue) return;
+        try {
+          const { id } = JSON.parse(ev.newValue);
+          if (id === null || CheckpointStore.validId(id)) forget(id);
+        } catch (_) {}
+      },
+      opts,
+    );
+    document.addEventListener('yt-navigate-start', edge, opts);
+    for (const type of ['yt-navigate-finish', 'yt-page-data-updated'])
+      document.addEventListener(type, schedule, opts);
+    hooks.signal.addEventListener('abort', g.on('nav.changed', sync), { once: true });
+    observer = new MutationObserver((records) => {
+      if (
+        current &&
+        (!current.v ||
+          !current.v.isConnected ||
+          (current.ui && !current.ui.host.isConnected) ||
+          records.some((r) =>
+            [...r.addedNodes].some(
+              (n) =>
+                n.nodeType === 1 &&
+                (n.matches('video,' + mainSelector) || n.querySelector('video')),
+            ),
+          ))
+      )
+        schedule();
+    });
+    observer.observe(document, { childList: true, subtree: true });
+    timer = setInterval(sync, 450);
+    sync();
+  }
+  function stop() {
+    if (!hooks) return;
+    edge();
+    retire();
+    hooks.abort();
+    hooks = null;
+    observer?.disconnect();
+    observer = null;
+    clearInterval(timer);
+    suspended = false;
+    retired = null;
+  }
+  function forget(id) {
+    const s = current;
+    if (s && (id == null || s.id === id)) {
+      s.last = null;
+      s.readOnly = true;
+      clearTimeout(s.lookupTimer);
+      active(s);
+    }
+  }
+  return {
+    configure,
+    forget,
+    flush: () => {
+      const s = current;
+      if (!s) return Promise.resolve(false);
+      sample(s, 'manual');
+      return flush(s);
+    },
+    status: () => ({
+      phase: current?.phase || 'off',
+      videoId: current?.id || null,
+      held: !!current?.v && locked(current),
+      readOnly: !!current?.readOnly,
+    }),
+  };
+})();
+
+// The journal works with existing history rows. Merely opening the library never
+// requests third-party artwork or enriches records over the network.
+function mountWatchLibrary(parent) {
+  const host = document.createElement('div');
+  host.className = 'ytb-watch-journal';
+  parent.append(host);
+  const root = host.attachShadow({ mode: 'open' }),
+    css = document.createElement('style');
+  css.textContent = `:host{display:block;margin:12px 0;color:#1a302b;font:13px/1.4 system-ui,sans-serif;color-scheme:light}*{box-sizing:border-box}[hidden]{display:none!important}.book{background:#fffbef;border:1px solid #c4cebc;padding:15px;border-radius:9px}h3{font:normal 27px/1.1 Georgia,serif;letter-spacing:-.04em;margin:4px 0 11px}.cap,.meta{font:600 10px/1.4 ui-monospace,monospace;color:#4e665a}.cap{text-transform:uppercase;letter-spacing:.12em}.toolbar,.actions,.meta,.row,.tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}button,input,select,a{font:inherit;color:inherit}.toolbar input,.toolbar select,button,a{border:1px solid #beccba;background:#fffdf5;border-radius:4px;padding:5px 8px}.toolbar input{min-width:80px;flex:1}.toolbar select{max-width:100%}.list{max-height:330px;overflow:auto;margin:8px 0}.row{padding:10px 0;border-bottom:1px solid #d7dfce}.details{flex:1;min-width:130px}.name{font-weight:650;color:#1d3c32}.meta{font-weight:450;margin:3px 0}.rail{height:3px;max-width:180px;background:#d6decd}.rail span{display:block;background:#336b52;height:100%}.actions{gap:4px}button,a{cursor:pointer;font-size:11px;text-decoration:none}.go{background:#225b48;color:white;border-color:#225b48}.actions button{border:0;background:transparent;text-decoration:underline;text-underline-offset:2px}.tools{border-top:1px solid #c4cebc;padding-top:9px}.msg{color:#3f5e50;min-height:1.4em;margin:6px 0 0}.danger{color:#913d27}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #c56422;outline-offset:2px}`;
+  root.append(css);
+  const add = (p, t, c, txt) => {
+    const n = document.createElement(t);
+    n.className = c;
+    n.textContent = txt || '';
+    p.append(n);
+    return n;
+  };
+  const book = add(root, 'section', 'book'),
+    cap = add(book, 'span', 'cap', 'Local history  /  This browser');
+  add(book, 'h3', '', 'Watch journal');
+  const bar = add(book, 'div', 'toolbar'),
+    search = add(bar, 'input', '');
+  search.type = 'search';
+  search.placeholder = 'Search title or channel';
+  search.setAttribute('aria-label', search.placeholder);
+  const filter = add(bar, 'select', '');
+  filter.setAttribute('aria-label', 'Filter history');
+  for (const [value, label] of [
+    ['all', 'All videos'],
+    ['progress', 'In progress'],
+    ['pinned', 'Pinned'],
+    ['done', 'Finished'],
+  ]) {
+    const o = add(filter, 'option', '', label);
+    o.value = value;
+  }
+  const list = add(book, 'div', 'list'),
+    tools = add(book, 'div', 'tools'),
+    msg = add(book, 'p', 'msg');
+  msg.setAttribute('role', 'status');
+  const button = (p, label, fn, cls = '') => {
+    const n = add(p, 'button', cls, label);
+    n.type = 'button';
+    n.onclick = () =>
+      Promise.resolve()
+        .then(fn)
+        .catch(() => {
+          msg.textContent = 'Could not update local history. Nothing was confirmed.';
+        });
+    return n;
+  };
+  let rows = [],
+    limit = 20,
+    turn = 0,
+    pendingDelete = null;
+  const link = (p, label, id, time) => {
+    const a = add(p, 'a', 'go', label);
+    const u = new URL('/watch', location.origin);
+    u.searchParams.set('v', id);
+    u.searchParams.set('t', Math.floor(time) + 's');
+    a.href = u.href;
+  };
+  function render() {
+    const q = search.value.trim().toLowerCase(),
+      match = rows.filter(
+        (r) =>
+          CheckpointStore.validId(r.videoId) &&
+          (!q || [r.title, r.channel, r.videoId].join(' ').toLowerCase().includes(q)) &&
+          (filter.value === 'all' ||
+            (filter.value === 'pinned' && r.pinned) ||
+            (filter.value === 'done' && r.completed) ||
+            (filter.value === 'progress' && !r.completed && r.lastPosition > 0)),
+      );
+    cap.textContent =
+      'Local history  /  ' + match.length + ' ' + (match.length === 1 ? 'video' : 'videos');
+    list.replaceChildren();
+    if (!match.length)
+      add(
+        list,
+        'p',
+        'meta',
+        rows.length ? 'No matches. Try another search.' : 'Your watched videos will appear here.',
+      );
+    for (const r of match.slice(0, limit)) {
+      const item = add(list, 'div', 'row'),
+        d = add(item, 'div', 'details');
+      add(d, 'div', 'name', (r.pinned ? '★  ' : '') + (r.title || r.videoId));
+      add(
+        d,
+        'span',
+        'meta',
+        [
+          r.channel,
+          r.completed ? 'Finished' : ce(r.lastPosition || 0) + ' of ' + ce(r.duration || 0),
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      );
+      const progress = add(add(d, 'div', 'rail'), 'span', '');
+      progress.style.width = Math.max(0, Math.min(100, Number(r.progress) || 0)) + '%';
+      const acts = add(item, 'div', 'actions');
+      link(
+        acts,
+        r.completed ? 'Rewatch' : r.lastPosition > 0 ? 'Resume ' + ce(r.lastPosition) : 'Play',
+        r.videoId,
+        r.completed ? 0 : r.lastPosition || 0,
+      );
+      button(acts, r.pinned ? 'Unpin' : 'Pin', () =>
+        r.pinned ? $e.unpin(r.videoId) : $e.pin(r.videoId),
+      );
+      button(acts, 'Remove', () => confirmDelete(r.videoId, r.title || r.videoId), 'danger');
+    }
+    if (match.length > limit)
+      button(list, 'Show 20 more', () => {
+        limit += 20;
+        render();
+      });
+  }
+  async function refresh() {
+    const n = ++turn;
+    const data = await Ie();
+    if (n !== turn) return;
+    rows = data
+      .slice()
+      .sort((a, b) => !!b.pinned - !!a.pinned || (b.lastWatched || 0) - (a.lastWatched || 0));
+    render();
+  }
+  function confirmDelete(id, label) {
+    if (pendingDelete) pendingDelete.remove();
+    const box = add(book, 'div', 'actions');
+    pendingDelete = box;
+    add(box, 'span', '', 'Remove ' + label + '?');
+    const cancel = button(box, 'Cancel', () => {
+      box.remove();
+      pendingDelete = null;
+    });
+    button(
+      box,
+      'Confirm removal',
+      async () => {
+        if (id) await Pe(id);
+        else {
+          await Re();
+          await C('thumbCache');
+        }
+        box.remove();
+        pendingDelete = null;
+        await refresh();
+        msg.textContent = 'Removed from this browser.';
+      },
+      'danger',
+    );
+    cancel.focus();
+  }
+  search.oninput = filter.onchange = () => {
+    limit = 20;
+    render();
+  };
+  button(tools, 'Export JSON', async () => {
+    const history = (await Ie()).map(({ _checkpoint, _checkpointLife, ...portable }) => portable),
+      url = URL.createObjectURL(
+        new Blob([JSON.stringify({ version: n, history }, null, 2)], { type: 'application/json' }),
+      );
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'yourtube-watch-journal.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 6000);
+    msg.textContent = 'Exported ' + history.length + ' entries.';
+  });
+  const input = add(tools, 'input', '');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.hidden = true;
+  button(tools, 'Import JSON', () => input.click());
+  input.onchange = async () => {
+    try {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 8 * 1024 * 1024) throw Error();
+      const obj = JSON.parse(await file.text()),
+        entries = Array.isArray(obj) ? obj : obj.history;
+      if (!Array.isArray(entries) || entries.length > 5000) throw Error();
+      let count = 0;
+      for (const item of entries) {
+        if (!CheckpointStore.validId(item?.videoId)) continue;
+        // Accept portable fields, never restore another profile's write fences.
+        const num = (v, max = Number.MAX_SAFE_INTEGER) =>
+          Math.max(0, Math.min(max, Number(v) || 0));
+        const row = CheckpointStore.blank(item.videoId, 0);
+        for (const [k, limit] of [
+          ['title', 300],
+          ['channel', 200],
+          ['channelId', 128],
+          ['notes', 65536],
+        ])
+          if (typeof item[k] === 'string') row[k] = item[k].slice(0, limit);
+        row.thumbnail = ie.thumb(item.videoId, 'mqdefault');
+        for (const k of ['duration', 'lastPosition', 'totalWatchTime']) row[k] = num(item[k]);
+        row.watchCount = Math.floor(num(item.watchCount));
+        row.firstWatched = num(item.firstWatched, Date.now());
+        row.lastWatched = num(item.lastWatched, Date.now());
+        row.completed = item.completed === true;
+        row.pinned = item.pinned === true || item.pinned === 1 ? 1 : 0;
+        row.progress = row.completed ? 100 : num(item.progress, 99);
+        if (
+          !row.lastPosition &&
+          !row.completed &&
+          !item._checkpoint &&
+          row.duration &&
+          row.progress > 1
+        )
+          row.lastPosition = (row.duration * row.progress) / 100;
+        row.lastPosition = row.completed
+          ? 0
+          : row.duration
+            ? Math.min(row.duration, row.lastPosition)
+            : row.lastPosition;
+        row.remaining = row.completed ? 0 : Math.max(0, row.duration - row.lastPosition);
+        row.tags = Array.isArray(item.tags)
+          ? item.tags
+              .filter((t) => typeof t === 'string')
+              .slice(0, 100)
+              .map((t) => t.slice(0, 160))
+          : [];
+        if (Array.isArray(item.sessions))
+          row.sessions = item.sessions
+            .slice(-50)
+            .filter((v) => v && typeof v === 'object')
+            .map((v) => {
+              const session = { start: num(v.start) };
+              for (const k of ['end', 'played']) if (k in v) session[k] = num(v[k]);
+              if (typeof v.kind === 'string') session.kind = v.kind.slice(0, 60);
+              return session;
+            });
+        const merged = await CheckpointStore.edit(row.videoId, (prev) => {
+          if (prev && (prev.lastWatched || 0) >= row.lastWatched) return null;
+          // Delayed flushes from a tab opened before this import must not win.
+          return {
+            ...prev,
+            ...row,
+            _checkpointLife: CheckpointStore.nonce(),
+            _checkpoint: { start: Date.now(), sid: CheckpointStore.nonce(), seq: 0 },
+          };
+        });
+        if (merged) count++;
+      }
+      await refresh();
+      msg.textContent = 'Imported ' + count + ' entries. Newer local saves were kept.';
+    } catch (_) {
+      msg.textContent = 'Import stopped. Use a history JSON file under 8 MB.';
+    } finally {
+      input.value = '';
+    }
+  };
+  button(tools, 'Clear history', () => confirmDelete(null, 'all local watch history'), 'danger');
+  So('history.updated', refresh);
+  refresh();
+}
 
   //  SponsorBlock Engine v2 (YourTube)
   const SponsorBlockEngine = (() => {
@@ -10462,9 +10827,6 @@ algoBlockChannels: "",
     lastEngagedVid: null,
     lastTrackVid: null,
     lastEngageT: 0,
-    awaitingResume: !1,
-    awaitingResumeVid: null,
-    awaitingResumeSince: 0,
     lastVerifyFix: 0,
   };
   function La() {
@@ -10652,7 +11014,7 @@ algoBlockChannels: "",
       a = null;
     }
     const n = !!a && a.languageCode;
-    const r = document.querySelector(".ytb-subtitles-button");
+    const r = document.querySelector(".ytp-subtitles-button");
     const o = r && "true" === r.getAttribute("aria-pressed");
     const i = document.querySelector(
       ".ytp-caption-window-container,.ytp-caption-window",
@@ -10914,7 +11276,7 @@ algoBlockChannels: "",
                 "function" == typeof t.toggleSubtitlesOn &&
                 (t.toggleSubtitlesOn(), (a = !0));
             } catch (e) {}
-            const n = ca(".ytb-subtitles-button", 800);
+            const n = ca(".ytp-subtitles-button", 800);
             if (!a && n && "false" === n.getAttribute("aria-pressed"))
               try {
                 (n.click(), (a = !0));
@@ -10953,7 +11315,7 @@ algoBlockChannels: "",
       };
       r();
       const o = () => {
-        const t = ca(".ytb-subtitles-button", 800);
+        const t = ca(".ytp-subtitles-button", 800);
         t &&
           !boundCcBtn.has(t) &&
           (boundCcBtn.add(t),
@@ -11131,7 +11493,7 @@ algoBlockChannels: "",
             const e = document.querySelector(
               ".ytp-ad-skip-button,.ytp-skip-ad-button,.ytp-ad-skip-button-modern",
             );
-            if (e)
+            if (e && !e.disabled && e.getClientRects().length && getComputedStyle(e).visibility !== "hidden")
               try {
                 return (e.click(), !0);
               } catch (e) {}
@@ -11142,9 +11504,10 @@ algoBlockChannels: "",
 
             if (!a || boundAdSkip.has(a)) return;
             boundAdSkip.add(a);
+            t(); // The ad and skip control may both predate feature activation.
             e.addObserver(a, ee(t, 200), {
-              attributes: !0,
-              attributeFilter: ["class"],
+              attributes: !0, childList: !0, subtree: !0,
+              attributeFilter: ["class", "hidden", "disabled"],
             });
           },
           boundAdSkip = new WeakSet();
@@ -11366,225 +11729,15 @@ algoBlockChannels: "",
     }),
 
     xa.register({
-      id: "session-restore",
-      name: "Session History",
-      summary: "Local watch history with resume positions, bookmarks and search.",
-      cat: "data",
-      masterKey: "sessionRestoreOn",
-      keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
-      apply(e) {
-        if (!S.sessionRestoreOn) return void Ue();
-        e.addStyle(
-          "#ytb-resume-card{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483640;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto;background:rgba(20,22,28,.94);border:1px solid rgba(255,255,255,.14);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.55),0 4px 14px rgba(0,0,0,.4);color:#fff;font:13px/1.4 system-ui,-apple-system,sans-serif;backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);animation:ytbResumeCardIn .18s ease-out}" +
-          "@keyframes ytbResumeCardIn{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}" +
-          "@media (prefers-reduced-motion:reduce){#ytb-resume-card{animation:none}}" +
-          "body.ytb-calm #ytb-resume-card{border-color:var(--ytbc-line2)!important;box-shadow:var(--ytbc-shadow)!important}" +
-          "body.ytb-calm #ytb-resume-card .ytb-resume-cta{color:var(--ytbc-acc)!important}" +
-          "body.ytb-calm #ytb-resume-card .ytb-resume-title{color:var(--ytbc-ink3)!important}" +
-          "body.ytb-calm #ytb-resume-card .ytb-resume-btn-secondary{background:var(--ytbc-card-hi)!important;color:var(--ytbc-ink)!important;border:1px solid var(--ytbc-line2)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-eyebrow{color:var(--ytbc-acc)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-title{color:var(--ytbc-ink)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-meta{color:var(--ytbc-ink3)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-body{color:var(--ytbc-ink2)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-footer{color:var(--ytbc-ink3)!important}" +
-          "body.ytb-calm #ytb-resume-overlay .ytb-resume-dismiss{color:var(--ytbc-ink3)!important}",
-        );
-        const t = () => {
-            const e = ie.videoId();
-            e && Xe(e, { duration: ie.el() ? ie.el().duration : 0 });
-          },
-          u = () => {
-            const a = ie.el();
-            if (!a || a._ytbHistEndedBound) return;
-            try {
-              (a._ytbHistEndedBound = !0),
-                a.addEventListener("ended", t),
-                Yt["session-restore"].push(() => {
-                  try {
-                    a.removeEventListener("ended", t), (a._ytbHistEndedBound = !1);
-                  } catch (e) {}
-                });
-            } catch (e) {}
-          };
-        (e.onNav(() => {
-          (Ke(), e.addTimeout(Ke, 1200), e.addTimeout(u, 1200));
-        }),
-          Ke(),
-          u());
-        for (const t of [400, 1500, 3e3]) e.addTimeout(Ke, t);
-        Yt["session-restore"].push(Ue);
-        u();
-      },
-      settings(e) {
-        e.appendChild(
-          Ro("On return to a video", "sessionResumeMode", {
-            card: "Small card (bottom)",
-            overlay: "Full overlay",
-            silent: "Silent Resume",
-          }),
-        );
-        e.appendChild(
-          Ro("Resume design", "sessionResumeDesign", {
-            default: "Default (balanced)",
-            compact: "Compact (small, bottom card)",
-            detailed: "Detailed (large, more info)",
-            cinema: "Cinema (max glass + glow)",
-          }),
-        );
-        const t = To("div", "ytb-hist-panel");
-        (e.appendChild(t),
-          (function (e) {
-            e.replaceChildren();
-            const t = To("div", "ytb-hist-toolbar"),
-              a = document.createElement("input");
-            ((a.type = "search"),
-              (a.className = "ytb-hist-search"),
-              (a.placeholder = "Search what you’ve watched…"),
-              (a.value = qo.query));
-            const r = To("span", "ytb-hist-count", "");
-            (t.appendChild(a), t.appendChild(r), e.appendChild(t));
-            const o = To("div", "ytb-hist-list");
-            e.appendChild(o);
-            const i = Oo("Show more", () => {
-              ((qo.limit += 30), c());
-            });
-            (i.classList.add("ytb-hist-loadmore"), e.appendChild(i));
-            const d = To("div", "ytb-rowb");
-            async function c() {
-              o.replaceChildren(To("div", "ytb-hist-loading", "Loading…"));
-
-              _backfillMetadata().catch(() => {});
-              const e = (qo.query || "").trim().toLowerCase(),
-                t = await Ie(),
-                a = e
-                  ? t.filter(
-                      (t) =>
-                        (t.title || "").toLowerCase().includes(e) ||
-                        (t.channel || "").toLowerCase().includes(e) ||
-                        (t.videoId || "").toLowerCase().includes(e),
-                    )
-                  : t;
-              if (
-                ((r.textContent =
-                  a.length +
-                  (e ? " match" + (1 === a.length ? "" : "es") : " total")),
-                o.replaceChildren(),
-                !a.length)
-              )
-                return (
-                  o.appendChild(
-                    To(
-                      "div",
-                      "ytb-hist-empty",
-                      e ? "No matches." : "No history yet.",
-                    ),
-                  ),
-                  void (i.style.display = "none")
-                );
-              const n = a.slice(0, qo.limit),
-                d = document.createDocumentFragment();
-              for (const e of n) d.appendChild(Vo(e, c));
-              (o.appendChild(d),
-                (i.style.display = a.length > n.length ? "" : "none"));
-            }
-            (d.appendChild(
-              Oo("Export", () =>
-                (async function () {
-                  const e = await Ie(),
-                    t = new Blob(
-                      [
-                        JSON.stringify(
-                          { version: n, ts: Date.now(), history: e },
-                          null,
-                          2,
-                        ),
-                      ],
-                      { type: "application/json" },
-                    ),
-                    a = URL.createObjectURL(t),
-                    r = document.createElement("a");
-                  ((r.href = a),
-                    (r.download =
-                      "yourtube-history-" +
-                      new Date().toISOString().slice(0, 10) +
-                      ".json"),
-                    document.body.appendChild(r),
-                    r.click(),
-                    r.remove(),
-                    setTimeout(() => URL.revokeObjectURL(a), 6e3),
-                    pe(
-                      "Saved " + e.length + " entries to a file.",
-                      1800,
-                      "success",
-                    ));
-                })(),
-              ),
-            ),
-              d.appendChild(
-                Oo("Import", () =>
-                  (function (e) {
-                    const t = document.createElement("input");
-                    ((t.type = "file"),
-                      (t.accept = ".json,application/json"),
-                      t.addEventListener(
-                        "change",
-                        () => {
-                          const a = t.files && t.files[0];
-                          if (!a) return;
-                          const n = new FileReader();
-                          ((n.onload = (t) => {
-                            try {
-                              const rawText = String(t.target.result || "");
-                              if (rawText.length > 8388608) throw new Error("import too large");
-                              const a = JSON.parse(rawText),
-                                n = (a.history || (Array.isArray(a) ? a : [])).slice(-5000);
-                              Promise.all(
-                                n
-                                  .filter((e) => e && e.videoId)
-                                  .map((e) => Be(_ytSanitizeHistoryRow(e))),
-                              ).then(() => {
-                                (pe(
-                                  "Imported " + n.length + " entries",
-                                  1800,
-                                  "success",
-                                ),
-                                  e && e());
-                              });
-                            } catch (e) {
-                              pe("Couldn’t read that file.", 1800, "error");
-                            }
-                          }),
-                            n.readAsText(a));
-                        },
-                        { once: !0 },
-                      ),
-                      t.click());
-                  })(c),
-                ),
-              ),
-              d.appendChild(
-                Oo(
-                  "Clear all",
-                  () => {
-                    Re()
-                      .then(() => C("thumbCache"))
-                      .then(() => {
-                        (pe("History cleared.", 1600, "success"), c());
-                      });
-                  },
-                  "ytb-danger",
-                ),
-              ),
-              e.appendChild(d),
-              a.addEventListener(
-                "input",
-                ee(() => {
-                  ((qo.query = a.value), c());
-                }, 150),
-              ),
-              So("history.updated", c),
-              c());
-          })(t));
+      id: "session-restore", name: "Session History",
+      summary: "A private watch journal. Choose your saved time or start fresh before playback.",
+      cat: "data", masterKey: "sessionRestoreOn", keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
+      apply() { WatchSessions.configure(); },
+      settings(panel) {
+        panel.appendChild(Ro("When returning to a video", "sessionResumeMode", {ask:"Pause and ask (recommended)",record:"Record only · use YouTube playback"}));
+        panel.appendChild(Ro("Resume prompt", "sessionResumeDesign", {folio:"Folio · reading card",signal:"Signal · time display",dock:"Dock · compact bar"}));
+        panel.appendChild(To("div","ytb-hist-note","A timestamped link takes precedence. Ads and live streams are not saved. Minimize keeps a saved video paused; it does not make the choice for you."));
+        mountWatchLibrary(panel);
       },
     }),
     xa.register({
@@ -12329,7 +12482,7 @@ algoBlockChannels: "",
       "Hide End Cards",
       "Blocks end-screen recommendation cards and teasers.",
       "hideEndscreen",
-      ".ytp-ce-element,.ytb-cards-teaser{display:none!important}",
+      ".ytp-ce-element,.ytp-cards-teaser{display:none!important}",
     "feed"
     ),
     Ha(
@@ -12353,7 +12506,7 @@ algoBlockChannels: "",
       "Hide Info Cards",
       "Blocks the interactive (i) teaser popups during playback.",
       "hideCards",
-      ".ytb-cards-button,.ytb-cards-teaser-text{display:none!important}",
+      ".ytp-cards-button,.ytp-cards-teaser-text{display:none!important}",
       "comments"
     ),
     Ha(
@@ -13137,87 +13290,44 @@ algoBlockChannels: "",
         S.geoTimezone && void 0 !== e.timeZone && (e.timeZone = S.geoTimezone));
     } catch (e) {}
   }
+  // Only two dedicated locale cookies belong to this feature. Never clear or
+  // rewrite YouTube's general PREF or its visitor/privacy state. Keep only the
+  // locale rollback record (not a cookie snapshot) across reloads in this tab.
+  const geoCookieKey = "yourtube.geo.locale-rollback";
+  function geoCookie(name) {
+    const part = document.cookie.split(/;\s*/).find((p) => p.startsWith(name + "="));
+    return part === undefined ? null : part.slice(name.length + 1);
+  }
+  function geoRecord() {
+    try { return JSON.parse(sessionStorage.getItem(geoCookieKey)) || {}; }
+    catch (_) { return {}; }
+  }
   function Mn() {
-    const e = vn(),
-      t = kn(),
-      a = new Date(Date.now() + 3456e7).toUTCString(),
-      n = (function (e, t, a) {
-        const n = {};
-        return (
-          e &&
-            e.split("&").forEach((e) => {
-              const t = e.indexOf("=");
-              t > 0 && (n[e.substring(0, t)] = e.substring(t + 1));
-            }),
-          (n.gl = t),
-          (n.hl = a),
-          n.f6 || (n.f6 = "8"),
-          Object.keys(n)
-            .map((e) => e + "=" + n[e])
-            .join("&")
-        );
-      })(
-        (function () {
-          try {
-            const e = document.cookie.match(/(?:^|;\s*)PREF=([^;]*)/);
-            return e ? decodeURIComponent(e[1]) : "";
-          } catch (e) {
-            return "";
-          }
-        })(),
-        e,
-        t,
-      ),
-      r = [""];
-    for (let o = 0; o < r.length; o++) {
-      const i = "; expires=" + a + "; path=/; SameSite=Lax";
-      try {
-        if (typeof ti !== 'undefined' && ti.cookieControl && ti.cookieControl.manager) {
-          ti.cookieControl.manager.set("PREF", n, { domain: r[o], path: "/", sameSite: "Lax", expires: a });
-          ti.cookieControl.manager.set("GL", e, { domain: r[o], path: "/", sameSite: "Lax", expires: a });
-          ti.cookieControl.manager.set("HL", t, { domain: r[o], path: "/", sameSite: "Lax", expires: a });
-        } else {
-          document.cookie = "PREF=" + n + i;
-          document.cookie = "GL=" + e + i;
-          document.cookie = "HL=" + t + i;
-        }
-      } catch (e) {
-        try { document.cookie = "PREF=" + n + i; } catch (e2) {}
-        try { document.cookie = "GL=" + e + i; } catch (e2) {}
-        try { document.cookie = "HL=" + t + i; } catch (e2) {}
+    if (!S.geoOverrideOn) return;
+    try {
+      const rec = geoRecord();
+      for (const [key,val] of [["GL",vn()],["HL",kn()]]) {
+        if (!/^[a-z0-9-]{1,35}$/i.test(val)) continue;
+        const old = geoCookie(key);
+        if (old === val || (old !== null && !/^[a-z0-9-]{0,35}$/i.test(old))) continue;
+        // If YouTube changed a value since we wrote it, restore that choice.
+        rec[key] = { before: rec[key] && rec[key].applied === old ? rec[key].before : old, applied: val };
+        sessionStorage.setItem(geoCookieKey, JSON.stringify(rec));
+        document.cookie = key + "=" + val + "; path=/; SameSite=Lax; Secure";
       }
-    }
+    } catch (_) {}
   }
   function Ln() {
-    const e = new Date(0).toUTCString(),
-      t = [""],
-      a = ["GL", "HL", "PREF", "VISITOR_PRIVACY_METADATA"];
-    for (const n of t)
-      for (const t of a) {
-        try {
-          if (typeof ti !== 'undefined' && ti.cookieControl && ti.cookieControl.manager) {
-            ti.cookieControl.manager.delete(t, { domain: n || ".youtube.com", path: "/" });
-          } else {
-            const a =
-              "; expires=" +
-              e +
-              "; path=/" +
-              (n ? "; domain=" + n : "") +
-              "; SameSite=Lax";
-            document.cookie = t + "=" + a;
-          }
-        } catch (e2) {
-          try {
-            const a =
-              "; expires=" +
-              e +
-              "; path=/" +
-              (n ? "; domain=" + n : "") +
-              "; SameSite=Lax";
-            document.cookie = t + "=" + a;
-          } catch (e3) {}
-        }
+    try {
+      const rec = geoRecord();
+      for (const key of ["GL","HL"]) {
+        const r = rec[key];
+        if (!r || r.applied !== geoCookie(key)) continue;
+        if (r.before === null) document.cookie = key + "=; path=/; max-age=0; SameSite=Lax; Secure";
+        else if (/^[a-z0-9-]{0,35}$/i.test(r.before)) document.cookie = key + "=" + r.before + "; path=/; SameSite=Lax; Secure";
       }
+      sessionStorage.removeItem(geoCookieKey);
+    } catch (_) {}
   }
   function An() {
     const t = vn(),
@@ -13285,18 +13395,15 @@ algoBlockChannels: "",
         un = !1;
       }
     } catch (_e1) {}
+  }
+  function restoreGeoNavigator() {
     try {
       if (hn) {
-        _xp.define(navigator, "language", {
-          get: () => bn.language,
-          configurable: !0,
-          enumerable: !0,
-        });
-        _xp.define(navigator, "languages", {
-          get: () => _xp.clone(bn.languages),
-          configurable: !0,
-          enumerable: !0,
-        });
+        for (const key of ["language", "languages"]) {
+          const descriptor = bn[key + "Descriptor"];
+          if (descriptor) Object.defineProperty(navigator, key, descriptor);
+          else delete navigator[key];
+        }
         hn = !1;
       }
     } catch (_e2) {}
@@ -13588,7 +13695,7 @@ algoBlockChannels: "",
   (xa.register({
     id: "geo-override",
     name: "Geo Override",
-    summary: "Presents a different region/language to YouTube's client; can unblock region-locked content.",
+    summary: "Changes YouTube client locale hints. It does not change your IP address or guarantee regional availability.",
       cat: "privacy",
     masterKey: "geoOverrideOn",
         keys: [
@@ -13602,15 +13709,18 @@ algoBlockChannels: "",
       "geoPatchNavigator",
     ],
     apply(t) {
-        if (!S.geoOverrideOn) return (En(), Bn(), Pn(), void Ln());
+        if (!S.geoOverrideOn) return (En(), Bn(), Pn(), restoreGeoNavigator(), void Ln());
+        if (!S.geoPatchNavigator) restoreGeoNavigator();
       (!(function () {
         if (!hn && S.geoPatchNavigator) {
           hn = !0;
           try {
             bn.language = navigator.language;
+            bn.languageDescriptor = Object.getOwnPropertyDescriptor(navigator, "language");
           } catch (e) {}
           try {
             bn.languages = navigator.languages;
+            bn.languagesDescriptor = Object.getOwnPropertyDescriptor(navigator, "languages");
           } catch (e) {}
           try {
             (_xp.define(navigator, "language", {
@@ -13789,24 +13899,21 @@ algoBlockChannels: "",
         Oo(
           "Re-apply all now",
           () => {
-            (In(), pe("Country settings re-applied.", 1500, "success"));
+            if (S.geoOverrideOn) { In(); pe("Country settings re-applied.", 1500, "success"); }
           },
           "primary",
         ),
       ),
         n.appendChild(
           Oo("Reload page", () => {
-            (In(), setTimeout(() => location.reload(), 200));
+            (S.geoOverrideOn && In(), setTimeout(() => location.reload(), 200));
           }),
         ),
         n.appendChild(
           Oo(
-            "Clear cookies & restore",
+            "Turn off & restore locale",
             () => {
-              (Ln(),
-                En(),
-                Bn(),
-                Pn(),
+              (Ta("geoOverrideOn", false),
                 pe(
                   "Country settings cleared. Refresh the page to apply.",
                   2500,
@@ -13821,7 +13928,7 @@ algoBlockChannels: "",
           To(
             "div",
             "ytb-hist-note",
-            "Cookies are set at page start so YouTube servers see the new region on load. After changing region, click Reload for full effect. The advanced fetch/XHR/beacon toggles are OFF by default; enable only if cookie+ytcfg patching alone is insufficient.",
+            "Uses GL/HL locale cookies and client settings, without changing PREF or visitor privacy cookies. Turn off and reload to restore native client settings. Network interception is optional.",
           ),
         ));
     },
@@ -14359,9 +14466,10 @@ algoBlockChannels: "",
           try {
             const r = a.getAvailableAudioTracks();
             if (!r || !r.length) return;
-            const o = r.find((t) => t && (t.audioIsOriginal === true || t.isDefault === true)) ||
-              r.find((t) => t && t.id && /orig/i.test(String(t.id))) ||
-              r.find((t) => t && t.id && /orig/i.test(String(t.label || "")));
+            const eligible = r.filter((t) => t && t.id && !t.isAutoDubbed);
+            const o = eligible.find((t) => t.audioIsOriginal === true) ||
+              eligible.find((t) => /original/i.test(String(t.id) + " " + String(t.label || ""))) ||
+              eligible.find((t) => t.isDefault === true);
             if (!o || !o.id) return;
             let cur = null;
             try { cur = typeof a.getAudioTrack === "function" ? a.getAudioTrack() : null; } catch (_) {}
@@ -14416,11 +14524,14 @@ algoBlockChannels: "",
         const t = (a) => {
           if (!a || a.tagName !== "A") return;
           const n = a.getAttribute("href") || "";
-          if (!/^https?:\/\/(?:www\.)?youtube\.com\/redirect\b/i.test(n)) return;
+          if (!n || !n.includes("/redirect")) return;
           try {
-            const r = new URL(n);
-            const o = r.searchParams.get("q");
-            if (o) a.setAttribute("href", o);
+            const r = new URL(n, location.href);
+            if (r.pathname !== "/redirect" || !(n.startsWith("/redirect?") ||
+                /^(?:www\.|m\.)?youtube\.com$/i.test(r.hostname))) return;
+            const dest = new URL(r.searchParams.get("q") || "");
+            if (["https:", "http:"].includes(dest.protocol) && dest.href !== r.href)
+              a.setAttribute("href", dest.href);
           } catch (e) {}
         };
         const n = new MutationObserver((e) => {
@@ -14462,15 +14573,16 @@ algoBlockChannels: "",
         const t = (a) => {
           if (!a || a.tagName !== "A") return;
 
-          if (a.dataset && a.dataset.shortened === "1") return;
           const n = a.getAttribute("href") || "";
           if (!/^https?:\/\/youtu\.be\//i.test(n)) return;
           try {
             const r = new URL(n);
-            const o = r.pathname.replace(/^\//, "");
-            const keep = ["t", "list", "index", "start", "pp"];            const qs = keep.map((k2) => { const v2 = r.searchParams.get(k2); return v2 === null ? null : k2 + "=" + v2; }).filter(Boolean).join("&");            const i = o + (qs ? "?" + qs : "");
-            a.setAttribute("href", "https://youtu.be/" + i);
-            a.setAttribute("data-shortened", "1");
+            const keep = new Set(["t", "list", "index", "start", "pp"]);
+            for (const key of Array.from(r.searchParams.keys())) {
+              if (!keep.has(key)) r.searchParams.delete(key);
+            }
+            // Idempotent even if YouTube reuses this anchor for the next video.
+            if (r.href !== n) a.setAttribute("href", r.href);
           } catch (e) {}
         };
         const a = new MutationObserver((e) => {
@@ -14562,15 +14674,19 @@ algoBlockChannels: "",
       masterKey: "defaultChannelTab",
       keys: ["defaultChannelTab"],
       apply(e) {
-        e.onNav(() => {
+        const route = () => {
           const want = S.defaultChannelTab || "featured";
-          if (want === "featured") return;
+          if (!["videos", "shorts", "live", "playlists", "community", "about"].includes(want)) return;
+          // The more specific landing-tab feature owns navigation if configured.
+          if (S.channelLandingTab && S.channelLandingTab !== "home") return;
           const r = location.pathname.match(/^\/(@[^\/]+)\/?$/);
           if (!r) return;
           try {
-            location.replace(r[1] + "/" + want);
+            location.replace(r[1] + "/" + (want === "live" ? "streams" : want));
           } catch (e) {}
-        });
+        };
+        route();
+        e.onNav(route);
       },
       settings(e) {
         const tabs = {
@@ -15959,10 +16075,10 @@ algoBlockChannels: "",
     xa.register({
       id: "cookie-control",
       name: "Cookie Control",
-      summary: "View, edit and back up YouTube cookies and storage.",
+      summary: "Inspect, search and edit cookies visible to this page.",
       cat: "privacy",
       masterKey: "cookieControlOn",
-      keys: ["cookieControlOn", "cookieControlLive", "cookieControlNotify", "cookieControlAutoBackup", "cookieControlFavorites", "cookieControlCategories"],
+      keys: ["cookieControlOn", "cookieControlLive", "cookieControlNotify"],
       apply(e) {
         const prev = Yt["cookie-control"] || [];
         for (const fn of prev) { try { fn(); } catch (e2) {} }
@@ -16095,7 +16211,6 @@ algoBlockChannels: "",
             }catch(e){return false;}
           }
         };
-        try{ if(typeof ti!=='undefined'){ ti.cookieControl=Manager; } }catch(e){}
         const openUI=()=>{
           let overlay=document.getElementById("ytb-cookie-control");
           if(overlay){
@@ -16127,9 +16242,16 @@ algoBlockChannels: "",
           const list=document.createElement("div");
           list.style.cssText="flex:1;overflow:auto;padding:8px 16px;";
           overlay.appendChild(list);
+          let lastValues = null;
           const render=()=>{
             const q=search.value.toLowerCase();
             const all=Manager.getAll();
+            const now = new Map(all.map(c => [c.name, c.value]));
+            const changed = lastValues && new Set([...lastValues.keys(), ...now.keys()]);
+            const count = changed ? [...changed].filter(k => lastValues.get(k) !== now.get(k)).length : 0;
+            lastValues = now;
+            header.firstChild.textContent = "Cookie Control — " + all.length + " visible cookies";
+            if (count && S.cookieControlNotify) pe("Cookie Control: " + count + " changed.", 2000, "info");
             let filtered=all.filter(c=>!q||c.name.toLowerCase().includes(q)||c.value.toLowerCase().includes(q));
             list.replaceChildren();
             for(const c of filtered){
@@ -16200,15 +16322,20 @@ algoBlockChannels: "",
 
           const _pg = ("undefined"!=typeof unsafeWindow?unsafeWindow:window);
           _pg.__ytbCookieOpen = openUI;
-          _pg.YourTube=_pg.YourTube||{};
-          if(_pg.YourTube){ _pg.YourTube.cookieControl={open:openUI,manager:Manager}; }
+          ti.cookieControl = {open:openUI, manager:Manager};
+          Yt["cookie-control"].push(() => {
+            const ov = document.getElementById("ytb-cookie-control");
+            if (ov) { clearInterval(ov.__ytbTimer); ov.remove(); }
+            if (_pg.__ytbCookieOpen === openUI) delete _pg.__ytbCookieOpen;
+            if (ti.cookieControl && ti.cookieControl.open === openUI) delete ti.cookieControl;
+          });
         }catch(e2){}
       },
       settings(e) {
         e.appendChild(Io("Enable Cookie Control", "cookieControlOn"));
         e.appendChild(Io("Live monitoring", "cookieControlLive"));
         e.appendChild(Io("Notify on changes", "cookieControlNotify"));
-        e.appendChild(To("div", "ytb-hist-note", "Cookie Control: shows every YouTube cookie (60+ known: YSC, VISITOR_INFO1_LIVE, PREF with f1,f2,f5,f6,al,gl,hl, CONSENT, SOCS, HSID, SSID, APISID, SAPISID, SID, Secure-1PAPISID, SIDCC, AEC, NID, 1P_JAR, ANID, IDE, yt-remote-*, yt.innertube::*, yt-player-*, ytidb::*, __Secure-*, pm_sess, GPS, ST-, S-). Each shows full metadata: Name, Value, Domain, Path, Expiration, SameSite, Secure, HttpOnly, Size, Creation, Last Modified, Session/Persistent, State, Purpose, Confidence. Live updates, search, filters, bulk export/import/delete, backup/restore, per-PREF toggles. All edits apply immediately."));
+        e.appendChild(To("div", "ytb-hist-note", "Shows cookies readable by this page, not HttpOnly cookies or other browser storage. Search, edit, delete, and inspect individual PREF fields. Live mode refreshes every second while open; change notices never include cookie values."));
 
         if (!e.querySelector("#ytb-cc-open-dashboard")) {
           const openBtn=document.createElement("button");
@@ -16217,13 +16344,8 @@ algoBlockChannels: "",
           openBtn.style.cssText="padding:8px 14px;background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border:0;border-radius:8px;font:600 12px system-ui;cursor:pointer;margin-top:8px;";
           openBtn.onclick=()=>{ try{
 
-            const arm = (ov) => { try { clearInterval(ov.__ytbTimer); if (typeof ov.__ytbRender === "function") ov.__ytbTimer = setInterval(ov.__ytbRender, S.cookieControlLive ? 1000 : 5000); } catch (e3) {} };
-            const _pg = ("undefined"!=typeof unsafeWindow?unsafeWindow:window);
-            const existing = document.getElementById("ytb-cookie-control");
-            if (existing) { existing.style.display = "flex"; arm(existing); return; }
-            let opener = _pg.__ytbCookieOpen;
-            if (typeof opener !== "function") { xa.apply("cookie-control"); opener = _pg.__ytbCookieOpen; }
-            if (typeof opener === "function") { opener(); const ov2 = document.getElementById("ytb-cookie-control"); if (ov2) arm(ov2); }
+            if (!S.cookieControlOn) { pe("Enable Cookie Control first.", 1500, "info"); return; }
+            if (ti.cookieControl && ti.cookieControl.open) ti.cookieControl.open();
           }catch(e2){} };
           e.appendChild(openBtn);
         }
@@ -17058,9 +17180,8 @@ algoBlockChannels: "",
                 "button,yt-button-shape button,tp-yt-paper-item,ytd-menu-service-item-renderer",
               ),
             ).find((e) =>
-              /transcript/i.test(
-                e.textContent || e.getAttribute("aria-label") || "",
-              ),
+              !e.closest(".ytb-extra-transcript, #ytb-backdrop") && e.getClientRects().length &&
+              /transcript/i.test((e.textContent || "") + " " + (e.getAttribute("aria-label") || "")),
             );
             e
               ? e.click()
@@ -20833,12 +20954,12 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         {
           id: "player-cards",
           name: "Info cards (i) teaser",
-          selector: ".ytb-cards-button, .ytb-cards-teaser-text",
+          selector: ".ytp-cards-button, .ytp-cards-teaser-text",
         },
         {
           id: "player-cards-icon",
           name: "Info card icon only",
-          selector: ".ytb-cards-button-icon",
+          selector: ".ytp-cards-button-icon",
         },
         {
           id: "player-watermark",
@@ -20888,7 +21009,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         {
           id: "player-subtitles",
           name: "Subtitles / CC button",
-          selector: ".ytb-subtitles-button",
+          selector: ".ytp-subtitles-button",
         },
         {
           id: "player-settings",
@@ -20963,12 +21084,12 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         {
           id: "player-tooltip",
           name: "Seek bar preview tooltip",
-          selector: ".ytb-tooltip",
+          selector: ".ytp-tooltip",
         },
         {
           id: "player-preview-image",
           name: "Seek bar preview thumbnail",
-          selector: ".ytp-preview, .ytb-tooltip-image",
+          selector: ".ytp-preview, .ytp-tooltip-image",
         },
         {
           id: "player-bezel",
@@ -22897,91 +23018,6 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
       t
     );
   }
-  const qo = { query: "", limit: 30 };
-  function Vo(t, a) {
-    const n = t.progress || 0,
-      r = !!t.completed,
-      o = !r && (t.lastPosition || 0) > 5,
-      i = To("div", "ytb-hcard" + (r ? " done" : "")),
-      d = To("div", "ytb-hthumb"),
-      c = t.thumbnail || ie.thumb(t.videoId, "mqdefault");
-
-    const _veCached = Ve.get(t.videoId);
-    if (_veCached) {
-      try { YourTubeResources.TrackedBlobURL.touch(_veCached); } catch (_) {}
-      d.style.backgroundImage = "url('" + _veCached + "')";
-    } else {
-      const safeC = sanitizeUrlForCSS(c);
-      d.style.backgroundImage = safeC ? "url('" + encodeURI(safeC).replace(/'/g, "%27") + "')" : "none";
-      je(t.videoId)
-        .then((e) => {
-          if (e && d.style.backgroundImage.indexOf(_veCached || "blob:") === -1) {
-            d.style.backgroundImage = "url('" + e + "')";
-          } else if (!e) {
-            We(t.videoId, c).catch(() => {});
-          }
-        })
-        .catch(() => {});
-    }
-    (r
-      ? d.appendChild(To("div", "ytb-hbadge done", "Done"))
-      : o && d.appendChild(To("div", "ytb-hbadge res", ce(t.lastPosition))));
-    const s = To("div", "ytb-hinfo");
-    (s.appendChild(To("div", "ytb-htitle", t.title || t.videoId)),
-      s.appendChild(To("div", "ytb-hchan", t.channel || "Unknown")));
-    const l = [];
-    (t.duration && l.push(ce(t.duration)),
-      !r && t.remaining > 0 && l.push(ce(t.remaining) + " left"),
-      t.lastWatched &&
-        l.push(
-          (function (e) {
-            if (!e) return "Never";
-            const t = Date.now() - e;
-            return t < 6e4
-              ? "Just now"
-              : t < 36e5
-                ? Math.floor(t / 6e4) + "m ago"
-                : t < 864e5
-                  ? Math.floor(t / 36e5) + "h ago"
-                  : t < 6048e5
-                    ? Math.floor(t / 864e5) + "d ago"
-                    : new Date(e).toLocaleDateString();
-          })(t.lastWatched),
-        ),
-      s.appendChild(To("div", "ytb-hmeta", l.join(" - "))));
-    const p = To("div", "ytb-hpt"),
-      u = To("div", "ytb-hpf" + (r ? " done" : ""));
-    ((u.style.width = Math.min(100, n) + "%"),
-      p.appendChild(u),
-      s.appendChild(p));
-    const h = To("div", "ytb-hacts");
-    return (
-      o &&
-        h.appendChild(
-          Mo(
-            "Resume " + ce(t.lastPosition),
-            () => {
-              e.location.href =
-                "https://www.youtube.com/watch?v=" +
-                t.videoId +
-                "&t=" +
-                Math.floor(t.lastPosition);
-            },
-            "primary",
-          ),
-        ),
-      h.appendChild(
-        Mo(r ? "Rewatch" : "Open", () => {
-          e.location.href = "https://www.youtube.com/watch?v=" + t.videoId;
-        }),
-      ),
-      h.appendChild(Mo("Remove", () => Pe(t.videoId).then(a), "danger")),
-      s.appendChild(h),
-      i.appendChild(d),
-      i.appendChild(s),
-      i
-    );
-  }
   function Yp_clampRect(e, t, a, n) {
     const r = window.innerWidth,
       o = window.innerHeight;
@@ -23035,7 +23071,7 @@ const _THEME_VARS = ["base-background","raised-background","menu-background","ge
         (!(function () {
           if (document.getElementById("ytb-dash-style")) return;
           const e =
-            '\n.ytb-fp{position:relative;width:100%}\n.ytb-fp-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:7px 10px;background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:7px;font:inherit;font-size:12px;cursor:pointer;transition:background .15s,border-color .15s;text-align:left}\n.ytb-fp-btn:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.2)}\n.ytb-fp-btn:focus{outline:none;border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n.ytb-fp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.ytb-fp-arrow{color:#8b93a3;font-size:10px;flex-shrink:0}\n.ytb-fp-dd{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;max-height:260px;display:flex;flex-direction:column;background:rgba(18,20,26,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;box-shadow:0 18px 40px rgba(0,0,0,.6),0 4px 12px rgba(0,0,0,.4);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);overflow:hidden;animation:ytbFpFade .12s ease-out}\n.ytb-fp-search{margin:8px 8px 6px;padding:6px 10px;background:rgba(255,255,255,.06);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:6px;font:inherit;font-size:11.5px;outline:none;flex-shrink:0}\n.ytb-fp-search::placeholder{color:#7a8290}\n.ytb-fp-search:focus{border-color:rgba(255,61,127,.55)}\n.ytb-fp-list{overflow-y:auto;flex:1;padding:2px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n.ytb-fp-list::-webkit-scrollbar{width:6px}\n.ytb-fp-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n.ytb-fp-item{padding:6px 10px;border-radius:5px;cursor:pointer;color:#eef;font-size:12px;line-height:1.3;transition:background .1s}\n.ytb-fp-item:hover{background:rgba(255,61,127,.22);color:#fff}\n.ytb-fp-item.selected{background:rgba(255,61,127,.32);font-weight:600}@keyframes ytbFpFade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}\n#ytb-ivs{font-family:\"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif}\n#ytb-ivs .ytb-ivs-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0))}\n#ytb-ivs .ytb-ivs-title{font-size:13px;font-weight:700;letter-spacing:.02em}\n#ytb-ivs .ytb-ivs-close{appearance:none;border:0;background:rgba(255,255,255,.06);color:#dde;width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;font-weight:700;transition:background .12s}\n#ytb-ivs .ytb-ivs-close:hover{background:rgba(255,80,80,.25);color:#fff}\n#ytb-ivs .ytb-ivs-input{margin:10px 14px 4px;padding:8px 12px;background:rgba(255,255,255,.06);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:8px;font:inherit;font-size:13px;outline:none;flex-shrink:0}\n#ytb-ivs .ytb-ivs-input::placeholder{color:#7a8290}\n#ytb-ivs .ytb-ivs-input:focus{border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n#ytb-ivs .ytb-ivs-status{padding:0 14px 6px;font:11px ui-monospace,monospace;color:#8b93a3}\n#ytb-ivs .ytb-ivs-timeline{position:relative;height:8px;margin:0 14px 10px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden;flex-shrink:0}\n#ytb-ivs .ytb-ivs-results{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 10px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.15) transparent}\n#ytb-ivs .ytb-ivs-results::-webkit-scrollbar{width:6px}\n#ytb-ivs .ytb-ivs-results::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}\n#ytb-ivs .ytb-ivs-row{display:flex;align-items:flex-start;gap:10px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background .1s}\n#ytb-ivs .ytb-ivs-row:hover{background:rgba(255,61,127,.18)}\n#ytb-ivs .ytb-ivs-time{flex-shrink:0;font:11px ui-monospace,monospace;color:#ff8a96;background:rgba(255,61,127,.18);padding:2px 6px;border-radius:4px;cursor:pointer}\n#ytb-ivs .ytb-ivs-time:hover{background:rgba(255,61,127,.3);color:#fff}\n#ytb-ivs .ytb-ivs-text{flex:1;min-width:0;font-size:12px;color:#dde;line-height:1.45;word-wrap:break-word;overflow-wrap:break-word}\n#ytb-ivs .ytb-ivs-hl{background:rgba(255,61,127,.45);color:#fff;font-weight:600;padding:0 2px;border-radius:2px}\n#ytb-ivs .ytb-ivs-hint{padding:10px 12px;color:#7a8290;font-size:11.5px;font-style:italic}@keyframes ytbIvsIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}\n#ytb-resume-overlay > div,.ytb-resume-card-inner,.ytb-resume-card{max-width:520px;width:min(86%,520px);background:rgba(20,22,28,.6);border:1px solid rgba(255,255,255,.14);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.65),0 8px 24px rgba(0,0,0,.4);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);padding:24px 26px 22px;display:flex;flex-direction:column;gap:14px;transform:translateY(8px);transition:transform .25s ease-out}\n#ytb-resume-overlay .ytb-resume-head{display:flex;gap:14px;align-items:center}\n#ytb-resume-overlay .ytb-resume-thumb{width:120px;height:68px;border-radius:10px;flex-shrink:0;background:#000 center/cover no-repeat;box-shadow:0 4px 12px rgba(0,0,0,.5);position:relative;overflow:hidden}\n#ytb-resume-overlay .ytb-resume-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}\n#ytb-resume-overlay .ytb-resume-eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#ff8a96;font-weight:600}\n#ytb-resume-overlay .ytb-resume-title{font-size:15px;font-weight:600;color:#fff;line-height:1.3}\n#ytb-resume-overlay .ytb-resume-meta{font-size:12px;color:#aaa}\n#ytb-resume-overlay .ytb-resume-body{font-size:13.5px;color:#cdd;line-height:1.5}\n#ytb-resume-overlay .ytb-resume-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}\n#ytb-resume-overlay .ytb-resume-btn-primary{background:#fff!important;color:#0f0f0f!important;box-shadow:0 4px 16px rgba(255,255,255,.15)}\n#ytb-resume-overlay .ytb-resume-btn-primary:hover{box-shadow:0 6px 22px rgba(255,255,255,.3)}\n#ytb-resume-overlay .ytb-resume-btn-secondary{background:rgba(255,255,255,.1)!important;color:#fff!important;border:1px solid rgba(255,255,255,.14)!important}\n#ytb-resume-overlay .ytb-resume-btn-secondary:hover{background:rgba(255,255,255,.18)!important}\n#ytb-resume-overlay .ytb-resume-footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#777;margin-top:4px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)}\n#ytb-resume-overlay .ytb-resume-dismiss{background:none!important;border:0!important;color:#888!important;cursor:pointer;font:inherit;text-decoration:underline;padding:2px 4px}\n#ytb-resume-overlay .ytb-resume-dismiss:hover{color:#fff!important}\n#ytb-resume-overlay.ytb-resume-compact > div{max-width:380px;padding:18px 20px 16px;gap:12px;border-radius:18px}\n#ytb-resume-overlay.ytb-resume-detailed > div{max-width:560px;padding:32px 32px 24px;gap:20px}\n#ytb-resume-overlay.ytb-resume-cinema > div{background:rgba(10,10,14,.78);border:1px solid rgba(255,255,255,.16);box-shadow:0 40px 100px rgba(0,0,0,.8),0 8px 24px rgba(0,0,0,.5);backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%);max-width:560px;padding:32px}\n#ytb-resume-card{background:rgba(20,22,28,.7)!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:12px!important;box-shadow:0 18px 40px rgba(0,0,0,.55),0 4px 12px rgba(0,0,0,.4)!important;backdrop-filter:blur(20px) saturate(160%)!important;-webkit-backdrop-filter:blur(20px) saturate(160%)!important;color:#fff!important;}\n#ytb-resume-card .ytb-resume-card-row{align-items:center}\n#ytb-resume-card .ytb-resume-thumb{background-size:cover!important}\n#ytb-resume-card .ytb-resume-info{min-width:0}\n#ytb-resume-card .ytb-resume-cta{font-weight:600;font-size:12px;color:#fff}\n#ytb-resume-card .ytb-resume-title{font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-resume-card .ytb-resume-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}\n#ytb-resume-card .ytb-resume-btn-primary:hover{background:#ff1a4a!important}\n#ytb-resume-card .ytb-resume-btn-secondary:hover{background:rgba(255,255,255,.18)!important}\n#ytb-resume-card .ytb-resume-close{padding:7px 10px!important;min-width:30px;line-height:1}\n.ytb-cp{display:flex;align-items:center;gap:8px;width:100%}\n.ytb-cp-text{flex:1;min-width:0}\n.ytb-cp-native{width:36px;height:32px;border:1px solid rgba(255,255,255,.15);border-radius:7px;background:transparent;cursor:pointer;padding:2px;flex-shrink:0}\n.ytb-cp-swatch{width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,.18);flex-shrink:0;background:#000}\n.ytb-cp-native::-webkit-color-swatch-wrapper{padding:0}\n.ytb-cp-native::-webkit-color-swatch{border:none;border-radius:5px}\n.ytb-cp-native::-moz-color-swatch{border:none;border-radius:5px}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-card{max-width:380px;padding:18px 20px 16px;gap:10px;border-radius:18px;background:rgba(20,22,28,.78)}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-head{gap:10px}\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-thumb{width:80px;height:45px;border-radius:8px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-card{max-width:560px;padding:32px 32px 24px;gap:20px;background:rgba(20,22,28,.78)}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-thumb{width:160px;height:90px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-title{font-size:18px;line-height:1.4;-webkit-line-clamp:3}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-meta{font-size:13px;line-height:1.5}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-body{font-size:15px;line-height:1.55}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-card{background:rgba(10,10,14,.72);border:1px solid rgba(255,255,255,.14);box-shadow:0 40px 100px rgba(0,0,0,.8),0 8px 24px rgba(0,0,0,.5);backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%);max-width:560px;padding:32px}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-thumb{width:140px;height:80px;border-radius:12px}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-title{font-size:18px;line-height:1.4}\n\n.ytb-dash,.ytb-dash *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-extra-notes,#ytb-extra-notes *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-toast,#ytb-toast *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-resume-card,#ytb-resume-card *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-resume-overlay,#ytb-resume-overlay *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-sb-hud,#ytb-sb-hud *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-sb-ov,#ytb-sb-ov *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-stats,#ytb-stats *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-diag,#ytb-diag *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-chapter-panel,#ytb-chapter-panel *{font-style:normal;font-variant:normal;box-sizing:border-box}\n.ytb-dash{position:fixed;top:24px;right:24px;width:830px;height:auto;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);z-index:2147483641;--acc:#ff3d5a;--panel:#0d0f14;--panel2:#12151b;--line:#21252d;--line2:#2b313b;--ink:#e8ebf1;--ink2:#a3aab8;--ink3:#697180;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.72),0 4px 16px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);font:13px/1.45 "Inter","Roboto",system-ui,-apple-system,sans-serif;font-style:normal;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;opacity:0;transition:opacity .12s ease-out;overflow:hidden;resize:none;contain:layout style paint}\n.ytb-dash.open{opacity:1}\n.ytb-dash.dragging{transition:none!important;cursor:grabbing!important;user-select:none;-webkit-user-select:none}\n.ytb-dash.dragging *{pointer-events:none!important;cursor:grabbing!important}\n.ytb-dash.resizing{transition:none;user-select:none}\n.ytb-dhandle{cursor:grab;user-select:none;-webkit-user-select:none}\n.ytb-dhandle:active{cursor:grabbing}\n.ytb-dgrip{display:inline-block;color:var(--acc);font-weight:700;margin-right:8px;font-family:var(--mono);font-size:13px}\n.ytb-dhbtns{display:flex;gap:6px;flex-shrink:0}\n.ytb-dresize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 0,transparent 50%,var(--line2) 50%,var(--line2) 55%,transparent 55%,transparent 65%,var(--line2) 65%,var(--line2) 70%,transparent 70%,transparent 80%,var(--line2) 80%,var(--line2) 85%,transparent 85%);z-index:2;border-bottom-right-radius:14px}\n.ytb-dresize:hover{background:linear-gradient(135deg,transparent 0,transparent 50%,var(--acc) 50%,var(--acc) 55%,transparent 55%,transparent 65%,var(--acc) 65%,var(--acc) 70%,transparent 70%,transparent 80%,var(--acc) 80%,var(--acc) 85%,transparent 85%)}\n.ytb-dhdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel2)}\n.ytb-dtitle{font:600 13.5px/1.2 "Inter","Roboto",system-ui,sans-serif;letter-spacing:.04em;display:flex;align-items:center;color:var(--ink)}\n.ytb-dver{font:10px/1 var(--mono);color:var(--ink2);margin-left:9px;padding:3px 7px;border-radius:4px;background:var(--panel3);border:1px solid var(--line)}\n.ytb-btn{appearance:none;border:1px solid var(--line2);border-radius:6px;padding:6px 12px;background:var(--panel3);color:var(--ink);cursor:pointer;font:inherit;font-size:12px;font-weight:550;transition:background .12s,border-color .12s,color .12s}\n.ytb-btn:hover{background:#1d222b;border-color:#39414e;color:#fff}\n.ytb-btn:active{transform:translateY(1px)}\n.ytb-btn.primary{background:var(--acc);color:#fff;border-color:var(--acc)}\n.ytb-btn.primary:hover{background:#ff4f6a;border-color:#ff4f6a;color:#fff}\n.ytb-btn.danger,.ytb-btn.ytb-danger{background:transparent;color:#ff7d8c;border-color:rgba(255,80,100,.35)}\n.ytb-btn.danger:hover,.ytb-btn.ytb-danger:hover{background:rgba(255,80,100,.12);color:#ffb3bc}\n.ytb-btn.ytb-close{width:28px;height:28px;padding:0;border-radius:6px;font:11px/1 var(--mono);display:inline-flex;align-items:center;justify-content:center}\n.ytb-btn.ytb-sb{font-size:10px;padding:4px 8px}\n.ytb-search{margin:10px 12px 8px;padding:9px 12px;background:var(--panel2);color:var(--ink);border:1px solid var(--line2);border-radius:8px;font:inherit;font-size:12.5px;outline:none}\n.ytb-search::placeholder{color:var(--ink3);font-family:var(--mono);font-size:11.5px}\n.ytb-search:focus{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc-dim)}\n.ytb-main{flex:1 1 0;min-height:0;display:flex;overflow:hidden}\n.ytb-nav{width:176px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;padding:8px 6px;border-right:1px solid var(--line);background:var(--panel2);overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2c313b transparent}\n.ytb-nav-item{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 9px;border:0;border-left:2px solid transparent;border-radius:6px;background:transparent;color:var(--ink2);font:550 11.5px/1.2 "Inter","Roboto",system-ui,sans-serif;cursor:pointer;text-align:left;transition:background .1s,color .1s}\n.ytb-nav-item:hover{color:var(--ink);background:rgba(255,255,255,.03)}\n.ytb-nav-item.active{color:#fff;background:var(--acc-dim);border-left-color:var(--acc)}\n.ytb-nav-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.ytb-nav-count{font:10px/1.4 var(--mono);color:var(--ink3);font-variant-numeric:tabular-nums}\n.ytb-nav-item.active .ytb-nav-count{color:#ffd0d8}\n.ytb-nav-sep{height:1px;background:var(--line);margin:6px 4px}\n.ytb-body{flex:1 1 0;min-height:0;min-width:0;overflow-y:auto;padding:8px 0 10px;scrollbar-width:thin;scrollbar-color:#2c313b transparent}\n.ytb-body::-webkit-scrollbar{width:8px}\n.ytb-body::-webkit-scrollbar-thumb{background:#2c313b;border-radius:4px}\n.ytb-core{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px 12px 10px;margin-bottom:4px;border-bottom:1px solid var(--line)}\n.ytb-corecell{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px}\n.ytb-corecell:hover{border-color:var(--line2)}\n.ytb-corelbl{font:550 11.5px/1.2 "Inter","Roboto",system-ui,sans-serif;color:var(--ink)}\n.ytb-cat-page{display:flex;flex-direction:column;gap:3px;padding:2px 10px 2px}\n.ytb-card{margin:0;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-left:2px solid transparent;border-radius:8px;transition:border-color .12s,background .12s;position:relative}\n.ytb-card:hover{border-color:var(--line2);background:var(--panel3)}\n.ytb-card.on{border-left-color:var(--acc)}\n.ytb-head{display:flex;align-items:center;justify-content:space-between;gap:10px}\n.ytb-name{font-size:13px;font-weight:600;color:var(--ink);flex:0 1 auto;min-width:0}\n.ytb-key{flex:1;min-width:0;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font:10px/1.4 var(--mono);color:var(--ink3);background:transparent;border:0;padding:1px 2px;cursor:pointer;border-radius:3px}\n.ytb-key:hover{color:var(--acc);background:rgba(255,255,255,.03)}\n.ytb-sum{font-size:11.5px;color:var(--ink2);margin-top:3px;line-height:1.4}\n.ytp-settings{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:7px}\n.ytb-sub{display:flex;flex-direction:column;gap:4px;margin-top:4px}\n.ytb-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:28px}\n.ytb-col{display:flex;flex-direction:column;gap:5px}\n.ytb-rowb{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}\n.ytb-rowb .ytb-btn{flex:1;min-width:80px}\n.ytb-lbl{font-size:12px;color:var(--ink);flex:1;min-width:0}\n.ytb-sw{position:relative;width:34px;height:18px;flex-shrink:0;cursor:pointer}\n.ytb-sw input{position:absolute;opacity:0;width:0;height:0}\n.ytb-track{position:absolute;inset:0;border-radius:5px;background:#22262e;transition:background .15s;border:1px solid #2b313b}\n.ytb-knob{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:3px;background:#7d8590;transition:transform .15s cubic-bezier(.4,0,.2,1),background .15s}\n.ytb-sw input:checked~.ytb-track{background:var(--acc);border-color:var(--acc)}\n.ytb-sw input:checked~.ytb-knob{transform:translateX(16px);background:#fff}\n.ytb-sel{background:var(--panel3);color:var(--ink);border:1px solid var(--line2);border-radius:5px;font:11px var(--mono);padding:4px 7px;outline:none;max-width:150px;transition:border-color .12s}\n.ytb-sel:focus{border-color:var(--acc)}\n.ytb-sel option{background:#12151b;color:var(--ink)}\n.ytb-rng{display:flex;align-items:center;gap:8px;flex:1;max-width:60%}\n.ytb-rng input[type=range]{flex:1;min-width:70px;accent-color:var(--acc);height:2px;cursor:pointer}\n.ytb-rngv{min-width:48px;text-align:right;color:var(--ink2);font:10px var(--mono);font-variant-numeric:tabular-nums}\n.ytb-inp{background:var(--panel3);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:6px 9px;font:inherit;font-size:11.5px;outline:none;width:100%;transition:border-color .12s}\n.ytb-inp:focus{border-color:var(--acc)}\n.ytb-ta{background:var(--panel3);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:7px 9px;font:10.5px/1.5 var(--mono);outline:none;width:100%;min-height:64px;resize:vertical;transition:border-color .12s}\n.ytb-ta:focus{border-color:var(--acc)}\n.ytb-foot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--line);background:var(--panel2);flex-wrap:wrap}\n.ytb-foot .ytb-btn{flex:1;min-width:90px}\n.ytb-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--panel2)}\n.ytb-tab{flex:1;padding:8px 6px;background:transparent;border:0;color:var(--ink2);font:600 10.5px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:color .12s,border-color .12s}\n.ytb-tab:hover{color:var(--ink)}\n.ytb-tab.active{color:var(--acc);border-bottom-color:var(--acc)}\n.ytb-tabpanel{display:none;flex-direction:column;gap:6px;padding:4px 0 8px}\n.ytb-tabpanel.active{display:flex}\n.ytb-section-hdr{font:600 10px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);padding:12px 12px 5px;display:flex;align-items:center;gap:8px}\n.ytb-section-hdr::after{content:"";flex:1;height:1px;background:var(--line)}\n.ytb-meter{height:6px;background:var(--panel3);border-radius:3px;overflow:hidden;position:relative}\n.ytb-meter-fill{height:100%;background:var(--acc);border-radius:3px;transition:width .3s}\n.ytb-meter-fill.ok{background:#37c26b}\n.ytb-meter-fill.warn{background:#f2b134}\n.ytb-meter-fill.crit{background:#ff3d5a}\n.ytp-kbd{font:9.5px var(--mono);background:var(--panel3);border:1px solid var(--line2);border-bottom-width:2px;border-radius:3px;padding:2px 5px;color:var(--ink);display:inline-block}\n.ytb-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;background:var(--acc-dim);color:#ff8fa1;font:600 10px/1 var(--mono);border:1px solid rgba(255,61,90,.3)}\n.ytb-chip.neutral{background:var(--panel3);color:var(--ink2);border-color:var(--line2)}\n.ytb-divider{height:1px;background:var(--line);margin:7px 0}\n.ytb-cat-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-right:6px}\n@media (max-width:640px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;max-height:calc(100vh - 16px)}.ytb-main{flex-direction:column}.ytb-nav{width:100%;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid var(--line);padding:6px}.ytb-nav-item{white-space:nowrap}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n@media (prefers-reduced-motion:reduce){.ytb-dash,.ytb-card,.ytb-btn,.ytb-knob{transition:none!important}}\n\n.ytb-hcard{display:flex;gap:10px;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.05);border-radius:10px;margin-top:6px;transition:background .15s}\n.ytb-hcard:hover{background:rgba(255,255,255,.07)}\n.ytb-hcard.done{opacity:.6}\n.ytb-hthumb{width:88px;height:50px;min-width:88px;border-radius:7px;background:#1a1c22 center/cover no-repeat;position:relative;flex-shrink:0;overflow:hidden;border:1px solid rgba(255,255,255,.06)}\n.ytb-hbadge{position:absolute;bottom:3px;right:3px;background:rgba(0,0,0,.85);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px}\n.ytb-hbadge.done{background:rgba(0,160,50,.85)}\n.ytb-hbadge.res{background:rgba(255,61,127,.85)}\n.ytb-hinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}\n.ytb-htitle{font-size:11.5px;font-weight:600;color:#e5e7ed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hchan{font-size:10px;color:#7a8290;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hmeta{font-size:10px;color:#5b6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hpt{height:3px;background:rgba(255,255,255,.08);border-radius:3px;margin:3px 0;overflow:hidden}\n.ytb-hpf{height:100%;background:linear-gradient(90deg,#ff0033,#ff3d7f);border-radius:3px}\n.ytb-hpf.done{background:linear-gradient(90deg,#0a6,#4caf50)}\n.ytb-hacts{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}\n.ytb-hist-loading,.ytb-hist-empty{padding:20px;text-align:center;color:#5b6270;font-size:11.5px}\n.ytb-hist-panel{display:flex;flex-direction:column;gap:8px;margin-top:6px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:12px}\n.ytb-hist-toolbar{display:flex;gap:6px;flex-wrap:wrap}\n.ytb-hist-search{flex:1;min-width:120px;background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:6px 10px;font:inherit;font-size:12px;outline:none}\n.ytb-hist-search:focus{border-color:rgba(255,61,127,.55)}\n.ytb-hist-list{display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;scrollbar-width:thin;padding-right:2px}\n.ytb-hist-loadmore{margin-top:0!important;background:rgba(255,255,255,.04)!important}\n#ytb-extra-topbar{position:fixed;left:0;top:0;height:3px;width:0;background:linear-gradient(90deg,#ff0033,#ff3d7f);z-index:2147483642;box-shadow:0 1px 10px rgba(255,61,127,.6);pointer-events:none}\n#ytb-extra-remain,#ytb-extra-clock,#ytb-extra-endwarn{position:fixed;right:12px;bottom:58px;z-index:2147483636;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:5px 10px;font:11px/1.2 ui-monospace,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);pointer-events:none;}\n#ytb-extra-clock{bottom:84px;color:#8ee}\n#ytb-extra-endwarn{left:50%;right:auto;bottom:120px;transform:translateX(-50%);opacity:0;transition:opacity .2s;color:#ffd166}\n#ytb-extra-endwarn.show{opacity:1}\n.ytb-extra-num{position:absolute;left:5px;top:5px;z-index:5;background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border-radius:99px;min-width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 11px system-ui;box-shadow:0 2px 6px rgba(255,0,51,.4)}\n.ytb-extra-long{box-shadow:inset 3px 0 0 #8b5cf6!important}\n.ytb-extra-short{box-shadow:inset 3px 0 0 #22c55e!important}\n.ytb-extra-watched-dim{opacity:.45!important;filter:saturate(.6)!important}\n.ytb-extra-watched-hide,.ytb-extra-live,.ytb-extra-premiere{display:none!important}\n#ytb-extra-notes{position:fixed;right:18px;bottom:18px;z-index:2147483646;width:min(360px,calc(100vw - 36px));background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:12px;font:12px system-ui;}\n.ytb-extra-notes-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n.ytb-extra-notes-head button{background:none;border:0;color:#aaa;font-size:18px;cursor:pointer}\n#ytb-extra-notes textarea{width:100%;min-height:140px;background:rgba(255,255,255,.06);color:#eee;border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:6px;font:inherit;resize:vertical}\n.ytb-extra-notes-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font:10.5px ui-monospace,monospace;color:#777}\n.ytb-extra-notes-foot button{background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border:0;border-radius:5px;padding:4px 10px;cursor:pointer;font:600 11px system-ui}\n.ytb-toast,.ytb-t-info,.ytb-t-success,.ytb-t-error{position:fixed;left:50%;top:12px;transform:translateX(-50%) translateY(-10px);z-index:2147483647;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:10px 18px;font:12px/1.4 system-ui;font-style:normal;opacity:0;transition:opacity .2s,transform .2s;max-width:min(420px,calc(100vw - 32px));}\n.ytb-toast.show,.ytb-t-info.show,.ytb-t-success.show,.ytb-t-error.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.ytb-toast.success,.ytb-t-success{border-color:rgba(76,175,80,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(76,175,80,.22))}\n\n#ytb-resume-overlay.ytb-resume-compact .ytb-fcw-bar{height:3px;margin-top:8px}\n\n#ytb-resume-overlay.ytb-resume-compact .ytb-resume-thumb{width:80px;height:45px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-card{max-width:560px;padding:32px 32px 24px;gap:20px}\n\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-title{font-size:18px;line-height:1.4;margin-top:6px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-meta{font-size:13px;margin-top:8px;line-height:1.5}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-body{font-size:15px;line-height:1.5;margin-top:2px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-btn-primary,#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-btn-secondary{padding:14px 22px;border-radius:99px;font-size:14px;gap:4px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-fcw-bar{height:5px;margin-top:10px;border-radius:99px}\n#ytb-resume-overlay.ytb-resume-detailed .ytb-resume-actions{gap:12px;margin-top:6px}\n#ytb-resume-overlay.ytb-resume-cinema .ytb-resume-card{background:rgba(10,10,12,.7);border:1px solid rgba(255,255,255,.15);box-shadow:0 40px 100px rgba(0,0,0,.8),0 8px 24px rgba(0,0,0,.5);backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%)}\n.ytb-toast.error,.ytb-t-error{border-color:rgba(255,80,80,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(255,80,80,.22))}\n.ytb-toast.info,.ytb-t-info{border-color:rgba(255,61,127,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(255,61,127,.22))}\n.ytb-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.07);background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,0))}\n.ytb-tab{flex:1;padding:10px 6px;background:transparent;border:0;color:#a8b0c0;font:600 11.5px/1 system-ui;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-tab:hover{color:#e8eaf0}\n.ytb-tab.active{color:#ff3d7f;border-bottom-color:#ff3d7f;text-shadow:0 0 8px rgba(255,61,127,.5)}\n\n\n.ytb-section-hdr{font:700 10.5px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;color:#9aa4b6;padding:14px 16px 6px;display:flex;align-items:center;gap:8px;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-section-hdr::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,0))}\n.ytb-meter{height:8px;background:rgba(255,255,255,.06);border-radius:99px;overflow:hidden;position:relative}\n.ytb-meter-fill{height:100%;background:linear-gradient(90deg,#ff0033,#ff3d7f);border-radius:99px;transition:width .3s}\n.ytb-meter-fill.ok{background:linear-gradient(90deg,#4caf50,#8bc34a)}\n.ytb-meter-fill.warn{background:linear-gradient(90deg,#ffc107,#ff9800)}\n.ytb-meter-fill.crit{background:linear-gradient(90deg,#ff5722,#e91e63)}\n.ytp-kbd{font:10px ui-monospace,monospace;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-bottom-width:2px;border-radius:4px;padding:2px 6px;color:#dde;display:inline-block}\n.ytb-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:99px;background:rgba(255,61,127,.12);color:#ff8aa5;font:600 10.5px/1 system-ui;border:1px solid rgba(255,61,127,.25)}\n.ytb-chip.neutral{background:rgba(255,255,255,.05);color:#9aa;border-color:rgba(255,255,255,.1)}\n.ytb-divider{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);margin:8px 0}\n#ytb-resume-overlay{position:absolute;inset:0;z-index:2147483640;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(20,22,28,.6) 0%,rgba(20,22,28,.85) 50%,rgba(20,22,28,.6) 100%);backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);font:14px/1.45 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;color:#fff;opacity:0;transition:opacity .22s ease-out;}\n#ytb-fcw-overlay{position:fixed;right:18px;top:80px;z-index:2147483638;width:min(320px,calc(100vw - 36px));background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.5);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);padding:12px 16px;font:12px/1.4 system-ui;}\n#ytb-comment-search{display:flex;gap:6px;align-items:center;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:6px 10px;margin:8px 0;backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);box-shadow:0 4px 14px rgba(0,0,0,.35);}\n#ytb-comment-search .ytb-cs-input{flex:1;min-width:0;background:rgba(0,0,0,.25);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:5px 8px;font:11.5px system-ui;outline:none;}\n#ytb-comment-search .ytb-cs-count{font-size:11px;color:#9aa;font-variant-numeric:tabular-nums;white-space:nowrap;}\n#ytb-comment-search .ytb-cs-clear{background:rgba(255,255,255,.07);border:0;color:#aaa;width:24px;height:24px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1;}\n#ytb-comment-search .ytb-cs-clear:hover{background:rgba(255,255,255,.13);color:#fff}\n#ytb-chapter-panel .ytb-ch-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,.04);font-size:11.5px;font-weight:600;color:#cdd;}\n#ytb-chapter-panel .ytb-ch-toggle{background:none;border:0;color:#888;cursor:pointer;font-size:11px;padding:0 4px}\n#ytb-chapter-panel .ytb-ch-toggle:hover{color:#fff}\n#ytb-chapter-panel .ytb-ch-list{max-height:340px;overflow-y:auto;scrollbar-width:thin}\n#ytb-chapter-panel .ytb-ch-row{display:flex;gap:10px;padding:6px 12px;cursor:pointer;border-top:1px solid rgba(255,255,255,.03);transition:background .1s}\n#ytb-chapter-panel .ytb-ch-row:hover{background:rgba(255,255,255,.05)}\n#ytb-chapter-panel .ytb-ch-t{flex:0 0 auto;color:#5fc;font-variant-numeric:tabular-nums;font-size:11.5px;min-width:54px}\n#ytb-chapter-panel .ytb-ch-title{flex:1;min-width:0;font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-chapter-panel .ytb-ch-row.current{background:rgba(255,61,127,.14)}\n#ytb-chapter-panel .ytb-ch-row.current .ytb-ch-t{color:#ff3d7f;font-weight:600}\n#ytb-chapter-panel .ytb-ch-row.current .ytb-ch-title{color:#fff;font-weight:600}\n#ytb-extra-notes .ytb-extra-notes-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n#ytb-extra-notes .ytb-extra-notes-head button{background:none;border:0;color:#aaa;font-size:18px;cursor:pointer}\n#ytb-extra-notes textarea{width:100%;min-height:140px;background:rgba(0,0,0,.25);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:8px;font:12px ui-monospace,SFMono-Regular,Consolas,monospace;resize:vertical}\n#ytb-extra-notes .ytb-extra-notes-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font:10.5px ui-monospace,monospace;color:#9aa}\n#ytb-extra-notes .ytb-extra-notes-foot button{background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%);color:#fff;border:0;border-radius:5px;padding:4px 10px;cursor:pointer;font:600 11px system-ui}\n#ytb-fcw-overlay .ytb-fcw-title{flex:1;font-weight:600;color:#fff;font-size:13px}\n#ytb-fcw-overlay .ytb-fcw-sub{font-size:11px;color:#9aa;margin-top:4px}\n#ytb-fcw-overlay .ytb-fcw-bar{height:4px;background:rgba(255,255,255,.08);border-radius:3px;margin-top:6px;overflow:hidden}\n#ytb-fcw-overlay .ytb-fcw-stats{font-size:11px;color:#aaa;margin-top:4px}\n#ytb-fcw-overlay .ytb-fcw-btn{background:rgba(255,255,255,.07);border:0;border-radius:5px;color:#ddd;padding:6px 12px;cursor:pointer;font:600 11px system-ui}\n@media (max-width:540px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;max-height:calc(100vh - 16px)}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n@media (prefers-reduced-motion:reduce){.ytb-dash,.ytb-card,.ytb-btn,.ytb-knob{transition:none!important}}\n\n\n#ytb-extra-endwarn{left:50%;right:auto;bottom:120px;transform:translateX(-50%);opacity:0;transition:opacity .15s;color:#ffd166}\n\n\n.ytb-extra-comment-clamp{max-height:150px;overflow:hidden;display:block}\n.ytb-extra-expand-comment{margin-top:4px;border:0;border-radius:999px;background:rgba(62,166,255,.14);color:#3ea6ff;padding:3px 8px;font:700 11px system-ui;cursor:pointer}\n#ytb-sb-hud{position:fixed;left:10px;bottom:36px;z-index:2147483635;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:5px 12px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);}\n#ytb-sb-ov{position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483639;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:8px 18px;font:12px system-ui;backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);box-shadow:0 10px 30px rgba(0,0,0,.5);}\n#ytb-stats{position:fixed;top:60px;right:8px;z-index:2147483637;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;padding:6px 10px;line-height:1.5;max-width:380px;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);}\n#ytb-diag{position:fixed;bottom:0;left:0;width:380px;max-height:200px;overflow:auto;z-index:2147483647;background:rgba(20,22,28,.55);color:#cdd;border:1px solid rgba(255,255,255,.12);border-radius:14px 14px 0 0;border-bottom:none;border-left:none;border-right:none;font:11px ui-monospace,SFMono-Regular,Consolas,monospace;padding:8px;backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);box-shadow:0 -8px 24px rgba(0,0,0,.4);}\n.ytb-sb-mark{pointer-events:none}\nbody.ytb-silent #ytb-toast,body.ytb-silent #ytb-sb-hud,body.ytb-silent #ytb-sb-ov,body.ytb-silent #ytb-stats,body.ytb-silent #ytb-diag,body.ytb-silent #ytb-cinema,body.ytb-silent #ytp-ambient,body.ytb-silent .ytb-sb-mark{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}\n#ytb-resume-card{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:2147483647;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:14px 18px;font:13px/1.45 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;min-width:300px;max-width:min(92%,520px);opacity:0;transform:translateX(-50%) translateY(8px);transition:opacity .2s ease-out,transform .2s ease-out;}\n@keyframes ytbResIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}\nbody.ytb-silent #ytb-resume-card{display:none!important}\n#ytb-chapter-panel{margin:8px 0 12px;background:rgba(20,22,28,.45);color:#e8e8e8;border:1px solid rgba(255,255,255,.1);border-radius:12px;overflow:hidden;font:13px/1.45 system-ui;backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);box-shadow:0 4px 16px rgba(0,0,0,.3);}\n.ytb-ch-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,.03);font-size:11.5px;font-weight:600;color:#bbb;text-transform:uppercase;letter-spacing:.05em}\n.ytb-ch-toggle{background:none;border:0;color:#888;cursor:pointer;font-size:11px;padding:0 4px}\n.ytb-ch-toggle:hover{color:#fff}\n.ytb-ch-list{max-height:340px;overflow-y:auto;scrollbar-width:thin}\n.ytb-ch-row{display:flex;gap:10px;padding:6px 12px;cursor:pointer;border-top:1px solid rgba(255,255,255,.03);transition:background .1s}\n.ytb-ch-row:hover{background:rgba(255,255,255,.05)}\n.ytb-ch-t{flex:0 0 auto;color:#5fc;font-variant-numeric:tabular-nums;font-size:11.5px;min-width:54px}\n.ytb-ch-title{flex:1;min-width:0;font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-comment-search{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;margin:0 0 12px;font:13px system-ui}\n.ytb-cs-input{flex:1;min-width:0;background:rgba(0,0,0,.4);color:#e8e8e8;border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:6px 10px;font:inherit;font-size:13px;outline:none}\n.ytb-cs-input:focus{border-color:#3ea6ff}\n.ytb-cs-count{font-size:11px;color:#888;font-variant-numeric:tabular-nums;white-space:nowrap}\n.ytb-cs-clear{background:rgba(255,255,255,.07);border:0;color:#aaa;width:24px;height:24px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center}\n.ytb-cs-clear:hover{background:rgba(255,255,255,.13);color:#fff}\n.ytb-elem-sec-title{font-size:10.5px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.07em;margin:10px 0 4px;padding-top:6px;border-top:1px solid rgba(255,255,255,.06)}\n.ytb-net-panel{display:flex;flex-direction:column;gap:8px;margin-top:6px}\n.ytb-net-cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}\n.ytb-net-card{background:rgba(159,255,255,.05);border:1px solid rgba(159,255,255,.12);border-radius:7px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}\n.ytb-net-card-label{font-size:10px;color:#9ff;text-transform:uppercase;letter-spacing:.08em;font-weight:700}\n.ytb-net-card-value{font-size:15px;color:#eee;font-weight:700;font-variant-numeric:tabular-nums}\n.ytb-net-card-sub{font-size:10px;color:#888}\n.ytb-net-session{font:11px ui-monospace,monospace;color:#9ff;background:rgba(255,255,255,.03);border-radius:5px;padding:5px 8px}\n.ytb-net-legend{display:flex;gap:14px;justify-content:flex-end;padding:0 4px;margin-top:2px}\n.ytb-net-legend-item{display:inline-flex;align-items:center;gap:5px;font:11px/1.2 system-ui;color:#cfcfcf}\n.ytb-net-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}\n.ytb-net-swatch-dn{background:linear-gradient(180deg,#4dd0e1 0%,#0288d1 100%)}\n.ytb-net-swatch-up{background:linear-gradient(180deg,#ff8a65 0%,#c62828 100%)}\n.ytb-net-chart{display:flex;align-items:flex-end;gap:2px;height:120px;padding:6px 4px;background:rgba(0,0,0,.35);border-radius:6px;border:1px solid rgba(255,255,255,.06);position:relative;overflow:hidden}\n.ytb-net-chart::before{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(255,255,255,.06);pointer-events:none}\n.ytb-net-bar{flex:1;min-width:2px;display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative;cursor:default;transition:opacity .12s}\n.ytb-net-bar:hover{opacity:.85}\n.ytb-net-bar-dn{background:linear-gradient(180deg,#4dd0e1 0%,#0288d1 100%);border-bottom-left-radius:2px;border-bottom-right-radius:2px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18);transition:filter .12s}\n.ytb-net-bar-up{background:linear-gradient(180deg,#ff8a65 0%,#c62828 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.22);border-top-left-radius:2px;border-top-right-radius:2px;transition:filter .12s}\n.ytb-net-bar:hover .ytb-net-bar-dn,.ytb-net-bar:hover .ytb-net-bar-up{filter:brightness(1.25) saturate(1.2)}\n.ytb-net-card:nth-child(1){background:rgba(159,255,255,.06);border-color:rgba(159,255,255,.18)}\n.ytb-net-card:nth-child(1) .ytb-net-card-label{color:#9ff}\n.ytb-net-card:nth-child(2){background:rgba(2,136,209,.10);border-color:rgba(77,208,225,.28)}\n.ytb-net-card:nth-child(2) .ytb-net-card-label,.ytb-net-card:nth-child(2) .ytb-net-card-value{color:#4dd0e1}\n.ytb-net-card:nth-child(3){background:rgba(198,40,40,.10);border-color:rgba(255,138,101,.28)}\n.ytb-net-card:nth-child(3) .ytb-net-card-label,.ytb-net-card:nth-child(3) .ytb-net-card-value{color:#ff8a65}\n.ytb-net-axis{display:flex;justify-content:space-between;font:10px ui-monospace,monospace;color:#666;padding:0 4px}\n.ytb-net-hosts{display:flex;flex-direction:column;gap:2px;background:rgba(255,255,255,.025);border-radius:6px;padding:6px 8px}\n.ytb-net-host-row{display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}\n.ytb-net-host-row:last-child{border-bottom:0}\n.ytb-net-host-name{color:#ddd;font-family:ui-monospace,monospace;font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}\n.ytb-net-host-bytes{color:#9ff;font-variant-numeric:tabular-nums;flex-shrink:0;margin-left:8px}\n.ytb-net-budget{background:rgba(255,255,255,.025);border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:5px}\n.ytb-net-budget-bar{height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}\n.ytb-net-budget-fill{height:100%;background:linear-gradient(90deg,#4caf50,#8bc34a);border-radius:4px;transition:width .3s}\n.ytb-net-budget-fill.warn{background:linear-gradient(90deg,#ffc107,#ff9800)}\n.ytb-net-budget-fill.crit{background:linear-gradient(90deg,#ff5722,#e91e63)}\n.ytb-net-budget-fill.over{background:linear-gradient(90deg,#e53935,#b71c1c);animation:ytbBudgetPulse 1.4s ease-in-out infinite}\n@keyframes ytbBudgetPulse{0%,100%{opacity:1}50%{opacity:.55}}\n.ytb-net-budget-detail{font:11px ui-monospace,monospace;color:#ddd;font-variant-numeric:tabular-nums}\n.ytb-net-qualities{background:rgba(255,255,255,.025);border-radius:6px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}\n.ytb-net-q-row{display:grid;grid-template-columns:64px 1fr 110px;gap:8px;align-items:center}\n.ytb-net-q-lbl{color:#fff;font:700 10px/1 system-ui;text-align:center;padding:3px 4px;border-radius:3px;letter-spacing:.04em}\n.ytb-net-q-track{height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}\n.ytb-net-q-fill{height:100%;border-radius:4px;transition:width .25s}\n.ytb-net-q-bytes{font:10.5px ui-monospace,monospace;color:#ccc;text-align:right;font-variant-numeric:tabular-nums}\n.ytb-perf-panel{display:flex;flex-direction:column;gap:6px;margin-top:6px}\n.ytb-perf-mem{font:11px ui-monospace,monospace;color:#9ff;background:rgba(255,255,255,.03);border-radius:5px;padding:5px 8px}\n.ytb-perf-membar{height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden}\n.ytb-perf-memfill{height:100%;background:#4caf50;border-radius:3px;transition:width .3s,background .3s}\n.ytb-perf-state{font:10.5px ui-monospace,monospace;color:#aaa;padding:3px 0}\n.ytb-perf-table{display:flex;flex-direction:column;background:rgba(255,255,255,.02);border-radius:5px;overflow:hidden;font:10.5px ui-monospace,monospace}\n.ytb-perf-row{display:grid;grid-template-columns:1.4fr .5fr .7fr .7fr .7fr;padding:3px 8px;gap:6px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center}\n.ytb-perf-hdr{font-weight:700;color:#9ff;background:rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.1)}\n.ytb-perf-row .ytb-perf-c1{color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-perf-row .ytb-perf-c2,.ytb-perf-row .ytb-perf-c3,.ytb-perf-row .ytb-perf-c4,.ytb-perf-row .ytb-perf-c5{text-align:right;font-variant-numeric:tabular-nums;color:#ccc}\n.ytb-sbsub-panel{display:flex;flex-direction:column;gap:6px}\n.ytb-sbsub-status{font:11px ui-monospace,monospace;background:rgba(255,255,255,.03);border-radius:5px;padding:6px 8px;color:#888}\n.ytb-hk-row{display:grid;grid-template-columns:1fr 160px 30px;gap:6px;align-items:center;padding:3px 0}\n.ytb-hk-lbl{font-size:12px;color:#ddd}\n.ytb-hk-key{font:11px ui-monospace,monospace;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:5px 8px;color:#9ff;cursor:pointer;text-align:center}\n.ytb-hk-key.listening{background:rgba(200,0,0,.2);border-color:#c00;color:#fff;animation:ytbHkBlink 1s linear infinite}\n.ytb-hk-key.empty{color:#666;font-style:italic}\n@keyframes ytbHkBlink{50%{opacity:.5}}\n.ytb-hk-clr{background:rgba(255,255,255,.05);border:0;border-radius:4px;color:#888;cursor:pointer;font-size:14px;line-height:1;padding:0}\n.ytb-hk-clr:hover{background:rgba(200,0,0,.2);color:#fff}\n.ytb-stop-btn{color:#fff!important;opacity:.9!important;display:inline-flex!important;align-items:center!important;justify-content:center!important}\n.ytb-stop-btn:hover{opacity:1!important;color:#ff5252!important}.ytb-drop-box{position:fixed;z-index:2147483635;padding:4px 8px;background:rgba(20,22,28,.78);color:#ff8a96;border:1px solid rgba(255,138,150,.28);border-radius:6px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:80px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.35);transition:color .2s}\n.ytb-drop-box:hover{opacity:.85}\n.ytb-vstats-box{position:fixed;z-index:2147483635;padding:6px 10px;background:rgba(20,22,28,.82);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:10.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:200px;box-shadow:0 6px 20px rgba(0,0,0,.45)}\n.ytb-vstats-box canvas{display:block;margin-top:4px;width:100%;height:24px;background:rgba(0,0,0,.35);border-radius:3px}\n.ytb-stop-btn svg{width:22px;height:22px;pointer-events:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.55))}.ytb-fps-box{position:fixed;z-index:2147483635;padding:3px 7px;background:rgba(20,22,28,.78);color:#9ff;border:1px solid rgba(159,255,255,.28);border-radius:6px;font:11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:54px;text-align:center;transition:opacity .2s;box-shadow:0 4px 12px rgba(0,0,0,.35)}\n.ytb-fps-box:hover{opacity:.85}\n.ytb-buf-box{position:fixed;z-index:2147483635;left:8px;bottom:48px;padding:6px 10px;background:rgba(20,22,28,.78);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);min-width:160px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.4)}\n.ytb-buf-bar{height:4px;background:rgba(255,255,255,.12);border-radius:3px;margin-top:4px;overflow:hidden}\n.ytb-buf-fill{height:100%;width:0;background:#4caf50;border-radius:3px;transition:width .3s,background .3s}\n@media (max-width:500px){.ytb-net-cards{grid-template-columns:1fr 1fr}}\n.ytb-elem-status{font-size:11px;color:#888;padding:2px 0 6px;font-variant-numeric:tabular-nums}\n.ytb-preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}\n.ytb-preset-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:7px;padding:8px 10px;cursor:pointer;transition:background .12s,border-color .12s}\n.ytb-preset-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}\n.ytb-preset-card.active{background:rgba(200,0,0,.12);border-color:rgba(200,0,0,.35)}\n.ytb-preset-name{font-size:12px;font-weight:600;color:#e0e0e0;margin-bottom:2px}\n.ytb-preset-desc{font-size:10px;color:#888;line-height:1.35}\n.ytb-elem-list{display:flex;flex-direction:column;gap:1px;max-height:380px;overflow-y:auto;background:rgba(255,255,255,.015);border-radius:6px;padding:3px;scrollbar-width:thin}\n.ytb-elem-group-hdr{font:600 10px/1 system-ui;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:8px 8px 3px;margin-top:3px;border-top:1px solid rgba(255,255,255,.04)}\n.ytb-elem-group-hdr:first-child{border-top:0;margin-top:0}\n.ytb-elem-row{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:4px;cursor:default;transition:background .1s}\n.ytb-elem-row:hover{background:rgba(62,166,255,.1)}\n.ytb-elem-row.on{background:rgba(255,80,80,.07)}\n.ytb-elem-row.nomatch{opacity:.4}\n.ytb-elem-cb{margin:0;cursor:pointer;width:14px;height:14px;accent-color:#c00;flex-shrink:0}\n.ytb-elem-name{flex:1;min-width:0;font-size:11.5px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-elem-match{font:10px ui-monospace,monospace;color:#555;flex-shrink:0;font-variant-numeric:tabular-nums}\n#ytb-elem-hover{animation:ytbElemFade .1s ease-out}\n@keyframes ytbElemFade{from{opacity:0}to{opacity:1}}\n.ytb-hist-note{font-size:10px;color:#666;line-height:1.5;margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.02);border-radius:4px}\n.ytb-geo-sel{position:relative;width:100%}\n.ytb-geo-input{width:100%}\n.ytb-geo-dd{position:absolute;top:100%;left:0;right:0;z-index:2147483646;max-height:260px;overflow-y:auto;background:rgba(18,20,26,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;margin-top:4px;box-shadow:0 18px 40px rgba(0,0,0,.6),0 4px 12px rgba(0,0,0,.4);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);scrollbar-width:thin}\n.ytb-geo-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:11.5px;color:#ddd;cursor:pointer;user-select:none}\n.ytb-geo-row:hover,.ytb-geo-row.hot{background:rgba(200,0,0,.18);color:#fff}\n.ytb-geo-row.selected{background:rgba(200,0,0,.32);color:#fff;font-weight:600}\n.ytb-geo-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-geo-code{flex-shrink:0;font-size:10px;color:#888;font-variant:tabular-nums;text-transform:uppercase}\n.ytb-geo-empty{padding:10px;text-align:center;color:#666;font-size:11px}\n.ytb-geo-status{background:rgba(255,255,255,.04);border-radius:5px;padding:6px 9px;font:11px ui-monospace,monospace;color:#5fc;margin:6px 0}\n.ytb-theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:5px;margin:4px 0}\n.ytb-theme-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:7px;padding:5px;cursor:pointer;text-align:center;transition:border-color .12s,background .12s;contain:content;content-visibility:auto;contain-intrinsic-size:53px}\n.ytb-theme-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}\n.ytb-theme-card.active{border-color:#c00;background:rgba(200,0,0,.1)}\n.ytb-theme-card.reset{padding:10px;margin-top:6px}\n.ytb-theme-swatch{width:100%;height:28px;border-radius:4px;border:1px solid rgba(255,255,255,.1);margin-bottom:4px;display:flex;align-items:flex-end;justify-content:flex-end;padding:3px}\n.ytb-theme-accent{width:9px;height:9px;border-radius:50%}\n.ytb-theme-name{font-size:9.5px;color:#ccc;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-toggle-pill{font:700 10px system-ui;padding:3px 8px;border-radius:999px;letter-spacing:.02em;text-transform:uppercase;display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:18px;transition:background .15s,color .15s}\n.ytb-ivs-mark:hover{background:rgba(255,61,127,1)!important;z-index:2}\n@media (max-width:500px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;max-height:calc(100vh - 16px)}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n#ytb-palette{display:none;flex-direction:column}\n#ytb-palette .ytb-palette-input{appearance:none;background:transparent;color:#fff;border:0;border-bottom:1px solid rgba(255,255,255,.12);padding:14px 18px;font:600 15px/1.2 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;outline:none;letter-spacing:.01em}\n#ytb-palette .ytb-palette-input::placeholder{color:#7a8290;font-weight:400}\n#ytb-palette .ytb-palette-results{flex:1;min-height:0;overflow-y:auto;padding:4px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n#ytb-palette .ytb-palette-results::-webkit-scrollbar{width:6px}\n#ytb-palette .ytb-palette-results::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n#ytb-palette .ytb-palette-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:background .1s}\n#ytb-palette .ytb-palette-row.active,#ytb-palette .ytb-palette-row:hover{background:rgba(255,61,127,.18)}\n#ytb-palette .ytb-palette-lbl{font-size:13.5px;color:#f0f2f7;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-palette .ytb-palette-hint{font-size:11px;color:#9aa;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap}\n#ytb-palette .ytb-palette-empty{padding:24px 18px;color:#7a8290;font-size:12.5px;text-align:center;font-style:italic}\n#ytb-palette .ytb-palette-foot{padding:8px 14px;border-top:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.2);color:#9aa;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}\n#ytb-cheat{display:none;flex-direction:column}\n#ytb-cheat .ytb-cheat-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0))}\n#ytb-cheat .ytb-cheat-title{font:700 15px/1 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;color:#fff;letter-spacing:.02em}\n#ytb-cheat .ytb-cheat-filter{appearance:none;background:rgba(255,255,255,.05);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;margin:10px 14px 4px;font:inherit;font-size:13px;outline:none;flex-shrink:0}\n#ytb-cheat .ytb-cheat-filter::placeholder{color:#7a8290}\n#ytb-cheat .ytb-cheat-filter:focus{border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n#ytb-cheat .ytb-cheat-body{flex:1;min-height:0;overflow-y:auto;padding:6px 14px 10px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n#ytb-cheat .ytb-cheat-body::-webkit-scrollbar{width:6px}\n#ytb-cheat .ytb-cheat-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n#ytb-cheat .ytb-cheat-cat{font:700 10.5px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;color:#9aa4b6;padding:10px 0 4px;display:flex;align-items:center;gap:8px}\n#ytb-cheat .ytb-cheat-cat::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,0))}\n#ytb-cheat .ytb-cheat-row{display:grid;grid-template-columns:1fr 110px 1fr;align-items:center;gap:10px;padding:5px 0;font-size:12.5px}\n#ytb-cheat .ytb-cheat-lbl{color:#e5e7ed;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-cheat .ytb-cheat-key{text-align:right}\n#ytb-cheat .ytb-cheat-hint{color:#7a8290;font-size:11px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-cheat .ytb-cheat-foot{padding:8px 14px;border-top:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.2);color:#9aa;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}\n@media (max-width:500px){#ytb-palette,#ytb-cheat{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;transform:translateX(0)!important;max-height:80vh!important}#ytb-cheat .ytb-cheat-row{grid-template-columns:1fr 90px}}\n\n\n/* --- Calm dashboard theme (v1.5.0): light paper, serif accents, hairlines --- */\n.ytb-dash{--card:#fffdf8;--card-hi:#f5f1e8;--card-lo:#efece7;--ok:#4a7d5d;--crit:#b91c1c;--accink:180,83,9;--shadowink:28,25,23;--critink:185,28,28;--acc:#b45309;--acc-dim:rgba(180,83,9,.07);--panel:#faf7f0;--panel2:#fcf9f3;--panel3:#fffdf8;--line:#e7e5e4;--line2:#d6d3d1;--ink:#1c1917;--ink2:#57534e;--ink3:#a8a29e;color:var(--ink);background:var(--panel);border:1px solid var(--line2);border-radius:12px;box-shadow:0 18px 50px rgba(28,25,23,.18),0 2px 8px rgba(28,25,23,.08);font:13px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}\n.ytb-dash .ytb-dhdr{align-items:flex-end;gap:12px;padding:15px 18px 9px;border-bottom:2px solid var(--ink);background:transparent;flex-wrap:wrap}\n.ytb-dash .ytb-dgrip{color:var(--ink3);margin-right:2px;font-size:11px}\n.ytb-dash .ytb-dtitle{font:700 21px/1.1 Georgia,"Times New Roman",serif;letter-spacing:-.01em;color:var(--ink);white-space:nowrap}\n.ytb-dash .ytb-dver{font:italic 11px/1 Georgia,"Times New Roman",serif;color:var(--ink3);background:transparent;border:0;padding:0 0 3px 4px;margin-left:2px;white-space:nowrap;font-style:italic}\n.ytb-dash .ytb-search{flex:1;min-width:150px;margin:0;padding:4px 2px 5px;background:transparent;border:0;border-bottom:1px solid var(--line2);border-radius:0;font:italic 13px Georgia,"Times New Roman",serif;color:var(--ink2)}\n.ytb-dash .ytb-search:focus{border-color:var(--ink);box-shadow:none}\n.ytb-dash .ytb-search::placeholder{color:var(--ink3);font:italic 13px Georgia,"Times New Roman",serif}\n.ytb-dash .ytb-dhbtns{gap:10px;padding-bottom:4px}\n.ytb-dash .ytb-btn{background:none;border:0;border-bottom:1px dotted var(--ink3);border-radius:0;padding:1px 0 2px;color:var(--ink2);font:12px "Segoe UI",system-ui,sans-serif}\n.ytb-dash .ytb-btn:hover{background:none;color:var(--ink);border-bottom:1px solid var(--ink)}\n.ytb-dash .ytb-btn:active{transform:none}\n.ytb-dash .ytb-btn.primary{color:var(--acc);border-bottom-color:var(--acc);font-weight:600}\n.ytb-dash .ytb-btn.primary:hover{background:none;color:var(--acc);border-bottom:1px solid var(--acc)}\n.ytb-dash .ytb-btn.danger,.ytb-dash .ytb-btn.ytb-danger{color:var(--crit);border-bottom-color:rgba(var(--critink),.45)}\n.ytb-dash .ytb-btn.danger:hover,.ytb-dash .ytb-btn.ytb-danger:hover{background:none;color:var(--crit);border-bottom-color:var(--crit)}\n.ytb-dash .ytb-btn.ytb-close{width:auto;height:auto;padding:1px 3px;border-bottom-color:transparent;font:12px/1 ui-monospace,SFMono-Regular,Consolas,monospace}\n.ytb-dash .ytb-btn.ytb-close:hover{background:none;color:var(--ink);border-bottom:1px solid var(--ink)}\n.ytb-dash .ytb-btn.ytb-sb{font-size:10px;padding:0 0 1px}\n.ytb-dash .ytb-main{flex-direction:column}\n.ytb-dash .ytb-nav{width:auto;flex-direction:row;flex-wrap:wrap;gap:5px 14px;padding:10px 18px 9px;border-right:0;border-bottom:1px solid var(--line);background:transparent;overflow:visible}\n.ytb-dash .ytb-nav-item{display:inline-flex;width:auto;gap:5px;align-items:baseline;padding:2px 0;border:0;border-bottom:1px solid transparent;border-radius:0;background:none;color:var(--ink2);font:11px "Segoe UI",system-ui,sans-serif}\n.ytb-dash .ytb-nav-item:hover{background:none;color:var(--ink)}\n.ytb-dash .ytb-nav-item.active{background:none;color:var(--ink);font-weight:700;border-bottom:1px solid var(--ink)}\n.ytb-dash .ytb-nav-count{font:9px "Segoe UI",system-ui,sans-serif;color:var(--acc);font-variant-numeric:tabular-nums}\n.ytb-dash .ytb-nav-item.active .ytb-nav-count{color:var(--acc)}\n.ytb-dash .ytb-nav-sep{display:none}\n.ytb-dash .ytb-body{padding:2px 18px 6px;scrollbar-color:var(--line2) transparent}\n.ytb-dash .ytb-body::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}\n.ytb-dash .ytb-core{display:flex;flex-wrap:wrap;gap:8px 22px;padding:8px 0 10px;margin:0;border-bottom:1px solid var(--line)}\n.ytb-dash .ytb-corecell{background:none;border:0;border-radius:0;padding:0;gap:10px}\n.ytb-dash .ytb-corecell:hover{border-color:transparent}\n.ytb-dash .ytb-corelbl{font:550 12px/1.3 "Segoe UI",system-ui,sans-serif;color:var(--ink2)}\n.ytb-dash .ytb-cat-page{gap:0;padding:0}\n.ytb-dash .ytb-card{padding:7px 2px;margin:0;background:none;border:0;border-bottom:1px solid var(--card-lo);border-radius:0}\n.ytb-dash .ytb-card:hover{background:var(--card-hi);border-color:transparent;border-bottom-color:var(--card-lo)}\n.ytb-dash .ytb-card.on{border-left-color:transparent}\n.ytb-dash .ytb-head{gap:12px}\n.ytb-dash .ytb-name{font:600 12.5px "Segoe UI",system-ui,sans-serif;color:var(--ink)}\n.ytb-dash .ytb-key{margin:0;padding:1px 0;background:none;border:0;border-bottom:1px solid transparent;border-radius:0;font:10.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--acc)}\n.ytb-dash .ytb-key:hover{background:none;color:var(--acc);border-bottom:1px solid var(--acc)}\n.ytb-dash .ytb-sum{font:italic 12px/1.45 Georgia,"Times New Roman",serif;color:var(--ink2);margin-top:2px}\n.ytb-dash .ytp-settings{border-top:1px solid var(--card-lo);padding-top:8px;margin-top:8px}\n.ytb-dash .ytb-lbl{font-size:12px;color:var(--ink);font-family:"Segoe UI",system-ui,sans-serif}\n.ytb-dash .ytb-rowb .ytb-btn{border:1px solid var(--line2);border-radius:6px;padding:4px 8px;background:var(--card);font-size:11px;flex:1}\n.ytb-dash .ytb-rowb .ytb-btn:hover{border-color:var(--ink3);background:var(--card-hi)}\n.ytb-dash .ytb-sw{width:30px;height:17px}\n.ytb-dash .ytb-track{border-radius:999px;background:transparent;border:1px solid var(--line2)}\n.ytb-dash .ytb-knob{top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--ink3)}\n.ytb-dash .ytb-sw input:checked~.ytb-track{background:var(--ink);border-color:var(--ink)}\n.ytb-dash .ytb-sw input:checked~.ytb-knob{transform:translateX(13px);background:var(--panel)}\n.ytb-dash .ytb-sel{background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:6px;font:11px ui-monospace,SFMono-Regular,Consolas,monospace}\n.ytb-dash .ytb-sel:focus{border-color:var(--acc)}\n.ytb-dash .ytb-sel option{background:var(--card);color:var(--ink)}\n.ytb-dash .ytb-inp{background:var(--card);border:1px solid var(--line2);border-radius:6px;color:var(--ink)}\n.ytb-dash .ytb-inp:focus{border-color:var(--acc);box-shadow:none}\n.ytb-dash .ytb-ta{background:var(--card);border:1px solid var(--line2);border-radius:6px;color:var(--ink)}\n.ytb-dash .ytb-ta:focus{border-color:var(--acc)}\n.ytb-dash .ytb-rng input[type=range]{accent-color:var(--ink)}\n.ytb-dash .ytb-rngv{color:var(--ink2)}\n.ytb-dash .ytb-foot{justify-content:flex-end;gap:16px;padding:10px 18px 12px;border-top:1px solid var(--line);background:transparent}\n.ytb-dash .ytb-foot .ytb-btn{flex:0 0 auto;min-width:0}\n.ytb-dash .ytb-tabs{padding:0 18px;border-bottom:1px solid var(--line);background:transparent;gap:12px}\n.ytb-dash .ytb-tab{color:var(--ink3);font:11px "Segoe UI",system-ui,sans-serif;text-transform:none;letter-spacing:.02em;border-bottom:1px solid transparent;text-shadow:none;padding:7px 2px 6px}\n.ytb-dash .ytb-tab:hover{color:var(--ink)}\n.ytb-dash .ytb-tab.active{color:var(--ink);border-bottom-color:var(--ink);text-shadow:none;font-weight:600}\n.ytb-dash .ytb-tabpanel{padding:8px 0}\n.ytb-dash .ytb-section-hdr{font:600 10px/1 "Segoe UI",system-ui,sans-serif;letter-spacing:.08em;color:var(--ink3);text-shadow:none;padding:12px 0 4px}\n.ytb-dash .ytb-section-hdr::after{background:var(--line)}\n.ytb-dash .ytb-meter{height:5px;background:var(--card-lo);border-radius:3px}\n.ytb-dash .ytb-meter-fill{background:var(--ink);border-radius:3px}\n.ytb-dash .ytb-meter-fill.ok{background:var(--ok)}\n.ytb-dash .ytb-meter-fill.warn{background:var(--acc)}\n.ytb-dash .ytb-meter-fill.crit{background:var(--crit)}\n.ytb-dash .ytp-kbd{background:var(--card);border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;color:var(--ink2);font:9.5px ui-monospace,monospace;padding:1px 5px}\n.ytb-dash .ytb-chip{background:rgba(var(--accink),.07);color:var(--acc);border:1px solid rgba(var(--accink),.35);border-radius:999px;font:600 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace}\n.ytb-dash .ytb-chip.neutral{background:var(--card-hi);color:var(--ink2);border:1px solid var(--line2)}\n.ytb-dash .ytb-divider{height:1px;background:var(--line);margin:7px 0}\n.ytb-dash .ytb-cat-dot{border:1px solid var(--line2)}\n.ytb-dash .ytb-dresize{background:linear-gradient(135deg,transparent 0,transparent 50%,var(--line2) 50%,var(--line2) 55%,transparent 55%,transparent 65%,var(--line2) 65%,var(--line2) 70%,transparent 70%,transparent 80%,var(--line2) 80%,var(--line2) 85%,transparent 85%)}\n.ytb-dash .ytb-fp-btn{background:var(--card);border:1px solid var(--line2);color:var(--ink)}\n.ytb-dash .ytb-fp-btn:hover{background:var(--card-hi);border-color:var(--ink3)}\n.ytb-dash .ytb-fp-btn:focus{outline:none;border-color:var(--acc);box-shadow:none}\n.ytb-dash .ytb-fp-arrow{color:var(--ink3)}\n.ytb-dash .ytb-fp-dd{background:var(--card);border:1px solid var(--line2);border-radius:8px;box-shadow:0 14px 30px rgba(var(--shadowink),.16),0 2px 8px rgba(var(--shadowink),.08);backdrop-filter:none;-webkit-backdrop-filter:none}\n.ytb-dash .ytb-fp-search{background:var(--card);border:1px solid var(--line2);color:var(--ink)}\n.ytb-dash .ytb-fp-search::placeholder{color:var(--ink3)}\n.ytb-dash .ytb-fp-search:focus{border-color:var(--acc)}\n.ytb-dash .ytb-fp-item{color:var(--ink)}\n.ytb-dash .ytb-fp-item:hover{background:rgba(var(--accink),.08);color:var(--ink)}\n.ytb-dash .ytb-fp-item.selected{background:rgba(var(--accink),.12);color:var(--ink);font-weight:600}\n.ytb-dash .ytb-cp-native{border:1px solid var(--line2);background:transparent}\n.ytb-dash .ytb-cp-swatch{border:1px solid var(--line2)}\n.ytb-dash .ytb-preset-card{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-preset-card:hover{background:var(--card-hi);border-color:var(--line2)}\n.ytb-dash .ytb-preset-card.active{background:rgba(var(--accink),.08);border-color:rgba(var(--accink),.45)}\n.ytb-dash .ytb-preset-name{color:var(--ink)}\n.ytb-dash .ytb-preset-desc{color:var(--ink3)}\n.ytb-dash .ytb-theme-card{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-theme-card:hover{background:var(--card-hi);border-color:var(--line2)}\n.ytb-dash .ytb-theme-card.active{border-color:var(--acc);background:rgba(var(--accink),.07)}\n.ytb-dash .ytb-theme-swatch{border:1px solid rgba(0,0,0,.08)}\n.ytb-dash .ytb-theme-name{color:var(--ink2)}\n.ytb-dash .ytb-hcard{background:var(--card);border:1px solid var(--line);border-radius:8px}\n.ytb-dash .ytb-hcard:hover{background:var(--card-hi)}\n.ytb-dash .ytb-hthumb{border:1px solid var(--line);background:var(--card-lo) center/cover no-repeat}\n.ytb-dash .ytb-hbadge{background:rgba(var(--shadowink),.82)}\n.ytb-dash .ytb-hbadge.res{background:rgba(var(--accink),.9)}\n.ytb-dash .ytb-htitle{color:var(--ink)}\n.ytb-dash .ytb-hchan{color:var(--ink2)}\n.ytb-dash .ytb-hmeta{color:var(--ink3)}\n.ytb-dash .ytb-hpt{background:var(--card-lo)}\n.ytb-dash .ytb-hpf{background:var(--ink)}\n.ytb-dash .ytb-hpf.done{background:var(--ok)}\n.ytb-dash .ytb-hist-panel{background:transparent;border:1px solid var(--line);border-radius:8px}\n.ytb-dash .ytb-hist-search{background:var(--card);color:var(--ink);border:1px solid var(--line2)}\n.ytb-dash .ytb-hist-search:focus{border-color:var(--acc)}\n.ytb-dash .ytb-hist-loading,.ytb-dash .ytb-hist-empty{color:var(--ink3)}\n.ytb-dash .ytb-hist-list{scrollbar-color:var(--line2) transparent}\n.ytb-dash .ytb-hist-loadmore{background:none!important}\n.ytb-dash .ytb-hist-note{color:var(--ink3);background:var(--card-hi)}\n.ytb-dash .ytb-elem-list{background:transparent;border:1px solid var(--line)}\n.ytb-dash .ytb-elem-group-hdr{color:var(--ink3);border-top:1px solid var(--line)}\n.ytb-dash .ytb-elem-row:hover{background:rgba(var(--accink),.06)}\n.ytb-dash .ytb-elem-row.on{background:rgba(var(--accink),.08)}\n.ytb-dash .ytb-elem-cb{accent-color:var(--ink)}\n.ytb-dash .ytb-elem-name{color:var(--ink2)}\n.ytb-dash .ytb-elem-match{color:var(--ink3)}\n.ytb-dash .ytb-elem-sec-title{color:var(--ink3);border-top:1px solid var(--line)}\n.ytb-dash .ytb-geo-dd{background:var(--card);border:1px solid var(--line2);border-radius:8px;box-shadow:0 14px 30px rgba(var(--shadowink),.16),0 2px 8px rgba(var(--shadowink),.08);backdrop-filter:none;-webkit-backdrop-filter:none}\n.ytb-dash .ytb-geo-row{color:var(--ink2)}\n.ytb-dash .ytb-geo-row:hover,.ytb-dash .ytb-geo-row.hot{background:rgba(var(--accink),.08);color:var(--ink)}\n.ytb-dash .ytb-geo-row.selected{background:rgba(var(--accink),.12);color:var(--ink);font-weight:600}\n.ytb-dash .ytb-geo-code{color:var(--ink3)}\n.ytb-dash .ytb-geo-empty{color:var(--ink3)}\n.ytb-dash .ytb-geo-status{background:var(--card-hi);color:var(--acc)}\n.ytb-dash .ytb-net-card{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-card-label{color:var(--ink3)}\n.ytb-dash .ytb-net-card-value{color:var(--ink)}\n.ytb-dash .ytb-net-card-sub{color:var(--ink3)}\n.ytb-dash .ytb-net-session{background:var(--card-hi);color:var(--acc)}\n.ytb-dash .ytb-net-legend-item{color:var(--ink2)}\n.ytb-dash .ytb-net-chart{background:var(--card-lo);border:1px solid var(--line)}\n.ytb-dash .ytb-net-chart::before{background:rgba(var(--shadowink),.08)}\n.ytb-dash .ytb-net-axis{color:var(--ink3)}\n.ytb-dash .ytb-net-hosts{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-host-row{border-bottom:1px solid var(--card-lo)}\n.ytb-dash .ytb-net-host-name{color:var(--ink2)}\n.ytb-dash .ytb-net-host-bytes{color:var(--acc)}\n.ytb-dash .ytb-net-budget{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-budget-bar{background:var(--card-lo)}\n.ytb-dash .ytb-net-budget-fill{background:var(--ok)}\n.ytb-dash .ytb-net-budget-fill.warn{background:var(--acc)}\n.ytb-dash .ytb-net-budget-fill.crit{background:var(--crit)}\n.ytb-dash .ytb-net-budget-detail{color:var(--ink2)}\n.ytb-dash .ytb-net-qualities{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-q-track{background:var(--card-lo)}\n.ytb-dash .ytb-net-q-bytes{color:var(--ink2)}\n.ytb-dash .ytb-perf-mem{background:var(--card-hi);color:var(--acc)}\n.ytb-dash .ytb-perf-membar{background:var(--card-lo)}\n.ytb-dash .ytb-perf-memfill{background:var(--ok)}\n.ytb-dash .ytb-perf-state{color:var(--ink2)}\n.ytb-dash .ytb-perf-table{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-perf-row{border-bottom:1px solid var(--card-lo)}\n.ytb-dash .ytb-perf-hdr{color:var(--acc);background:var(--card-hi);border-bottom:1px solid var(--line)}\n.ytb-dash .ytb-perf-row .ytb-perf-c1{color:var(--ink2)}\n.ytb-dash .ytb-perf-row .ytb-perf-c2,.ytb-dash .ytb-perf-row .ytb-perf-c3,.ytb-dash .ytb-perf-row .ytb-perf-c4,.ytb-dash .ytb-perf-row .ytb-perf-c5{color:var(--ink2)}\n.ytb-dash .ytb-sbsub-status{background:var(--card-hi);color:var(--ink2)}\n.ytb-dash .ytb-hk-lbl{color:var(--ink2)}\n.ytb-dash .ytb-hk-key{background:var(--card);border:1px solid var(--line2);color:var(--acc)}\n.ytb-dash .ytb-hk-key.listening{background:rgba(var(--critink),.08);border-color:var(--crit);color:var(--crit)}\n.ytb-dash .ytb-hk-key.empty{color:var(--ink3)}\n.ytb-dash .ytb-hk-clr{background:none;color:var(--ink3)}\n.ytb-dash .ytb-hk-clr:hover{background:rgba(var(--critink),.1);color:var(--crit)}\n.ytb-dash .ytb-toggle-pill{background:var(--card-hi);color:var(--ink2)}\n/* --- Dashboard dark mode (v1.8.0): var-driven overrides only --- */\n.ytb-dash.ytb-dark{--acc:#f59e0b;--acc-dim:rgba(245,158,11,.12);--panel:#17181c;--panel2:#1b1d22;--panel3:#212428;--line:#2b2e35;--line2:#3a3e47;--ink:#e8e6e3;--ink2:#b3aaa0;--ink3:#7a7268;--card:#212428;--card-hi:#2a2d34;--card-lo:#30343c;--ok:#4ade80;--crit:#f87171;--accink:245,158,11;--shadowink:0,0,0;--critink:248,113,113;color:var(--ink);background:var(--panel);box-shadow:0 24px 70px rgba(0,0,0,.72),0 4px 16px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);color-scheme:dark}\n.ytb-dash.ytb-dark .ytb-theme-swatch{border:1px solid rgba(255,255,255,.12)}\n.ytb-dash.ytb-dark .ytb-hthumb{background:#101114 center/cover no-repeat}\n.ytb-dash.ytb-dark .ytb-hist-list{scrollbar-color:#3a3e47 transparent}\n';  try {
+            '\n.ytb-fp{position:relative;width:100%}\n.ytb-fp-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:7px 10px;background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:7px;font:inherit;font-size:12px;cursor:pointer;transition:background .15s,border-color .15s;text-align:left}\n.ytb-fp-btn:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.2)}\n.ytb-fp-btn:focus{outline:none;border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n.ytb-fp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.ytb-fp-arrow{color:#8b93a3;font-size:10px;flex-shrink:0}\n.ytb-fp-dd{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;max-height:260px;display:flex;flex-direction:column;background:rgba(18,20,26,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;box-shadow:0 18px 40px rgba(0,0,0,.6),0 4px 12px rgba(0,0,0,.4);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);overflow:hidden;animation:ytbFpFade .12s ease-out}\n.ytb-fp-search{margin:8px 8px 6px;padding:6px 10px;background:rgba(255,255,255,.06);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:6px;font:inherit;font-size:11.5px;outline:none;flex-shrink:0}\n.ytb-fp-search::placeholder{color:#7a8290}\n.ytb-fp-search:focus{border-color:rgba(255,61,127,.55)}\n.ytb-fp-list{overflow-y:auto;flex:1;padding:2px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n.ytb-fp-list::-webkit-scrollbar{width:6px}\n.ytb-fp-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n.ytb-fp-item{padding:6px 10px;border-radius:5px;cursor:pointer;color:#eef;font-size:12px;line-height:1.3;transition:background .1s}\n.ytb-fp-item:hover{background:rgba(255,61,127,.22);color:#fff}\n.ytb-fp-item.selected{background:rgba(255,61,127,.32);font-weight:600}@keyframes ytbFpFade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}\n#ytb-ivs{font-family:\"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif}\n#ytb-ivs .ytb-ivs-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0))}\n#ytb-ivs .ytb-ivs-title{font-size:13px;font-weight:700;letter-spacing:.02em}\n#ytb-ivs .ytb-ivs-close{appearance:none;border:0;background:rgba(255,255,255,.06);color:#dde;width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;font-weight:700;transition:background .12s}\n#ytb-ivs .ytb-ivs-close:hover{background:rgba(255,80,80,.25);color:#fff}\n#ytb-ivs .ytb-ivs-input{margin:10px 14px 4px;padding:8px 12px;background:rgba(255,255,255,.06);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:8px;font:inherit;font-size:13px;outline:none;flex-shrink:0}\n#ytb-ivs .ytb-ivs-input::placeholder{color:#7a8290}\n#ytb-ivs .ytb-ivs-input:focus{border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n#ytb-ivs .ytb-ivs-status{padding:0 14px 6px;font:11px ui-monospace,monospace;color:#8b93a3}\n#ytb-ivs .ytb-ivs-timeline{position:relative;height:8px;margin:0 14px 10px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden;flex-shrink:0}\n#ytb-ivs .ytb-ivs-results{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 10px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.15) transparent}\n#ytb-ivs .ytb-ivs-results::-webkit-scrollbar{width:6px}\n#ytb-ivs .ytb-ivs-results::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}\n#ytb-ivs .ytb-ivs-row{display:flex;align-items:flex-start;gap:10px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background .1s}\n#ytb-ivs .ytb-ivs-row:hover{background:rgba(255,61,127,.18)}\n#ytb-ivs .ytb-ivs-time{flex-shrink:0;font:11px ui-monospace,monospace;color:#ff8a96;background:rgba(255,61,127,.18);padding:2px 6px;border-radius:4px;cursor:pointer}\n#ytb-ivs .ytb-ivs-time:hover{background:rgba(255,61,127,.3);color:#fff}\n#ytb-ivs .ytb-ivs-text{flex:1;min-width:0;font-size:12px;color:#dde;line-height:1.45;word-wrap:break-word;overflow-wrap:break-word}\n#ytb-ivs .ytb-ivs-hl{background:rgba(255,61,127,.45);color:#fff;font-weight:600;padding:0 2px;border-radius:2px}\n#ytb-ivs .ytb-ivs-hint{padding:10px 12px;color:#7a8290;font-size:11.5px;font-style:italic}@keyframes ytbIvsIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}\n\n\n\n\n\n.ytb-cp{display:flex;align-items:center;gap:8px;width:100%}\n.ytb-cp-text{flex:1;min-width:0}\n.ytb-cp-native{width:36px;height:32px;border:1px solid rgba(255,255,255,.15);border-radius:7px;background:transparent;cursor:pointer;padding:2px;flex-shrink:0}\n.ytb-cp-swatch{width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,.18);flex-shrink:0;background:#000}\n.ytb-cp-native::-webkit-color-swatch-wrapper{padding:0}\n.ytb-cp-native::-webkit-color-swatch{border:none;border-radius:5px}\n.ytb-cp-native::-moz-color-swatch{border:none;border-radius:5px}\n\n\n\n\n.ytb-dash,.ytb-dash *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-extra-notes,#ytb-extra-notes *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-toast,#ytb-toast *{font-style:normal;font-variant:normal;box-sizing:border-box}\n\n\n#ytb-sb-hud,#ytb-sb-hud *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-sb-ov,#ytb-sb-ov *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-stats,#ytb-stats *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-diag,#ytb-diag *{font-style:normal;font-variant:normal;box-sizing:border-box}\n#ytb-chapter-panel,#ytb-chapter-panel *{font-style:normal;font-variant:normal;box-sizing:border-box}\n.ytb-dash{position:fixed;top:24px;right:24px;width:830px;height:auto;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);z-index:2147483641;--acc:#ff3d5a;--panel:#0d0f14;--panel2:#12151b;--line:#21252d;--line2:#2b313b;--ink:#e8ebf1;--ink2:#a3aab8;--ink3:#697180;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.72),0 4px 16px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);font:13px/1.45 "Inter","Roboto",system-ui,-apple-system,sans-serif;font-style:normal;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;opacity:0;transition:opacity .12s ease-out;overflow:hidden;resize:none;contain:layout style paint}\n.ytb-dash.open{opacity:1}\n.ytb-dash.dragging{transition:none!important;cursor:grabbing!important;user-select:none;-webkit-user-select:none}\n.ytb-dash.dragging *{pointer-events:none!important;cursor:grabbing!important}\n.ytb-dash.resizing{transition:none;user-select:none}\n.ytb-dhandle{cursor:grab;user-select:none;-webkit-user-select:none}\n.ytb-dhandle:active{cursor:grabbing}\n.ytb-dgrip{display:inline-block;color:var(--acc);font-weight:700;margin-right:8px;font-family:var(--mono);font-size:13px}\n.ytb-dhbtns{display:flex;gap:6px;flex-shrink:0}\n.ytb-dresize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 0,transparent 50%,var(--line2) 50%,var(--line2) 55%,transparent 55%,transparent 65%,var(--line2) 65%,var(--line2) 70%,transparent 70%,transparent 80%,var(--line2) 80%,var(--line2) 85%,transparent 85%);z-index:2;border-bottom-right-radius:14px}\n.ytb-dresize:hover{background:linear-gradient(135deg,transparent 0,transparent 50%,var(--acc) 50%,var(--acc) 55%,transparent 55%,transparent 65%,var(--acc) 65%,var(--acc) 70%,transparent 70%,transparent 80%,var(--acc) 80%,var(--acc) 85%,transparent 85%)}\n.ytb-dhdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel2)}\n.ytb-dtitle{font:600 13.5px/1.2 "Inter","Roboto",system-ui,sans-serif;letter-spacing:.04em;display:flex;align-items:center;color:var(--ink)}\n.ytb-dver{font:10px/1 var(--mono);color:var(--ink2);margin-left:9px;padding:3px 7px;border-radius:4px;background:var(--panel3);border:1px solid var(--line)}\n.ytb-btn{appearance:none;border:1px solid var(--line2);border-radius:6px;padding:6px 12px;background:var(--panel3);color:var(--ink);cursor:pointer;font:inherit;font-size:12px;font-weight:550;transition:background .12s,border-color .12s,color .12s}\n.ytb-btn:hover{background:#1d222b;border-color:#39414e;color:#fff}\n.ytb-btn:active{transform:translateY(1px)}\n.ytb-btn.primary{background:var(--acc);color:#fff;border-color:var(--acc)}\n.ytb-btn.primary:hover{background:#ff4f6a;border-color:#ff4f6a;color:#fff}\n.ytb-btn.danger,.ytb-btn.ytb-danger{background:transparent;color:#ff7d8c;border-color:rgba(255,80,100,.35)}\n.ytb-btn.danger:hover,.ytb-btn.ytb-danger:hover{background:rgba(255,80,100,.12);color:#ffb3bc}\n.ytb-btn.ytb-close{width:28px;height:28px;padding:0;border-radius:6px;font:11px/1 var(--mono);display:inline-flex;align-items:center;justify-content:center}\n.ytb-btn.ytb-sb{font-size:10px;padding:4px 8px}\n.ytb-search{margin:10px 12px 8px;padding:9px 12px;background:var(--panel2);color:var(--ink);border:1px solid var(--line2);border-radius:8px;font:inherit;font-size:12.5px;outline:none}\n.ytb-search::placeholder{color:var(--ink3);font-family:var(--mono);font-size:11.5px}\n.ytb-search:focus{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc-dim)}\n.ytb-main{flex:1 1 0;min-height:0;display:flex;overflow:hidden}\n.ytb-nav{width:176px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;padding:8px 6px;border-right:1px solid var(--line);background:var(--panel2);overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2c313b transparent}\n.ytb-nav-item{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 9px;border:0;border-left:2px solid transparent;border-radius:6px;background:transparent;color:var(--ink2);font:550 11.5px/1.2 "Inter","Roboto",system-ui,sans-serif;cursor:pointer;text-align:left;transition:background .1s,color .1s}\n.ytb-nav-item:hover{color:var(--ink);background:rgba(255,255,255,.03)}\n.ytb-nav-item.active{color:#fff;background:var(--acc-dim);border-left-color:var(--acc)}\n.ytb-nav-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.ytb-nav-count{font:10px/1.4 var(--mono);color:var(--ink3);font-variant-numeric:tabular-nums}\n.ytb-nav-item.active .ytb-nav-count{color:#ffd0d8}\n.ytb-nav-sep{height:1px;background:var(--line);margin:6px 4px}\n.ytb-body{flex:1 1 0;min-height:0;min-width:0;overflow-y:auto;padding:8px 0 10px;scrollbar-width:thin;scrollbar-color:#2c313b transparent}\n.ytb-body::-webkit-scrollbar{width:8px}\n.ytb-body::-webkit-scrollbar-thumb{background:#2c313b;border-radius:4px}\n.ytb-core{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px 12px 10px;margin-bottom:4px;border-bottom:1px solid var(--line)}\n.ytb-corecell{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px}\n.ytb-corecell:hover{border-color:var(--line2)}\n.ytb-corelbl{font:550 11.5px/1.2 "Inter","Roboto",system-ui,sans-serif;color:var(--ink)}\n.ytb-cat-page{display:flex;flex-direction:column;gap:3px;padding:2px 10px 2px}\n.ytb-card{margin:0;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-left:2px solid transparent;border-radius:8px;transition:border-color .12s,background .12s;position:relative}\n.ytb-card:hover{border-color:var(--line2);background:var(--panel3)}\n.ytb-card.on{border-left-color:var(--acc)}\n.ytb-head{display:flex;align-items:center;justify-content:space-between;gap:10px}\n.ytb-name{font-size:13px;font-weight:600;color:var(--ink);flex:0 1 auto;min-width:0}\n.ytb-key{flex:1;min-width:0;margin:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font:10px/1.4 var(--mono);color:var(--ink3);background:transparent;border:0;padding:1px 2px;cursor:pointer;border-radius:3px}\n.ytb-key:hover{color:var(--acc);background:rgba(255,255,255,.03)}\n.ytb-sum{font-size:11.5px;color:var(--ink2);margin-top:3px;line-height:1.4}\n.ytp-settings{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:7px}\n.ytb-sub{display:flex;flex-direction:column;gap:4px;margin-top:4px}\n.ytb-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:28px}\n.ytb-col{display:flex;flex-direction:column;gap:5px}\n.ytb-rowb{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}\n.ytb-rowb .ytb-btn{flex:1;min-width:80px}\n.ytb-lbl{font-size:12px;color:var(--ink);flex:1;min-width:0}\n.ytb-sw{position:relative;width:34px;height:18px;flex-shrink:0;cursor:pointer}\n.ytb-sw input{position:absolute;opacity:0;width:0;height:0}\n.ytb-track{position:absolute;inset:0;border-radius:5px;background:#22262e;transition:background .15s;border:1px solid #2b313b}\n.ytb-knob{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:3px;background:#7d8590;transition:transform .15s cubic-bezier(.4,0,.2,1),background .15s}\n.ytb-sw input:checked~.ytb-track{background:var(--acc);border-color:var(--acc)}\n.ytb-sw input:checked~.ytb-knob{transform:translateX(16px);background:#fff}\n.ytb-sel{background:var(--panel3);color:var(--ink);border:1px solid var(--line2);border-radius:5px;font:11px var(--mono);padding:4px 7px;outline:none;max-width:150px;transition:border-color .12s}\n.ytb-sel:focus{border-color:var(--acc)}\n.ytb-sel option{background:#12151b;color:var(--ink)}\n.ytb-rng{display:flex;align-items:center;gap:8px;flex:1;max-width:60%}\n.ytb-rng input[type=range]{flex:1;min-width:70px;accent-color:var(--acc);height:2px;cursor:pointer}\n.ytb-rngv{min-width:48px;text-align:right;color:var(--ink2);font:10px var(--mono);font-variant-numeric:tabular-nums}\n.ytb-inp{background:var(--panel3);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:6px 9px;font:inherit;font-size:11.5px;outline:none;width:100%;transition:border-color .12s}\n.ytb-inp:focus{border-color:var(--acc)}\n.ytb-ta{background:var(--panel3);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:7px 9px;font:10.5px/1.5 var(--mono);outline:none;width:100%;min-height:64px;resize:vertical;transition:border-color .12s}\n.ytb-ta:focus{border-color:var(--acc)}\n.ytb-foot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--line);background:var(--panel2);flex-wrap:wrap}\n.ytb-foot .ytb-btn{flex:1;min-width:90px}\n.ytb-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--panel2)}\n.ytb-tab{flex:1;padding:8px 6px;background:transparent;border:0;color:var(--ink2);font:600 10.5px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:color .12s,border-color .12s}\n.ytb-tab:hover{color:var(--ink)}\n.ytb-tab.active{color:var(--acc);border-bottom-color:var(--acc)}\n.ytb-tabpanel{display:none;flex-direction:column;gap:6px;padding:4px 0 8px}\n.ytb-tabpanel.active{display:flex}\n.ytb-section-hdr{font:600 10px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);padding:12px 12px 5px;display:flex;align-items:center;gap:8px}\n.ytb-section-hdr::after{content:"";flex:1;height:1px;background:var(--line)}\n.ytb-meter{height:6px;background:var(--panel3);border-radius:3px;overflow:hidden;position:relative}\n.ytb-meter-fill{height:100%;background:var(--acc);border-radius:3px;transition:width .3s}\n.ytb-meter-fill.ok{background:#37c26b}\n.ytb-meter-fill.warn{background:#f2b134}\n.ytb-meter-fill.crit{background:#ff3d5a}\n.ytp-kbd{font:9.5px var(--mono);background:var(--panel3);border:1px solid var(--line2);border-bottom-width:2px;border-radius:3px;padding:2px 5px;color:var(--ink);display:inline-block}\n.ytb-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;background:var(--acc-dim);color:#ff8fa1;font:600 10px/1 var(--mono);border:1px solid rgba(255,61,90,.3)}\n.ytb-chip.neutral{background:var(--panel3);color:var(--ink2);border-color:var(--line2)}\n.ytb-divider{height:1px;background:var(--line);margin:7px 0}\n.ytb-cat-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-right:6px}\n@media (max-width:640px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;max-height:calc(100vh - 16px)}.ytb-main{flex-direction:column}.ytb-nav{width:100%;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid var(--line);padding:6px}.ytb-nav-item{white-space:nowrap}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n@media (prefers-reduced-motion:reduce){.ytb-dash,.ytb-card,.ytb-btn,.ytb-knob{transition:none!important}}\n\n.ytb-hcard{display:flex;gap:10px;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.05);border-radius:10px;margin-top:6px;transition:background .15s}\n.ytb-hcard:hover{background:rgba(255,255,255,.07)}\n.ytb-hcard.done{opacity:.6}\n.ytb-hthumb{width:88px;height:50px;min-width:88px;border-radius:7px;background:#1a1c22 center/cover no-repeat;position:relative;flex-shrink:0;overflow:hidden;border:1px solid rgba(255,255,255,.06)}\n.ytb-hbadge{position:absolute;bottom:3px;right:3px;background:rgba(0,0,0,.85);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px}\n.ytb-hbadge.done{background:rgba(0,160,50,.85)}\n.ytb-hbadge.res{background:rgba(255,61,127,.85)}\n.ytb-hinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}\n.ytb-htitle{font-size:11.5px;font-weight:600;color:#e5e7ed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hchan{font-size:10px;color:#7a8290;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hmeta{font-size:10px;color:#5b6270;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-hpt{height:3px;background:rgba(255,255,255,.08);border-radius:3px;margin:3px 0;overflow:hidden}\n.ytb-hpf{height:100%;background:linear-gradient(90deg,#ff0033,#ff3d7f);border-radius:3px}\n.ytb-hpf.done{background:linear-gradient(90deg,#0a6,#4caf50)}\n.ytb-hacts{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}\n.ytb-hist-loading,.ytb-hist-empty{padding:20px;text-align:center;color:#5b6270;font-size:11.5px}\n.ytb-hist-panel{display:flex;flex-direction:column;gap:8px;margin-top:6px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:12px}\n.ytb-hist-toolbar{display:flex;gap:6px;flex-wrap:wrap}\n.ytb-hist-search{flex:1;min-width:120px;background:rgba(255,255,255,.05);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:6px 10px;font:inherit;font-size:12px;outline:none}\n.ytb-hist-search:focus{border-color:rgba(255,61,127,.55)}\n.ytb-hist-list{display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;scrollbar-width:thin;padding-right:2px}\n.ytb-hist-loadmore{margin-top:0!important;background:rgba(255,255,255,.04)!important}\n#ytb-extra-topbar{position:fixed;left:0;top:0;height:3px;width:0;background:linear-gradient(90deg,#ff0033,#ff3d7f);z-index:2147483642;box-shadow:0 1px 10px rgba(255,61,127,.6);pointer-events:none}\n#ytb-extra-remain,#ytb-extra-clock,#ytb-extra-endwarn{position:fixed;right:12px;bottom:58px;z-index:2147483636;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:5px 10px;font:11px/1.2 ui-monospace,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);pointer-events:none;}\n#ytb-extra-clock{bottom:84px;color:#8ee}\n#ytb-extra-endwarn{left:50%;right:auto;bottom:120px;transform:translateX(-50%);opacity:0;transition:opacity .2s;color:#ffd166}\n#ytb-extra-endwarn.show{opacity:1}\n.ytb-extra-num{position:absolute;left:5px;top:5px;z-index:5;background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border-radius:99px;min-width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 11px system-ui;box-shadow:0 2px 6px rgba(255,0,51,.4)}\n.ytb-extra-long{box-shadow:inset 3px 0 0 #8b5cf6!important}\n.ytb-extra-short{box-shadow:inset 3px 0 0 #22c55e!important}\n.ytb-extra-watched-dim{opacity:.45!important;filter:saturate(.6)!important}\n.ytb-extra-watched-hide,.ytb-extra-live,.ytb-extra-premiere{display:none!important}\n#ytb-extra-notes{position:fixed;right:18px;bottom:18px;z-index:2147483646;width:min(360px,calc(100vw - 36px));background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:12px;font:12px system-ui;}\n.ytb-extra-notes-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n.ytb-extra-notes-head button{background:none;border:0;color:#aaa;font-size:18px;cursor:pointer}\n#ytb-extra-notes textarea{width:100%;min-height:140px;background:rgba(255,255,255,.06);color:#eee;border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:6px;font:inherit;resize:vertical}\n.ytb-extra-notes-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font:10.5px ui-monospace,monospace;color:#777}\n.ytb-extra-notes-foot button{background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border:0;border-radius:5px;padding:4px 10px;cursor:pointer;font:600 11px system-ui}\n.ytb-toast,.ytb-t-info,.ytb-t-success,.ytb-t-error{position:fixed;left:50%;top:12px;transform:translateX(-50%) translateY(-10px);z-index:2147483647;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 4px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);padding:10px 18px;font:12px/1.4 system-ui;font-style:normal;opacity:0;transition:opacity .2s,transform .2s;max-width:min(420px,calc(100vw - 32px));}\n.ytb-toast.show,.ytb-t-info.show,.ytb-t-success.show,.ytb-t-error.show{opacity:1;transform:translateX(-50%) translateY(0)}\n.ytb-toast.success,.ytb-t-success{border-color:rgba(76,175,80,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(76,175,80,.22))}\n\n\n\n\n\n.ytb-toast.error,.ytb-t-error{border-color:rgba(255,80,80,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(255,80,80,.22))}\n.ytb-toast.info,.ytb-t-info{border-color:rgba(255,61,127,.55);background:linear-gradient(135deg,rgba(20,22,28,.6),rgba(255,61,127,.22))}\n.ytb-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.07);background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,0))}\n.ytb-tab{flex:1;padding:10px 6px;background:transparent;border:0;color:#a8b0c0;font:600 11.5px/1 system-ui;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-tab:hover{color:#e8eaf0}\n.ytb-tab.active{color:#ff3d7f;border-bottom-color:#ff3d7f;text-shadow:0 0 8px rgba(255,61,127,.5)}\n\n\n.ytb-section-hdr{font:700 10.5px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;color:#9aa4b6;padding:14px 16px 6px;display:flex;align-items:center;gap:8px;text-shadow:0 1px 1px rgba(0,0,0,.3)}\n.ytb-section-hdr::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,0))}\n.ytb-meter{height:8px;background:rgba(255,255,255,.06);border-radius:99px;overflow:hidden;position:relative}\n.ytb-meter-fill{height:100%;background:linear-gradient(90deg,#ff0033,#ff3d7f);border-radius:99px;transition:width .3s}\n.ytb-meter-fill.ok{background:linear-gradient(90deg,#4caf50,#8bc34a)}\n.ytb-meter-fill.warn{background:linear-gradient(90deg,#ffc107,#ff9800)}\n.ytb-meter-fill.crit{background:linear-gradient(90deg,#ff5722,#e91e63)}\n.ytp-kbd{font:10px ui-monospace,monospace;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-bottom-width:2px;border-radius:4px;padding:2px 6px;color:#dde;display:inline-block}\n.ytb-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:99px;background:rgba(255,61,127,.12);color:#ff8aa5;font:600 10.5px/1 system-ui;border:1px solid rgba(255,61,127,.25)}\n.ytb-chip.neutral{background:rgba(255,255,255,.05);color:#9aa;border-color:rgba(255,255,255,.1)}\n.ytb-divider{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);margin:8px 0}\n#ytb-fcw-overlay{position:fixed;right:18px;top:80px;z-index:2147483638;width:min(320px,calc(100vw - 36px));background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.5);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);padding:12px 16px;font:12px/1.4 system-ui;}\n#ytb-comment-search{display:flex;gap:6px;align-items:center;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:6px 10px;margin:8px 0;backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);box-shadow:0 4px 14px rgba(0,0,0,.35);}\n#ytb-comment-search .ytb-cs-input{flex:1;min-width:0;background:rgba(0,0,0,.25);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:5px 8px;font:11.5px system-ui;outline:none;}\n#ytb-comment-search .ytb-cs-count{font-size:11px;color:#9aa;font-variant-numeric:tabular-nums;white-space:nowrap;}\n#ytb-comment-search .ytb-cs-clear{background:rgba(255,255,255,.07);border:0;color:#aaa;width:24px;height:24px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1;}\n#ytb-comment-search .ytb-cs-clear:hover{background:rgba(255,255,255,.13);color:#fff}\n#ytb-chapter-panel .ytb-ch-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,.04);font-size:11.5px;font-weight:600;color:#cdd;}\n#ytb-chapter-panel .ytb-ch-toggle{background:none;border:0;color:#888;cursor:pointer;font-size:11px;padding:0 4px}\n#ytb-chapter-panel .ytb-ch-toggle:hover{color:#fff}\n#ytb-chapter-panel .ytb-ch-list{max-height:340px;overflow-y:auto;scrollbar-width:thin}\n#ytb-chapter-panel .ytb-ch-row{display:flex;gap:10px;padding:6px 12px;cursor:pointer;border-top:1px solid rgba(255,255,255,.03);transition:background .1s}\n#ytb-chapter-panel .ytb-ch-row:hover{background:rgba(255,255,255,.05)}\n#ytb-chapter-panel .ytb-ch-t{flex:0 0 auto;color:#5fc;font-variant-numeric:tabular-nums;font-size:11.5px;min-width:54px}\n#ytb-chapter-panel .ytb-ch-title{flex:1;min-width:0;font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-chapter-panel .ytb-ch-row.current{background:rgba(255,61,127,.14)}\n#ytb-chapter-panel .ytb-ch-row.current .ytb-ch-t{color:#ff3d7f;font-weight:600}\n#ytb-chapter-panel .ytb-ch-row.current .ytb-ch-title{color:#fff;font-weight:600}\n#ytb-extra-notes .ytb-extra-notes-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n#ytb-extra-notes .ytb-extra-notes-head button{background:none;border:0;color:#aaa;font-size:18px;cursor:pointer}\n#ytb-extra-notes textarea{width:100%;min-height:140px;background:rgba(0,0,0,.25);color:#eef;border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:8px;font:12px ui-monospace,SFMono-Regular,Consolas,monospace;resize:vertical}\n#ytb-extra-notes .ytb-extra-notes-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font:10.5px ui-monospace,monospace;color:#9aa}\n#ytb-extra-notes .ytb-extra-notes-foot button{background:linear-gradient(135deg,#ff0033 0%,#ff3d7f 100%);color:#fff;border:0;border-radius:5px;padding:4px 10px;cursor:pointer;font:600 11px system-ui}\n#ytb-fcw-overlay .ytb-fcw-title{flex:1;font-weight:600;color:#fff;font-size:13px}\n#ytb-fcw-overlay .ytb-fcw-sub{font-size:11px;color:#9aa;margin-top:4px}\n#ytb-fcw-overlay .ytb-fcw-bar{height:4px;background:rgba(255,255,255,.08);border-radius:3px;margin-top:6px;overflow:hidden}\n#ytb-fcw-overlay .ytb-fcw-stats{font-size:11px;color:#aaa;margin-top:4px}\n#ytb-fcw-overlay .ytb-fcw-btn{background:rgba(255,255,255,.07);border:0;border-radius:5px;color:#ddd;padding:6px 12px;cursor:pointer;font:600 11px system-ui}\n@media (max-width:540px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;max-height:calc(100vh - 16px)}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n@media (prefers-reduced-motion:reduce){.ytb-dash,.ytb-card,.ytb-btn,.ytb-knob{transition:none!important}}\n\n\n#ytb-extra-endwarn{left:50%;right:auto;bottom:120px;transform:translateX(-50%);opacity:0;transition:opacity .15s;color:#ffd166}\n\n\n.ytb-extra-comment-clamp{max-height:150px;overflow:hidden;display:block}\n.ytb-extra-expand-comment{margin-top:4px;border:0;border-radius:999px;background:rgba(62,166,255,.14);color:#3ea6ff;padding:3px 8px;font:700 11px system-ui;cursor:pointer}\n#ytb-sb-hud{position:fixed;left:10px;bottom:36px;z-index:2147483635;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:5px 12px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);}\n#ytb-sb-ov{position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2147483639;background:rgba(20,22,28,.55);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:8px 18px;font:12px system-ui;backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);box-shadow:0 10px 30px rgba(0,0,0,.5);}\n#ytb-stats{position:fixed;top:60px;right:8px;z-index:2147483637;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;padding:6px 10px;line-height:1.5;max-width:380px;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);}\n#ytb-diag{position:fixed;bottom:0;left:0;width:380px;max-height:200px;overflow:auto;z-index:2147483647;background:rgba(20,22,28,.55);color:#cdd;border:1px solid rgba(255,255,255,.12);border-radius:14px 14px 0 0;border-bottom:none;border-left:none;border-right:none;font:11px ui-monospace,SFMono-Regular,Consolas,monospace;padding:8px;backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);box-shadow:0 -8px 24px rgba(0,0,0,.4);}\n.ytb-sb-mark{pointer-events:none}\nbody.ytb-silent #ytb-toast,body.ytb-silent #ytb-sb-hud,body.ytb-silent #ytb-sb-ov,body.ytb-silent #ytb-stats,body.ytb-silent #ytb-diag,body.ytb-silent #ytb-cinema,body.ytb-silent #ytp-ambient,body.ytb-silent .ytb-sb-mark{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}\n@keyframes ytbResIn{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}\n#ytb-chapter-panel{margin:8px 0 12px;background:rgba(20,22,28,.45);color:#e8e8e8;border:1px solid rgba(255,255,255,.1);border-radius:12px;overflow:hidden;font:13px/1.45 system-ui;backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);box-shadow:0 4px 16px rgba(0,0,0,.3);}\n.ytb-ch-hdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,.03);font-size:11.5px;font-weight:600;color:#bbb;text-transform:uppercase;letter-spacing:.05em}\n.ytb-ch-toggle{background:none;border:0;color:#888;cursor:pointer;font-size:11px;padding:0 4px}\n.ytb-ch-toggle:hover{color:#fff}\n.ytb-ch-list{max-height:340px;overflow-y:auto;scrollbar-width:thin}\n.ytb-ch-row{display:flex;gap:10px;padding:6px 12px;cursor:pointer;border-top:1px solid rgba(255,255,255,.03);transition:background .1s}\n.ytb-ch-row:hover{background:rgba(255,255,255,.05)}\n.ytb-ch-t{flex:0 0 auto;color:#5fc;font-variant-numeric:tabular-nums;font-size:11.5px;min-width:54px}\n.ytb-ch-title{flex:1;min-width:0;font-size:12px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n#ytb-comment-search{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;margin:0 0 12px;font:13px system-ui}\n.ytb-cs-input{flex:1;min-width:0;background:rgba(0,0,0,.4);color:#e8e8e8;border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:6px 10px;font:inherit;font-size:13px;outline:none}\n.ytb-cs-input:focus{border-color:#3ea6ff}\n.ytb-cs-count{font-size:11px;color:#888;font-variant-numeric:tabular-nums;white-space:nowrap}\n.ytb-cs-clear{background:rgba(255,255,255,.07);border:0;color:#aaa;width:24px;height:24px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center}\n.ytb-cs-clear:hover{background:rgba(255,255,255,.13);color:#fff}\n.ytb-elem-sec-title{font-size:10.5px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.07em;margin:10px 0 4px;padding-top:6px;border-top:1px solid rgba(255,255,255,.06)}\n.ytb-net-panel{display:flex;flex-direction:column;gap:8px;margin-top:6px}\n.ytb-net-cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}\n.ytb-net-card{background:rgba(159,255,255,.05);border:1px solid rgba(159,255,255,.12);border-radius:7px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}\n.ytb-net-card-label{font-size:10px;color:#9ff;text-transform:uppercase;letter-spacing:.08em;font-weight:700}\n.ytb-net-card-value{font-size:15px;color:#eee;font-weight:700;font-variant-numeric:tabular-nums}\n.ytb-net-card-sub{font-size:10px;color:#888}\n.ytb-net-session{font:11px ui-monospace,monospace;color:#9ff;background:rgba(255,255,255,.03);border-radius:5px;padding:5px 8px}\n.ytb-net-legend{display:flex;gap:14px;justify-content:flex-end;padding:0 4px;margin-top:2px}\n.ytb-net-legend-item{display:inline-flex;align-items:center;gap:5px;font:11px/1.2 system-ui;color:#cfcfcf}\n.ytb-net-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25)}\n.ytb-net-swatch-dn{background:linear-gradient(180deg,#4dd0e1 0%,#0288d1 100%)}\n.ytb-net-swatch-up{background:linear-gradient(180deg,#ff8a65 0%,#c62828 100%)}\n.ytb-net-chart{display:flex;align-items:flex-end;gap:2px;height:120px;padding:6px 4px;background:rgba(0,0,0,.35);border-radius:6px;border:1px solid rgba(255,255,255,.06);position:relative;overflow:hidden}\n.ytb-net-chart::before{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(255,255,255,.06);pointer-events:none}\n.ytb-net-bar{flex:1;min-width:2px;display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative;cursor:default;transition:opacity .12s}\n.ytb-net-bar:hover{opacity:.85}\n.ytb-net-bar-dn{background:linear-gradient(180deg,#4dd0e1 0%,#0288d1 100%);border-bottom-left-radius:2px;border-bottom-right-radius:2px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18);transition:filter .12s}\n.ytb-net-bar-up{background:linear-gradient(180deg,#ff8a65 0%,#c62828 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.22);border-top-left-radius:2px;border-top-right-radius:2px;transition:filter .12s}\n.ytb-net-bar:hover .ytb-net-bar-dn,.ytb-net-bar:hover .ytb-net-bar-up{filter:brightness(1.25) saturate(1.2)}\n.ytb-net-card:nth-child(1){background:rgba(159,255,255,.06);border-color:rgba(159,255,255,.18)}\n.ytb-net-card:nth-child(1) .ytb-net-card-label{color:#9ff}\n.ytb-net-card:nth-child(2){background:rgba(2,136,209,.10);border-color:rgba(77,208,225,.28)}\n.ytb-net-card:nth-child(2) .ytb-net-card-label,.ytb-net-card:nth-child(2) .ytb-net-card-value{color:#4dd0e1}\n.ytb-net-card:nth-child(3){background:rgba(198,40,40,.10);border-color:rgba(255,138,101,.28)}\n.ytb-net-card:nth-child(3) .ytb-net-card-label,.ytb-net-card:nth-child(3) .ytb-net-card-value{color:#ff8a65}\n.ytb-net-axis{display:flex;justify-content:space-between;font:10px ui-monospace,monospace;color:#666;padding:0 4px}\n.ytb-net-hosts{display:flex;flex-direction:column;gap:2px;background:rgba(255,255,255,.025);border-radius:6px;padding:6px 8px}\n.ytb-net-host-row{display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}\n.ytb-net-host-row:last-child{border-bottom:0}\n.ytb-net-host-name{color:#ddd;font-family:ui-monospace,monospace;font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}\n.ytb-net-host-bytes{color:#9ff;font-variant-numeric:tabular-nums;flex-shrink:0;margin-left:8px}\n.ytb-net-budget{background:rgba(255,255,255,.025);border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:5px}\n.ytb-net-budget-bar{height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}\n.ytb-net-budget-fill{height:100%;background:linear-gradient(90deg,#4caf50,#8bc34a);border-radius:4px;transition:width .3s}\n.ytb-net-budget-fill.warn{background:linear-gradient(90deg,#ffc107,#ff9800)}\n.ytb-net-budget-fill.crit{background:linear-gradient(90deg,#ff5722,#e91e63)}\n.ytb-net-budget-fill.over{background:linear-gradient(90deg,#e53935,#b71c1c);animation:ytbBudgetPulse 1.4s ease-in-out infinite}\n@keyframes ytbBudgetPulse{0%,100%{opacity:1}50%{opacity:.55}}\n.ytb-net-budget-detail{font:11px ui-monospace,monospace;color:#ddd;font-variant-numeric:tabular-nums}\n.ytb-net-qualities{background:rgba(255,255,255,.025);border-radius:6px;padding:6px 8px;display:flex;flex-direction:column;gap:4px}\n.ytb-net-q-row{display:grid;grid-template-columns:64px 1fr 110px;gap:8px;align-items:center}\n.ytb-net-q-lbl{color:#fff;font:700 10px/1 system-ui;text-align:center;padding:3px 4px;border-radius:3px;letter-spacing:.04em}\n.ytb-net-q-track{height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}\n.ytb-net-q-fill{height:100%;border-radius:4px;transition:width .25s}\n.ytb-net-q-bytes{font:10.5px ui-monospace,monospace;color:#ccc;text-align:right;font-variant-numeric:tabular-nums}\n.ytb-perf-panel{display:flex;flex-direction:column;gap:6px;margin-top:6px}\n.ytb-perf-mem{font:11px ui-monospace,monospace;color:#9ff;background:rgba(255,255,255,.03);border-radius:5px;padding:5px 8px}\n.ytb-perf-membar{height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden}\n.ytb-perf-memfill{height:100%;background:#4caf50;border-radius:3px;transition:width .3s,background .3s}\n.ytb-perf-state{font:10.5px ui-monospace,monospace;color:#aaa;padding:3px 0}\n.ytb-perf-table{display:flex;flex-direction:column;background:rgba(255,255,255,.02);border-radius:5px;overflow:hidden;font:10.5px ui-monospace,monospace}\n.ytb-perf-row{display:grid;grid-template-columns:1.4fr .5fr .7fr .7fr .7fr;padding:3px 8px;gap:6px;border-bottom:1px solid rgba(255,255,255,.04);align-items:center}\n.ytb-perf-hdr{font-weight:700;color:#9ff;background:rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.1)}\n.ytb-perf-row .ytb-perf-c1{color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-perf-row .ytb-perf-c2,.ytb-perf-row .ytb-perf-c3,.ytb-perf-row .ytb-perf-c4,.ytb-perf-row .ytb-perf-c5{text-align:right;font-variant-numeric:tabular-nums;color:#ccc}\n.ytb-sbsub-panel{display:flex;flex-direction:column;gap:6px}\n.ytb-sbsub-status{font:11px ui-monospace,monospace;background:rgba(255,255,255,.03);border-radius:5px;padding:6px 8px;color:#888}\n.ytb-hk-row{display:grid;grid-template-columns:1fr 160px 30px;gap:6px;align-items:center;padding:3px 0}\n.ytb-hk-lbl{font-size:12px;color:#ddd}\n.ytb-hk-key{font:11px ui-monospace,monospace;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:5px 8px;color:#9ff;cursor:pointer;text-align:center}\n.ytb-hk-key.listening{background:rgba(200,0,0,.2);border-color:#c00;color:#fff;animation:ytbHkBlink 1s linear infinite}\n.ytb-hk-key.empty{color:#666;font-style:italic}\n@keyframes ytbHkBlink{50%{opacity:.5}}\n.ytb-hk-clr{background:rgba(255,255,255,.05);border:0;border-radius:4px;color:#888;cursor:pointer;font-size:14px;line-height:1;padding:0}\n.ytb-hk-clr:hover{background:rgba(200,0,0,.2);color:#fff}\n.ytb-stop-btn{color:#fff!important;opacity:.9!important;display:inline-flex!important;align-items:center!important;justify-content:center!important}\n.ytb-stop-btn:hover{opacity:1!important;color:#ff5252!important}.ytb-drop-box{position:fixed;z-index:2147483635;padding:4px 8px;background:rgba(20,22,28,.78);color:#ff8a96;border:1px solid rgba(255,138,150,.28);border-radius:6px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:80px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.35);transition:color .2s}\n.ytb-drop-box:hover{opacity:.85}\n.ytb-vstats-box{position:fixed;z-index:2147483635;padding:6px 10px;background:rgba(20,22,28,.82);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:10.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:200px;box-shadow:0 6px 20px rgba(0,0,0,.45)}\n.ytb-vstats-box canvas{display:block;margin-top:4px;width:100%;height:24px;background:rgba(0,0,0,.35);border-radius:3px}\n.ytb-stop-btn svg{width:22px;height:22px;pointer-events:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.55))}.ytb-fps-box{position:fixed;z-index:2147483635;padding:3px 7px;background:rgba(20,22,28,.78);color:#9ff;border:1px solid rgba(159,255,255,.28);border-radius:6px;font:11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:54px;text-align:center;transition:opacity .2s;box-shadow:0 4px 12px rgba(0,0,0,.35)}\n.ytb-fps-box:hover{opacity:.85}\n.ytb-buf-box{position:fixed;z-index:2147483635;left:8px;bottom:48px;padding:6px 10px;background:rgba(20,22,28,.78);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);min-width:160px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.4)}\n.ytb-buf-bar{height:4px;background:rgba(255,255,255,.12);border-radius:3px;margin-top:4px;overflow:hidden}\n.ytb-buf-fill{height:100%;width:0;background:#4caf50;border-radius:3px;transition:width .3s,background .3s}\n@media (max-width:500px){.ytb-net-cards{grid-template-columns:1fr 1fr}}\n.ytb-elem-status{font-size:11px;color:#888;padding:2px 0 6px;font-variant-numeric:tabular-nums}\n.ytb-preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}\n.ytb-preset-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:7px;padding:8px 10px;cursor:pointer;transition:background .12s,border-color .12s}\n.ytb-preset-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}\n.ytb-preset-card.active{background:rgba(200,0,0,.12);border-color:rgba(200,0,0,.35)}\n.ytb-preset-name{font-size:12px;font-weight:600;color:#e0e0e0;margin-bottom:2px}\n.ytb-preset-desc{font-size:10px;color:#888;line-height:1.35}\n.ytb-elem-list{display:flex;flex-direction:column;gap:1px;max-height:380px;overflow-y:auto;background:rgba(255,255,255,.015);border-radius:6px;padding:3px;scrollbar-width:thin}\n.ytb-elem-group-hdr{font:600 10px/1 system-ui;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:8px 8px 3px;margin-top:3px;border-top:1px solid rgba(255,255,255,.04)}\n.ytb-elem-group-hdr:first-child{border-top:0;margin-top:0}\n.ytb-elem-row{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:4px;cursor:default;transition:background .1s}\n.ytb-elem-row:hover{background:rgba(62,166,255,.1)}\n.ytb-elem-row.on{background:rgba(255,80,80,.07)}\n.ytb-elem-row.nomatch{opacity:.4}\n.ytb-elem-cb{margin:0;cursor:pointer;width:14px;height:14px;accent-color:#c00;flex-shrink:0}\n.ytb-elem-name{flex:1;min-width:0;font-size:11.5px;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-elem-match{font:10px ui-monospace,monospace;color:#555;flex-shrink:0;font-variant-numeric:tabular-nums}\n#ytb-elem-hover{animation:ytbElemFade .1s ease-out}\n@keyframes ytbElemFade{from{opacity:0}to{opacity:1}}\n.ytb-hist-note{font-size:10px;color:#666;line-height:1.5;margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.02);border-radius:4px}\n.ytb-geo-sel{position:relative;width:100%}\n.ytb-geo-input{width:100%}\n.ytb-geo-dd{position:absolute;top:100%;left:0;right:0;z-index:2147483646;max-height:260px;overflow-y:auto;background:rgba(18,20,26,.92);border:1px solid rgba(255,255,255,.14);border-radius:10px;margin-top:4px;box-shadow:0 18px 40px rgba(0,0,0,.6),0 4px 12px rgba(0,0,0,.4);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);scrollbar-width:thin}\n.ytb-geo-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:11.5px;color:#ddd;cursor:pointer;user-select:none}\n.ytb-geo-row:hover,.ytb-geo-row.hot{background:rgba(200,0,0,.18);color:#fff}\n.ytb-geo-row.selected{background:rgba(200,0,0,.32);color:#fff;font-weight:600}\n.ytb-geo-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-geo-code{flex-shrink:0;font-size:10px;color:#888;font-variant:tabular-nums;text-transform:uppercase}\n.ytb-geo-empty{padding:10px;text-align:center;color:#666;font-size:11px}\n.ytb-geo-status{background:rgba(255,255,255,.04);border-radius:5px;padding:6px 9px;font:11px ui-monospace,monospace;color:#5fc;margin:6px 0}\n.ytb-theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:5px;margin:4px 0}\n.ytb-theme-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:7px;padding:5px;cursor:pointer;text-align:center;transition:border-color .12s,background .12s;contain:content;content-visibility:auto;contain-intrinsic-size:53px}\n.ytb-theme-card:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}\n.ytb-theme-card.active{border-color:#c00;background:rgba(200,0,0,.1)}\n.ytb-theme-card.reset{padding:10px;margin-top:6px}\n.ytb-theme-swatch{width:100%;height:28px;border-radius:4px;border:1px solid rgba(255,255,255,.1);margin-bottom:4px;display:flex;align-items:flex-end;justify-content:flex-end;padding:3px}\n.ytb-theme-accent{width:9px;height:9px;border-radius:50%}\n.ytb-theme-name{font-size:9.5px;color:#ccc;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.ytb-toggle-pill{font:700 10px system-ui;padding:3px 8px;border-radius:999px;letter-spacing:.02em;text-transform:uppercase;display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:18px;transition:background .15s,color .15s}\n.ytb-ivs-mark:hover{background:rgba(255,61,127,1)!important;z-index:2}\n@media (max-width:500px){.ytb-dash{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;max-height:calc(100vh - 16px)}.ytb-rng input{min-width:60px}.ytb-core{grid-template-columns:1fr}}\n#ytb-palette{display:none;flex-direction:column}\n#ytb-palette .ytb-palette-input{appearance:none;background:transparent;color:#fff;border:0;border-bottom:1px solid rgba(255,255,255,.12);padding:14px 18px;font:600 15px/1.2 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;outline:none;letter-spacing:.01em}\n#ytb-palette .ytb-palette-input::placeholder{color:#7a8290;font-weight:400}\n#ytb-palette .ytb-palette-results{flex:1;min-height:0;overflow-y:auto;padding:4px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n#ytb-palette .ytb-palette-results::-webkit-scrollbar{width:6px}\n#ytb-palette .ytb-palette-results::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n#ytb-palette .ytb-palette-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:background .1s}\n#ytb-palette .ytb-palette-row.active,#ytb-palette .ytb-palette-row:hover{background:rgba(255,61,127,.18)}\n#ytb-palette .ytb-palette-lbl{font-size:13.5px;color:#f0f2f7;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-palette .ytb-palette-hint{font-size:11px;color:#9aa;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap}\n#ytb-palette .ytb-palette-empty{padding:24px 18px;color:#7a8290;font-size:12.5px;text-align:center;font-style:italic}\n#ytb-palette .ytb-palette-foot{padding:8px 14px;border-top:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.2);color:#9aa;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}\n#ytb-cheat{display:none;flex-direction:column}\n#ytb-cheat .ytb-cheat-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.1);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0))}\n#ytb-cheat .ytb-cheat-title{font:700 15px/1 \"Inter\",\"Roboto\",system-ui,-apple-system,sans-serif;color:#fff;letter-spacing:.02em}\n#ytb-cheat .ytb-cheat-filter{appearance:none;background:rgba(255,255,255,.05);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;margin:10px 14px 4px;font:inherit;font-size:13px;outline:none;flex-shrink:0}\n#ytb-cheat .ytb-cheat-filter::placeholder{color:#7a8290}\n#ytb-cheat .ytb-cheat-filter:focus{border-color:rgba(255,61,127,.55);box-shadow:0 0 0 3px rgba(255,61,127,.15)}\n#ytb-cheat .ytb-cheat-body{flex:1;min-height:0;overflow-y:auto;padding:6px 14px 10px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}\n#ytb-cheat .ytb-cheat-body::-webkit-scrollbar{width:6px}\n#ytb-cheat .ytb-cheat-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:6px}\n#ytb-cheat .ytb-cheat-cat{font:700 10.5px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;color:#9aa4b6;padding:10px 0 4px;display:flex;align-items:center;gap:8px}\n#ytb-cheat .ytb-cheat-cat::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,0))}\n#ytb-cheat .ytb-cheat-row{display:grid;grid-template-columns:1fr 110px 1fr;align-items:center;gap:10px;padding:5px 0;font-size:12.5px}\n#ytb-cheat .ytb-cheat-lbl{color:#e5e7ed;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-cheat .ytb-cheat-key{text-align:right}\n#ytb-cheat .ytb-cheat-hint{color:#7a8290;font-size:11px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#ytb-cheat .ytb-cheat-foot{padding:8px 14px;border-top:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.2);color:#9aa;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}\n@media (max-width:500px){#ytb-palette,#ytb-cheat{width:calc(100vw - 16px)!important;left:8px!important;right:8px!important;top:8px!important;transform:translateX(0)!important;max-height:80vh!important}#ytb-cheat .ytb-cheat-row{grid-template-columns:1fr 90px}}\n\n\n/* --- Calm dashboard theme (v1.5.0): light paper, serif accents, hairlines --- */\n.ytb-dash{--card:#fffdf8;--card-hi:#f5f1e8;--card-lo:#efece7;--ok:#4a7d5d;--crit:#b91c1c;--accink:180,83,9;--shadowink:28,25,23;--critink:185,28,28;--acc:#b45309;--acc-dim:rgba(180,83,9,.07);--panel:#faf7f0;--panel2:#fcf9f3;--panel3:#fffdf8;--line:#e7e5e4;--line2:#d6d3d1;--ink:#1c1917;--ink2:#57534e;--ink3:#a8a29e;color:var(--ink);background:var(--panel);border:1px solid var(--line2);border-radius:12px;box-shadow:0 18px 50px rgba(28,25,23,.18),0 2px 8px rgba(28,25,23,.08);font:13px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}\n.ytb-dash .ytb-dhdr{align-items:flex-end;gap:12px;padding:15px 18px 9px;border-bottom:2px solid var(--ink);background:transparent;flex-wrap:wrap}\n.ytb-dash .ytb-dgrip{color:var(--ink3);margin-right:2px;font-size:11px}\n.ytb-dash .ytb-dtitle{font:700 21px/1.1 Georgia,"Times New Roman",serif;letter-spacing:-.01em;color:var(--ink);white-space:nowrap}\n.ytb-dash .ytb-dver{font:italic 11px/1 Georgia,"Times New Roman",serif;color:var(--ink3);background:transparent;border:0;padding:0 0 3px 4px;margin-left:2px;white-space:nowrap;font-style:italic}\n.ytb-dash .ytb-search{flex:1;min-width:150px;margin:0;padding:4px 2px 5px;background:transparent;border:0;border-bottom:1px solid var(--line2);border-radius:0;font:italic 13px Georgia,"Times New Roman",serif;color:var(--ink2)}\n.ytb-dash .ytb-search:focus{border-color:var(--ink);box-shadow:none}\n.ytb-dash .ytb-search::placeholder{color:var(--ink3);font:italic 13px Georgia,"Times New Roman",serif}\n.ytb-dash .ytb-dhbtns{gap:10px;padding-bottom:4px}\n.ytb-dash .ytb-btn{background:none;border:0;border-bottom:1px dotted var(--ink3);border-radius:0;padding:1px 0 2px;color:var(--ink2);font:12px "Segoe UI",system-ui,sans-serif}\n.ytb-dash .ytb-btn:hover{background:none;color:var(--ink);border-bottom:1px solid var(--ink)}\n.ytb-dash .ytb-btn:active{transform:none}\n.ytb-dash .ytb-btn.primary{color:var(--acc);border-bottom-color:var(--acc);font-weight:600}\n.ytb-dash .ytb-btn.primary:hover{background:none;color:var(--acc);border-bottom:1px solid var(--acc)}\n.ytb-dash .ytb-btn.danger,.ytb-dash .ytb-btn.ytb-danger{color:var(--crit);border-bottom-color:rgba(var(--critink),.45)}\n.ytb-dash .ytb-btn.danger:hover,.ytb-dash .ytb-btn.ytb-danger:hover{background:none;color:var(--crit);border-bottom-color:var(--crit)}\n.ytb-dash .ytb-btn.ytb-close{width:auto;height:auto;padding:1px 3px;border-bottom-color:transparent;font:12px/1 ui-monospace,SFMono-Regular,Consolas,monospace}\n.ytb-dash .ytb-btn.ytb-close:hover{background:none;color:var(--ink);border-bottom:1px solid var(--ink)}\n.ytb-dash .ytb-btn.ytb-sb{font-size:10px;padding:0 0 1px}\n.ytb-dash .ytb-main{flex-direction:column}\n.ytb-dash .ytb-nav{width:auto;flex-direction:row;flex-wrap:wrap;gap:5px 14px;padding:10px 18px 9px;border-right:0;border-bottom:1px solid var(--line);background:transparent;overflow:visible}\n.ytb-dash .ytb-nav-item{display:inline-flex;width:auto;gap:5px;align-items:baseline;padding:2px 0;border:0;border-bottom:1px solid transparent;border-radius:0;background:none;color:var(--ink2);font:11px "Segoe UI",system-ui,sans-serif}\n.ytb-dash .ytb-nav-item:hover{background:none;color:var(--ink)}\n.ytb-dash .ytb-nav-item.active{background:none;color:var(--ink);font-weight:700;border-bottom:1px solid var(--ink)}\n.ytb-dash .ytb-nav-count{font:9px "Segoe UI",system-ui,sans-serif;color:var(--acc);font-variant-numeric:tabular-nums}\n.ytb-dash .ytb-nav-item.active .ytb-nav-count{color:var(--acc)}\n.ytb-dash .ytb-nav-sep{display:none}\n.ytb-dash .ytb-body{padding:2px 18px 6px;scrollbar-color:var(--line2) transparent}\n.ytb-dash .ytb-body::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}\n.ytb-dash .ytb-core{display:flex;flex-wrap:wrap;gap:8px 22px;padding:8px 0 10px;margin:0;border-bottom:1px solid var(--line)}\n.ytb-dash .ytb-corecell{background:none;border:0;border-radius:0;padding:0;gap:10px}\n.ytb-dash .ytb-corecell:hover{border-color:transparent}\n.ytb-dash .ytb-corelbl{font:550 12px/1.3 "Segoe UI",system-ui,sans-serif;color:var(--ink2)}\n.ytb-dash .ytb-cat-page{gap:0;padding:0}\n.ytb-dash .ytb-card{padding:7px 2px;margin:0;background:none;border:0;border-bottom:1px solid var(--card-lo);border-radius:0}\n.ytb-dash .ytb-card:hover{background:var(--card-hi);border-color:transparent;border-bottom-color:var(--card-lo)}\n.ytb-dash .ytb-card.on{border-left-color:transparent}\n.ytb-dash .ytb-head{gap:12px}\n.ytb-dash .ytb-name{font:600 12.5px "Segoe UI",system-ui,sans-serif;color:var(--ink)}\n.ytb-dash .ytb-key{margin:0;padding:1px 0;background:none;border:0;border-bottom:1px solid transparent;border-radius:0;font:10.5px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--acc)}\n.ytb-dash .ytb-key:hover{background:none;color:var(--acc);border-bottom:1px solid var(--acc)}\n.ytb-dash .ytb-sum{font:italic 12px/1.45 Georgia,"Times New Roman",serif;color:var(--ink2);margin-top:2px}\n.ytb-dash .ytp-settings{border-top:1px solid var(--card-lo);padding-top:8px;margin-top:8px}\n.ytb-dash .ytb-lbl{font-size:12px;color:var(--ink);font-family:"Segoe UI",system-ui,sans-serif}\n.ytb-dash .ytb-rowb .ytb-btn{border:1px solid var(--line2);border-radius:6px;padding:4px 8px;background:var(--card);font-size:11px;flex:1}\n.ytb-dash .ytb-rowb .ytb-btn:hover{border-color:var(--ink3);background:var(--card-hi)}\n.ytb-dash .ytb-sw{width:30px;height:17px}\n.ytb-dash .ytb-track{border-radius:999px;background:transparent;border:1px solid var(--line2)}\n.ytb-dash .ytb-knob{top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--ink3)}\n.ytb-dash .ytb-sw input:checked~.ytb-track{background:var(--ink);border-color:var(--ink)}\n.ytb-dash .ytb-sw input:checked~.ytb-knob{transform:translateX(13px);background:var(--panel)}\n.ytb-dash .ytb-sel{background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:6px;font:11px ui-monospace,SFMono-Regular,Consolas,monospace}\n.ytb-dash .ytb-sel:focus{border-color:var(--acc)}\n.ytb-dash .ytb-sel option{background:var(--card);color:var(--ink)}\n.ytb-dash .ytb-inp{background:var(--card);border:1px solid var(--line2);border-radius:6px;color:var(--ink)}\n.ytb-dash .ytb-inp:focus{border-color:var(--acc);box-shadow:none}\n.ytb-dash .ytb-ta{background:var(--card);border:1px solid var(--line2);border-radius:6px;color:var(--ink)}\n.ytb-dash .ytb-ta:focus{border-color:var(--acc)}\n.ytb-dash .ytb-rng input[type=range]{accent-color:var(--ink)}\n.ytb-dash .ytb-rngv{color:var(--ink2)}\n.ytb-dash .ytb-foot{justify-content:flex-end;gap:16px;padding:10px 18px 12px;border-top:1px solid var(--line);background:transparent}\n.ytb-dash .ytb-foot .ytb-btn{flex:0 0 auto;min-width:0}\n.ytb-dash .ytb-tabs{padding:0 18px;border-bottom:1px solid var(--line);background:transparent;gap:12px}\n.ytb-dash .ytb-tab{color:var(--ink3);font:11px "Segoe UI",system-ui,sans-serif;text-transform:none;letter-spacing:.02em;border-bottom:1px solid transparent;text-shadow:none;padding:7px 2px 6px}\n.ytb-dash .ytb-tab:hover{color:var(--ink)}\n.ytb-dash .ytb-tab.active{color:var(--ink);border-bottom-color:var(--ink);text-shadow:none;font-weight:600}\n.ytb-dash .ytb-tabpanel{padding:8px 0}\n.ytb-dash .ytb-section-hdr{font:600 10px/1 "Segoe UI",system-ui,sans-serif;letter-spacing:.08em;color:var(--ink3);text-shadow:none;padding:12px 0 4px}\n.ytb-dash .ytb-section-hdr::after{background:var(--line)}\n.ytb-dash .ytb-meter{height:5px;background:var(--card-lo);border-radius:3px}\n.ytb-dash .ytb-meter-fill{background:var(--ink);border-radius:3px}\n.ytb-dash .ytb-meter-fill.ok{background:var(--ok)}\n.ytb-dash .ytb-meter-fill.warn{background:var(--acc)}\n.ytb-dash .ytb-meter-fill.crit{background:var(--crit)}\n.ytb-dash .ytp-kbd{background:var(--card);border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;color:var(--ink2);font:9.5px ui-monospace,monospace;padding:1px 5px}\n.ytb-dash .ytb-chip{background:rgba(var(--accink),.07);color:var(--acc);border:1px solid rgba(var(--accink),.35);border-radius:999px;font:600 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace}\n.ytb-dash .ytb-chip.neutral{background:var(--card-hi);color:var(--ink2);border:1px solid var(--line2)}\n.ytb-dash .ytb-divider{height:1px;background:var(--line);margin:7px 0}\n.ytb-dash .ytb-cat-dot{border:1px solid var(--line2)}\n.ytb-dash .ytb-dresize{background:linear-gradient(135deg,transparent 0,transparent 50%,var(--line2) 50%,var(--line2) 55%,transparent 55%,transparent 65%,var(--line2) 65%,var(--line2) 70%,transparent 70%,transparent 80%,var(--line2) 80%,var(--line2) 85%,transparent 85%)}\n.ytb-dash .ytb-fp-btn{background:var(--card);border:1px solid var(--line2);color:var(--ink)}\n.ytb-dash .ytb-fp-btn:hover{background:var(--card-hi);border-color:var(--ink3)}\n.ytb-dash .ytb-fp-btn:focus{outline:none;border-color:var(--acc);box-shadow:none}\n.ytb-dash .ytb-fp-arrow{color:var(--ink3)}\n.ytb-dash .ytb-fp-dd{background:var(--card);border:1px solid var(--line2);border-radius:8px;box-shadow:0 14px 30px rgba(var(--shadowink),.16),0 2px 8px rgba(var(--shadowink),.08);backdrop-filter:none;-webkit-backdrop-filter:none}\n.ytb-dash .ytb-fp-search{background:var(--card);border:1px solid var(--line2);color:var(--ink)}\n.ytb-dash .ytb-fp-search::placeholder{color:var(--ink3)}\n.ytb-dash .ytb-fp-search:focus{border-color:var(--acc)}\n.ytb-dash .ytb-fp-item{color:var(--ink)}\n.ytb-dash .ytb-fp-item:hover{background:rgba(var(--accink),.08);color:var(--ink)}\n.ytb-dash .ytb-fp-item.selected{background:rgba(var(--accink),.12);color:var(--ink);font-weight:600}\n.ytb-dash .ytb-cp-native{border:1px solid var(--line2);background:transparent}\n.ytb-dash .ytb-cp-swatch{border:1px solid var(--line2)}\n.ytb-dash .ytb-preset-card{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-preset-card:hover{background:var(--card-hi);border-color:var(--line2)}\n.ytb-dash .ytb-preset-card.active{background:rgba(var(--accink),.08);border-color:rgba(var(--accink),.45)}\n.ytb-dash .ytb-preset-name{color:var(--ink)}\n.ytb-dash .ytb-preset-desc{color:var(--ink3)}\n.ytb-dash .ytb-theme-card{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-theme-card:hover{background:var(--card-hi);border-color:var(--line2)}\n.ytb-dash .ytb-theme-card.active{border-color:var(--acc);background:rgba(var(--accink),.07)}\n.ytb-dash .ytb-theme-swatch{border:1px solid rgba(0,0,0,.08)}\n.ytb-dash .ytb-theme-name{color:var(--ink2)}\n.ytb-dash .ytb-hcard{background:var(--card);border:1px solid var(--line);border-radius:8px}\n.ytb-dash .ytb-hcard:hover{background:var(--card-hi)}\n.ytb-dash .ytb-hthumb{border:1px solid var(--line);background:var(--card-lo) center/cover no-repeat}\n.ytb-dash .ytb-hbadge{background:rgba(var(--shadowink),.82)}\n.ytb-dash .ytb-hbadge.res{background:rgba(var(--accink),.9)}\n.ytb-dash .ytb-htitle{color:var(--ink)}\n.ytb-dash .ytb-hchan{color:var(--ink2)}\n.ytb-dash .ytb-hmeta{color:var(--ink3)}\n.ytb-dash .ytb-hpt{background:var(--card-lo)}\n.ytb-dash .ytb-hpf{background:var(--ink)}\n.ytb-dash .ytb-hpf.done{background:var(--ok)}\n.ytb-dash .ytb-hist-panel{background:transparent;border:1px solid var(--line);border-radius:8px}\n.ytb-dash .ytb-hist-search{background:var(--card);color:var(--ink);border:1px solid var(--line2)}\n.ytb-dash .ytb-hist-search:focus{border-color:var(--acc)}\n.ytb-dash .ytb-hist-loading,.ytb-dash .ytb-hist-empty{color:var(--ink3)}\n.ytb-dash .ytb-hist-list{scrollbar-color:var(--line2) transparent}\n.ytb-dash .ytb-hist-loadmore{background:none!important}\n.ytb-dash .ytb-hist-note{color:var(--ink3);background:var(--card-hi)}\n.ytb-dash .ytb-elem-list{background:transparent;border:1px solid var(--line)}\n.ytb-dash .ytb-elem-group-hdr{color:var(--ink3);border-top:1px solid var(--line)}\n.ytb-dash .ytb-elem-row:hover{background:rgba(var(--accink),.06)}\n.ytb-dash .ytb-elem-row.on{background:rgba(var(--accink),.08)}\n.ytb-dash .ytb-elem-cb{accent-color:var(--ink)}\n.ytb-dash .ytb-elem-name{color:var(--ink2)}\n.ytb-dash .ytb-elem-match{color:var(--ink3)}\n.ytb-dash .ytb-elem-sec-title{color:var(--ink3);border-top:1px solid var(--line)}\n.ytb-dash .ytb-geo-dd{background:var(--card);border:1px solid var(--line2);border-radius:8px;box-shadow:0 14px 30px rgba(var(--shadowink),.16),0 2px 8px rgba(var(--shadowink),.08);backdrop-filter:none;-webkit-backdrop-filter:none}\n.ytb-dash .ytb-geo-row{color:var(--ink2)}\n.ytb-dash .ytb-geo-row:hover,.ytb-dash .ytb-geo-row.hot{background:rgba(var(--accink),.08);color:var(--ink)}\n.ytb-dash .ytb-geo-row.selected{background:rgba(var(--accink),.12);color:var(--ink);font-weight:600}\n.ytb-dash .ytb-geo-code{color:var(--ink3)}\n.ytb-dash .ytb-geo-empty{color:var(--ink3)}\n.ytb-dash .ytb-geo-status{background:var(--card-hi);color:var(--acc)}\n.ytb-dash .ytb-net-card{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-card-label{color:var(--ink3)}\n.ytb-dash .ytb-net-card-value{color:var(--ink)}\n.ytb-dash .ytb-net-card-sub{color:var(--ink3)}\n.ytb-dash .ytb-net-session{background:var(--card-hi);color:var(--acc)}\n.ytb-dash .ytb-net-legend-item{color:var(--ink2)}\n.ytb-dash .ytb-net-chart{background:var(--card-lo);border:1px solid var(--line)}\n.ytb-dash .ytb-net-chart::before{background:rgba(var(--shadowink),.08)}\n.ytb-dash .ytb-net-axis{color:var(--ink3)}\n.ytb-dash .ytb-net-hosts{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-host-row{border-bottom:1px solid var(--card-lo)}\n.ytb-dash .ytb-net-host-name{color:var(--ink2)}\n.ytb-dash .ytb-net-host-bytes{color:var(--acc)}\n.ytb-dash .ytb-net-budget{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-budget-bar{background:var(--card-lo)}\n.ytb-dash .ytb-net-budget-fill{background:var(--ok)}\n.ytb-dash .ytb-net-budget-fill.warn{background:var(--acc)}\n.ytb-dash .ytb-net-budget-fill.crit{background:var(--crit)}\n.ytb-dash .ytb-net-budget-detail{color:var(--ink2)}\n.ytb-dash .ytb-net-qualities{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-net-q-track{background:var(--card-lo)}\n.ytb-dash .ytb-net-q-bytes{color:var(--ink2)}\n.ytb-dash .ytb-perf-mem{background:var(--card-hi);color:var(--acc)}\n.ytb-dash .ytb-perf-membar{background:var(--card-lo)}\n.ytb-dash .ytb-perf-memfill{background:var(--ok)}\n.ytb-dash .ytb-perf-state{color:var(--ink2)}\n.ytb-dash .ytb-perf-table{background:var(--card);border:1px solid var(--line)}\n.ytb-dash .ytb-perf-row{border-bottom:1px solid var(--card-lo)}\n.ytb-dash .ytb-perf-hdr{color:var(--acc);background:var(--card-hi);border-bottom:1px solid var(--line)}\n.ytb-dash .ytb-perf-row .ytb-perf-c1{color:var(--ink2)}\n.ytb-dash .ytb-perf-row .ytb-perf-c2,.ytb-dash .ytb-perf-row .ytb-perf-c3,.ytb-dash .ytb-perf-row .ytb-perf-c4,.ytb-dash .ytb-perf-row .ytb-perf-c5{color:var(--ink2)}\n.ytb-dash .ytb-sbsub-status{background:var(--card-hi);color:var(--ink2)}\n.ytb-dash .ytb-hk-lbl{color:var(--ink2)}\n.ytb-dash .ytb-hk-key{background:var(--card);border:1px solid var(--line2);color:var(--acc)}\n.ytb-dash .ytb-hk-key.listening{background:rgba(var(--critink),.08);border-color:var(--crit);color:var(--crit)}\n.ytb-dash .ytb-hk-key.empty{color:var(--ink3)}\n.ytb-dash .ytb-hk-clr{background:none;color:var(--ink3)}\n.ytb-dash .ytb-hk-clr:hover{background:rgba(var(--critink),.1);color:var(--crit)}\n.ytb-dash .ytb-toggle-pill{background:var(--card-hi);color:var(--ink2)}\n/* --- Dashboard dark mode (v1.8.0): var-driven overrides only --- */\n.ytb-dash.ytb-dark{--acc:#f59e0b;--acc-dim:rgba(245,158,11,.12);--panel:#17181c;--panel2:#1b1d22;--panel3:#212428;--line:#2b2e35;--line2:#3a3e47;--ink:#e8e6e3;--ink2:#b3aaa0;--ink3:#7a7268;--card:#212428;--card-hi:#2a2d34;--card-lo:#30343c;--ok:#4ade80;--crit:#f87171;--accink:245,158,11;--shadowink:0,0,0;--critink:248,113,113;color:var(--ink);background:var(--panel);box-shadow:0 24px 70px rgba(0,0,0,.72),0 4px 16px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);color-scheme:dark}\n.ytb-dash.ytb-dark .ytb-theme-swatch{border:1px solid rgba(255,255,255,.12)}\n.ytb-dash.ytb-dark .ytb-hthumb{background:#101114 center/cover no-repeat}\n.ytb-dash.ytb-dark .ytb-hist-list{scrollbar-color:#3a3e47 transparent}\n';  try {
 
             if (typeof GM_addStyle !== "function") throw new Error("GM_addStyle unavailable");
             GM_addStyle(e);
@@ -25652,23 +25688,6 @@ body.ytb-calm .ytb-t-success{border-left:3px solid var(--ytbc-ok)}
 body.ytb-calm .ytb-t-error{border-left:3px solid var(--ytbc-crit)}
 
 /* Resume prompt (watch overlay + inline card) */
-body.ytb-calm #ytb-resume-overlay>div,body.ytb-calm .ytb-resume-card-inner,body.ytb-calm .ytb-resume-card{background:var(--ytbc-card)!important;border:1px solid var(--ytbc-line2)!important;border-radius:12px!important;box-shadow:var(--ytbc-shadow)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-eyebrow{color:var(--ytbc-acc)}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-title{color:var(--ytbc-ink)}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-meta{color:var(--ytbc-ink3)}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-body{color:var(--ytbc-ink2)}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-thumb{border:1px solid var(--ytbc-line);box-shadow:none}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-footer{color:var(--ytbc-ink3);border-top-color:var(--ytbc-line)}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-dismiss{color:var(--ytbc-ink3)!important}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-dismiss:hover{color:var(--ytbc-ink)!important}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-primary{background:var(--ytbc-ink)!important;color:var(--ytbc-panel)!important;box-shadow:none!important;border-radius:6px}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-primary:hover{background:var(--ytbc-ink2)!important;box-shadow:none!important}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-secondary{background:var(--ytbc-card-hi)!important;color:var(--ytbc-ink)!important;border:1px solid var(--ytbc-line2)!important;border-radius:6px}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-secondary:hover{background:var(--ytbc-card-lo)!important}
-body.ytb-calm #ytb-resume-card{background:var(--ytbc-card)!important;color:var(--ytbc-ink)!important}
-body.ytb-calm #ytb-resume-card .ytb-resume-cta{color:var(--ytbc-acc)}
-body.ytb-calm #ytb-resume-card .ytb-resume-title{color:var(--ytbc-ink3)}
-body.ytb-calm #ytb-resume-card .ytb-resume-btn-primary:hover{background:var(--ytbc-ink2)!important}
 
 /* SponsorBlock floating surfaces */
 body.ytb-calm #ytb-sb-hud{background:var(--ytbc-card)!important;color:var(--ytbc-ink2)!important;border:1px solid var(--ytbc-line2)!important;border-radius:8px!important;box-shadow:var(--ytbc-shadow)!important;font-family:var(--ytbc-font)!important}
@@ -26165,7 +26184,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         speech,
         isQuiet: avg < 5,
         isSpeech: speech > 20 && avg > 10,
-        active: !!(video && !video.paused && !video.ended && !video.muted && video.volume > 0 && !document.hidden),
+        active: !!(entry.ctx && entry.ctx.state === "running" && video && !video.paused && !video.ended && !video.muted && video.volume > 0 && !document.hidden),
       };
     };
     const release = (video) => {
@@ -26214,20 +26233,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const meta = card.querySelector("#metadata-line");
       if (!meta) return null;
       const text = meta.textContent || "";
-      const viewMatch = text.match(/([\d,.]+[KMB]?)\s*views?/i);
-      const timeMatch = text.match(/(\d+)\s*(year|month|week|day)s?\s*ago/i);
-      let reach = "unknown";
-      if (viewMatch) {
-        const n = parseFloat(viewMatch[1].replace(/,/g, ""));
-        const v = viewMatch[1].includes("M") ? n * 1e6 : viewMatch[1].includes("K") ? n * 1e3 : n;
-        reach = v > 1e6 ? "high" : v > 1e4 ? "growing" : "emerging";
-      }
-      let age = null;
-      if (timeMatch) {
-        const num = parseInt(timeMatch[1], 10) || 0;
-        const unit = timeMatch[2];
-        age = unit === "year" ? num * 365 : unit === "month" ? num * 30 : unit === "week" ? num * 7 : num;
-      }
+      const count = _ytCardMeta.views(text);
+      const days = _ytCardMeta.ageDays(text);
+      const reach = count < 0 ? "unknown" : count > 1e6 ? "high" : count > 1e4 ? "growing" : "emerging";
+      const age = days < 0 ? null : days;
       return { reach, age };
     };
     const parseCount = (text) => {
@@ -27659,7 +27668,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           if (card.dataset.ytbCred) return;
           const meta = card.querySelector("#metadata-line");
 
-          if (!meta) { card.dataset.ytbCred = "1"; return; }
+          if (!meta) return; // retry when YouTube hydrates metadata
           const info = YourTubeSearch.analyzeCredibility(card);
           if (!info || info.reach === "unknown") return;
           const badge = document.createElement("span");
@@ -27715,13 +27724,13 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const check = () => {
         const ud = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span");
         if (!ud || ud.dataset.ytbChecked) return;
-        ud.dataset.ytbChecked = "1";
         const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/);
         if (!dm) return;
         const when = new Date(dm[1]).getTime();
         // "Season 3, 2020" also matches the shape but is not a date; without
         // this guard the badge renders "NaN years old".
         if (!Number.isFinite(when)) return;
+        ud.dataset.ytbChecked = "1";
         const age = Date.now() - when;
         if (age <= 365 * 24 * 60 * 60 * 1000 * 2) return;
         const badge = document.createElement("span");
@@ -28099,6 +28108,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       Xt.perfMode = isActive;
       if (!isActive) {
         try { const el = document.getElementById("ytb-perf-style"); if (el) el.remove(); } catch (e) {}
+        if (S.perfModeAuto) ctx.addInterval(() => {
+          if (Xt.batteryLow || Xt.cpuConstrained || Xt.lowMemory || Xt.saveData) xa.apply("perf-mode");
+        }, 10000);
         return;
       }
       const LEVEL = Xt.perfLevel;
@@ -28111,7 +28123,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
       const tier = TIERS[LEVEL] || TIERS.balanced;
 
-      const on = (k) => !!S["perf" + k] || !!tier[k[0].toLowerCase() + k.slice(1)];
+      // A preset seeds the controls. After that, each switch is authoritative.
+      const on = (k) => k === "MaxPaint" ? !!tier.maxPaint && !!S.perfPaintReduction : !!S["perf" + k];
 
       const syncLevelToggles = (force) => {
         const lvl = S.perfModeLevel || "balanced";
@@ -28178,7 +28191,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       }
       if (on("KillAnim")) {
         addPerfCss("*, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }");
-        addPerfCss(".ytp-chrome-bottom, .ytp-progress-bar-container, .ytb-tooltip { transition: opacity 0.1s !important; }");
+        addPerfCss(".ytp-chrome-bottom, .ytp-progress-bar-container, .ytp-tooltip { transition: opacity 0.1s !important; }");
         addPerfCss("html, body { scroll-behavior: auto !important; }");
       }
       if (on("KillBlur")) {
@@ -28210,12 +28223,14 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
               }
             }
           }, { rootMargin: "500px 0px", threshold: 0.01 });
+          const initialAttrs = new WeakMap();
           const observeThumbs = () => {
             try {
               const thumbs = document.querySelectorAll("ytd-thumbnail img:not([data-ytb-perf-observed]), #thumbnail img:not([data-ytb-perf-observed]), .ytp-videowall-still-image:not([data-ytb-perf-observed])");
               for (const img of thumbs) {
                 if (!img.src || img.loading === "lazy") continue;
                 try {
+                  initialAttrs.set(img, [img.getAttribute("loading"), img.getAttribute("decoding")]);
                   img.loading = "lazy";
                   img.decoding = "async";
                   img.dataset.ytbPerfObserved = "1";
@@ -28241,7 +28256,12 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           Yt["perf-mode"].push(() => {
             // Restore downgraded thumbnails and clear the observation flags so
             // a re-enable can process them again.
-            document.querySelectorAll("img[data-ytb-perf-src]").forEach((img) => {
+            document.querySelectorAll("[data-ytb-perf-observed]").forEach((img) => {
+              const orig = initialAttrs.get(img);
+              if (orig) ["loading", "decoding"].forEach((attr,i) => {
+                if (img.getAttribute(attr) !== (i ? "async" : "lazy")) return;
+                if (orig[i] === null) img.removeAttribute(attr); else img.setAttribute(attr, orig[i]);
+              });
               try { if (img.dataset.ytbPerfSrc) img.src = img.dataset.ytbPerfSrc; } catch (_) {}
               delete img.dataset.ytbPerfSrc;
               delete img.dataset.ytbPerfObserved;
@@ -28298,6 +28318,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       }
       if (on("Preconnect")) {
         try {
+          const created = [];
+          Yt["perf-mode"].push(() => { for (const link of created) link.remove(); });
           const domains = ["https://i.ytimg.com", "https://yt3.ggpht.com", "https://www.google.com", "https://fonts.gstatic.com", "https://yt4.ggpht.com"];
           for (const domain of domains) {
             if (document.querySelector("link[rel=\"preconnect\"][href=\"" + domain + "\"]")) continue;
@@ -28305,7 +28327,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             link.rel = "preconnect";
             link.href = domain;
             link.crossOrigin = "anonymous";
-            document.head.appendChild(link);
+            if (!S.safeMode) { document.head.appendChild(link); created.push(link); }
           }
         } catch (e) {}
       }
@@ -28402,7 +28424,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const info = document.createElement("div");
       info.className = "ytb-hist-note";
       info.style.marginTop = "8px";
-      info.innerHTML = Xy("<strong>Level presets:</strong> each preset turns on a set of optimizations. Granular switches add individual optimizations on top of the selected level. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.");
+      info.innerHTML = Xy("<strong>Level presets:</strong> each preset turns on a set of optimizations. Changing level sets its defaults. You can then turn individual optimizations on or off. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.");
       en.appendChild(info);
     } });
   xa.register({
@@ -28825,8 +28847,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
   const YourTubePack = (() => {
 
     const elBinder = (cardId) => {
-      const bound = new WeakSet();
-      const bind = (ctx, ev, fn, opts) => {
+      const bind = (bound, ctx, ev, fn, opts) => {
         const el = ie.el();
         if (!el || bound.has(el)) return false;
         bound.add(el);
@@ -28835,15 +28856,18 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
 
       return (ctx, ev, fn, opts) => {
-        bind(ctx, ev, fn, opts);
+        // Each event binding (not each video) owns a seen-set. Multiple event
+        // types registered through one binder must all attach to the same video.
+        const bound = new WeakSet();
+        bind(bound, ctx, ev, fn, opts);
         // The player element is replaced on miniplayer/theater changes, so keep
         // a rebind hook and a short-lived recovery ticker; the ticker is torn
         // down with the card so a disabled feature cannot rebind afterwards.
-        ctx.onNav(() => bind(ctx, ev, fn, opts));
+        ctx.onNav(() => bind(bound, ctx, ev, fn, opts));
         let attempts = 90;
         let disposed = false;
         const iv = YourTubeResources.SharedTicker.add(() => {
-          if (disposed || bind(ctx, ev, fn, opts) || --attempts <= 0) YourTubeResources.SharedTicker.remove(iv);
+          if (disposed || bind(bound, ctx, ev, fn, opts) || --attempts <= 0) YourTubeResources.SharedTicker.remove(iv);
         }, 2000, { pauseHidden: true, label: "ytb-ui-elbinder" });
         if (cardId && Yt[cardId]) {
           Yt[cardId].push(() => { disposed = true; YourTubeResources.SharedTicker.remove(iv); });
@@ -28885,8 +28909,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         let reading = null;
         try { reading = YourTubePlayback.readEnergy(vid); } catch (_) {}
 
-        if (!reading || !reading.active || !(reading.energy > 0)) quietMs = 0;
-        else if (reading.energy < 4) quietMs += 500;
+        if (!reading || !reading.active || !Number.isFinite(reading.energy)) {
+          quietMs = 0;
+          if (boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; }
+        } else if (reading.energy < 4) quietMs += 500;
         else quietMs = 0;
         if (quietMs >= 1500 && !boosted) { try { prevRate = vid.playbackRate || 1; vid.playbackRate = targetRate(); boosted = true; } catch (_) {} }
         else if (reading && reading.energy >= 4 && boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; quietMs = 0; }
@@ -28922,7 +28948,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           const pr = e.ytInitialPlayerResponse || {};
 
           if (!pr.videoDetails || pr.videoDetails.videoId !== vid) return;
-          chVid = vid;
           const bar = pr.playerOverlays && pr.playerOverlays.playerOverlayRenderer &&
             pr.playerOverlays.playerOverlayRenderer.decoratedPlayerBarRenderer;
           const map = bar && bar.decoratedPlayerBarRenderer && bar.decoratedPlayerBarRenderer.playerBar &&
@@ -28937,8 +28962,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             return first || null;
           })();
           const list = entries && entries.chapters;
-          if (!Array.isArray(list)) return;
-          chapters = list.map(c => ({
+          if (!Array.isArray(list) || !list.length) return;
+          chVid = vid;
+          chapters = list.filter(c => c && c.chapterRenderer && c.chapterRenderer.title).map(c => ({
             t: (c.chapterRenderer && c.chapterRenderer.timeRangeStartMillis || 0) / 1000,
             title: (c.chapterRenderer && c.chapterRenderer.title && c.chapterRenderer.title.simpleText ||
               ((c.chapterRenderer.title.runs || []).map(r => r.text).join("")) || "").toLowerCase(),
@@ -28961,7 +28987,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           }
         }
       };
-      binder(ctx, "timeupdate", YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-chskip", check, 400));
+      // timeupdate often arrives every 250 ms. A trailing 400 ms debounce
+      // never fires during playback; a two-second poll can miss an intro.
+      let lastCheck = -Infinity;
+      binder(ctx, "timeupdate", () => {
+        const now = performance.now();
+        if (now - lastCheck < 120) return;
+        lastCheck = now;
+        check();
+      });
       ctx.addInterval(check, 2000);
       // Chapter lists belong to one video; drop them on navigation so a stale
       // list cannot skip into the new video's timeline.
@@ -29188,7 +29222,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       ctx.addListener(document, "keydown", (ev) => {
         if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyO" && !YourTubePack.guardKey(ev)) {
           ev.preventDefault();
-          const cycle = [0, 30, 60, 90];
+          const cycle = [...new Set([0, mins(), 30, 60, 90])];
           const wasFading = deadline && origVol !== null;
           armed = cycle[(cycle.indexOf(armed) + 1) % cycle.length];
           disarm(wasFading);
@@ -29701,7 +29735,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
       ctx.addListener(document.body, "copy", (ev) => {
         try {
-          const txt = (ev.clipboardData || window.clipboardData).getData("text");
+          const data = ev.clipboardData;
+          if (!data) return;
+          const selected = window.getSelection();
+          const txt = data.getData("text/plain") || (selected && selected.toString());
           if (!txt) return;
           const cleaned = clean(txt.trim());
           if (cleaned && cleaned !== txt.trim()) {
@@ -29921,13 +29958,14 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         try { el.pause(); el.currentTime += dir / fps(); } catch (_) {}
       };
       ctx.addListener(document, "keydown", (ev) => {
-        if (!ev.altKey || ev.ctrlKey || ev.metaKey || YourTubePack.guardKey(ev)) return;
+        if (!ev.altKey || ev.shiftKey || ev.ctrlKey || ev.metaKey || YourTubePack.guardKey(ev)) return;
         if (ev.code === "Comma") { ev.preventDefault(); step(-1); }
         if (ev.code === "Period") { ev.preventDefault(); step(1); }
       });
       YourTubeEngine.scheduleOnReady(ctx, () => {
         const bar = document.querySelector(".ytp-right-controls");
-        if (!bar || bar.querySelector("#ytb-frameback")) return !!bar.querySelector("#ytb-frameback");
+        if (!bar) return false;
+        if (bar.querySelector("#ytb-frameback")) return true;
         const mk = (id, label, dir) => {
           const b = document.createElement("button");
           b.id = id; b.className = "ytp-button"; b.title = label; b.textContent = dir < 0 ? "‹·" : "·›";
@@ -30375,19 +30413,23 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     const CARDS = "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer";
     const META = "#metadata-line, yt-content-metadata-view-model, .ytContentMetadataViewModelMetadataRow";
     const views = (text) => {
-      const match = /([\d.,]+)\s*([KMB])?\s*views/i.exec(String(text || ""));
+      const line = String(text || "").trim().replace(/^[•·]\s*/, "");
+      // Old: “1.2M views • 3 years ago”. Compact English search cards:
+      // “1.2M\n3y ago”. Only accept an unlabelled count in that metadata slot;
+      // durations, “276 watching”, and the age by itself are not view counts.
+      const match = /([\d.,]+)\s*([KMB])?\s*views?\b/i.exec(line) ||
+        /^([\d,]+(?:\.\d+)?)\s*([KMB])?(?=\s*$|\s*[•·]\s*|\s+(?:(?:streamed|premiered)\s+)?\d+\s*[a-z]+\s+ago\b)/i.exec(line);
       if (!match) return -1;
-      const value = Number(String(match[1]).replace(/,/g, ""));
-      if (!Number.isFinite(value)) return -1;
-      const scale = match[2] ? { K: 1e3, M: 1e6, B: 1e9 }[match[2].toUpperCase()] : 1;
-      return value * scale;
+      const value = Number(match[1].replace(/,/g, ""));
+      return Number.isFinite(value) ? value * ({ K: 1e3, M: 1e6, B: 1e9 }[(match[2] || "").toUpperCase()] || 1) : -1;
     };
     const ageDays = (text) => {
-      const match = /(\d+)\s*(year|month|week|day|hour)/i.exec(String(text || ""));
+      const match = /(\d+)\s*(years?|months?|weeks?|days?|hours?|minutes?|seconds?|mo|yr|[ywdhms])\s+ago\b/i.exec(String(text || ""));
       if (!match) return -1;
-      const value = parseInt(match[1], 10) || 0;
-      const factor = { year: 365, month: 30, week: 7, day: 1, hour: 0.04 }[match[2].toLowerCase()];
-      return value * factor;
+      const unit = match[2].toLowerCase();
+      const scale = unit[0] === "y" ? 365 : unit.startsWith("mo") ? 30 :
+        unit[0] === "w" ? 7 : unit[0] === "d" ? 1 : unit[0] === "h" ? 1/24 : unit[0] === "m" ? 1/1440 : 1/86400;
+      return Number(match[1]) * scale;
     };
     const formatCount = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n)));
     const durationSec = (row) => {
@@ -30495,7 +30537,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             delete card.dataset.ytbSeen;
             card.style.display = "";
           }
-          if (!at || now - at > 600000) { data[id] = now; recorded++; }
+          if (!hide && (!at || now - at > 600000)) { data[id] = now; recorded++; }
         });
         if (recorded) {
           pendingWrites += recorded;
@@ -30548,29 +30590,24 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       if (!S.hideLowViewsOn) return;
       const CARD_SELECTOR = _ytCardMeta.CARDS;
       const META_SELECTOR = _ytCardMeta.META;
-      const threshold = () => Math.max(0, Math.min(100000, Number(S.lowViewThreshold) || 1000));
+      const threshold = () => Math.max(0, Math.min(100000, Number.isFinite(+S.lowViewThreshold) ? +S.lowViewThreshold : 1000));
+      ctx.addStyle("[data-ytb-low-view]{display:none!important}");
       const scan = () => {
         const limit = threshold();
         document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
           const meta = card.querySelector(META_SELECTOR);
-          if (!meta) return;
-          const views = _ytCardMeta.views(meta.textContent);
-          if (views < 0) return;
-          const hide = views < limit;
-          if (hide) {
-            if (!card.dataset.ytbLowView) { card.dataset.ytbLowView = "1"; card.style.display = "none"; }
-          } else if (card.dataset.ytbLowView) {
-            delete card.dataset.ytbLowView;
-            card.style.display = "";
-          }
+          const views = meta ? _ytCardMeta.views(meta.textContent) : -1;
+          // Recycled, live or pending cards must lose our hide marker. Don't
+          // overwrite the page's inline display or other cards' visibility.
+          card.toggleAttribute("data-ytb-low-view", views >= 0 && views < limit);
         });
       };
+      scan();
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-lowview", scan, 400), { childList: true, subtree: true });
       ctx.addInterval(scan, 6000);
       ctx.onNav(() => ctx.addTimeout(scan, 800));
       Yt["hide-low-views"].push(() => {
         document.querySelectorAll("[data-ytb-low-view]").forEach((el) => {
-          el.style.display = "";
           delete el.dataset.ytbLowView;
         });
       });
@@ -30609,7 +30646,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           const text = meta.textContent || "";
           const views = parseViews(text);
           const ageDays = parseAgeDays(text);
-          if (views < 0 && ageDays < 0) { card.dataset.ytbMeta = "1"; return; }
+          if (views < 0 && ageDays < 0) return; // metadata text can hydrate after its container
           const parts = [];
           if (S.cardMetaVelocity && views >= 0 && ageDays > 0.04) {
             parts.push("~" + formatCount(views / ageDays) + "/day");
@@ -31359,7 +31396,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         }
       };
       const applyThumb = (card, videoId, data) => {
-        if (!applyAlive || !card || !card.isConnected) return;
+        if (!applyAlive || S.safeMode || !card || !card.isConnected || _ytCardMeta.videoIdOf(card) !== videoId) return;
         if (!S.deArrowThumbs || !data || !Array.isArray(data.thumbnails) || !data.thumbnails.length) return;
         const best = data.thumbnails.find((entry) => entry && !entry.original && Number.isFinite(entry.timestamp)) || null;
         if (!best) return;
@@ -31488,7 +31525,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const p = document.getElementById("movie_player");
         if (!p) return null;
         if (hooked.has(p)) return p;
-        if (typeof p.setDrcUserPreference !== "function" && typeof p.updateCinematicSettings !== "function")
+        if (typeof p.setDrcUserPreference !== "function" && typeof p.setVoiceBoostUserPreference !== "function" && typeof p.updateCinematicSettings !== "function")
           return null; // the audio/cinematic surface arrives after the element; retry
         const orig = (p.__ytbFxOrig = p.__ytbFxOrig || {});
         if (typeof p.setDrcUserPreference === "function" && !orig.drc) {
@@ -31549,7 +31586,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         flexy.__ytbFxObs = 1;
         const obs = new MutationObserver(stripAmbientAttr);
         obs.observe(flexy, { attributes: !0, attributeFilter: ["ambient-mode-enabled"] });
-        Yt["player-effects-block"].push(() => { try { obs.disconnect(); } catch (_) {} });
+        Yt["player-effects-block"].push(() => { try { obs.disconnect(); delete flexy.__ytbFxObs; } catch (_) {} });
       };
       ctx.addInterval(() => { watchFlexy(); assert(); }, 4000);
       ctx.addTimeout(assert, 900);
@@ -31740,7 +31777,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!header || header.querySelector(".ytb-ui-mark-read")) return !!header;
         const button = Oo("Mark all read", () => {
           const target = Array.from(document.querySelectorAll("ytd-multi-page-menu-renderer button, ytd-multi-page-menu-renderer yt-button-shape button"))
-            .find((el) => /mark all( as)? read/i.test((el.textContent || "").trim()));
+            .find((el) => el !== button && !el.disabled && el.getClientRects().length &&
+              /mark all( as)? read/i.test((el.textContent || "") + " " + (el.getAttribute("aria-label") || "")));
           if (target) { target.click(); pe("Notifications marked as read.", 1500, "success"); }
           else pe("No mark-all-read control on this page.", 1800, "info");
         });
@@ -31869,6 +31907,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       en.appendChild(out);
       const fmtHours = (seconds) => (seconds >= 3600 ? (seconds / 3600).toFixed(1) + " h" : Math.round(seconds / 60) + " min");
       const render = async () => {
+        out.hidden = !S.watchStatsOn;
+        if (out.hidden) { out.textContent = ""; return; }
         out.textContent = "Reading local history…";
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}
@@ -32144,6 +32184,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const lines = Array.from(seen.entries()).map(([handle, name]) => name + "\t" + handle);
         save("yourtube-subscriptions-" + stamp() + ".txt", lines.join("\n"), "text/plain");
       }));
+      const sync = () => { row.style.display = S.exportDataOn ? "" : "none"; };
+      sync();
+      So("cfg.changed", ({key}) => { if (key === "exportDataOn") sync(); });
       en.appendChild(row);
       en.appendChild(To("div", "ytb-hist-note",
         "Files are written from local data only. The subscription list is read from the channels page you have open."));
@@ -32166,7 +32209,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!active) return null;
         const data = store.get() || {};
         const list = data[active];
-        return Array.isArray(list) && list.length ? new Set(list.map((c) => String(c).toLowerCase())) : null;
+        return Array.isArray(list) && list.length ? new Set(list.map((c) => String(c).trim().replace(/^@/, "").toLowerCase())) : null;
       };
       const channelOf = (card) => {
         const link = card.querySelector("a[href*='/@'], a[href*='/channel/']");
@@ -32482,7 +32525,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
 
   xa.register({
     id: "keymap", name: "Keymap",
-    summary: "Rebinds all of the script's keyboard shortcuts.",
+    summary: "Rebinds the listed playback and SponsorBlock shortcuts.",
       cat: "tools",
     masterKey: "keymapOn", keys: ["keymapOn", "keymap"],
     apply() { },
@@ -32686,58 +32729,56 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         ".ytb-ui-sort-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0 12px;font-size:12px;color:#aaa}" +
         ".ytb-ui-sort-bar .ytb-btn.active{background:rgba(255,61,127,.18);border-color:rgba(255,61,127,.4);color:#ff8aa5}",
       );
-      const parseViews = _ytCardMeta.views;
-      const parseAge = _ytCardMeta.ageDays;
-      const durationOf = _ytCardMeta.durationSec;
-      const sortBy = (mode) => {
-        const list = document.querySelector("ytd-search ytd-item-section-renderer #contents, #search ytd-item-section-renderer #contents");
-        if (!list) { pe("No results list on this page.", 1800, "info"); return; }
-        const cards = Array.from(list.querySelectorAll(":scope > ytd-video-renderer"));
-        if (cards.length < 2) { pe("Nothing to sort.", 1600, "info"); return; }
-        const meta = new Map();
-        for (const card of cards) {
-          const line = card.querySelector(_ytCardMeta.META);
-          const text = (line && line.textContent) || "";
-          meta.set(card, {
-            views: parseViews(text),
-            age: parseAge(text),
-            duration: durationOf(card),
-          });
+      const lists = "ytd-search ytd-item-section-renderer #contents, #search ytd-item-section-renderer #contents";
+      const ranks = new WeakMap();
+      let nextRank = 0, mode = S.sortSearchBy || "relevance";
+      const reorder = (list, order) => {
+        const cards = Array.from(list.children).filter((el) => el.matches("ytd-video-renderer"));
+        for (const card of cards) if (!ranks.has(card)) ranks.set(card, nextRank++);
+        if (cards.length < 2) return;
+        const val = new Map(cards.map((c) => {
+          const meta = c.querySelector(_ytCardMeta.META);
+          const text = meta ? meta.textContent : "";
+          const age = order === "date" ? _ytCardMeta.ageDays(text) : -1;
+          return [c, order === "views" ? -_ytCardMeta.views(text) :
+            order === "duration" ? -_ytCardMeta.durationSec(c) :
+            order === "date" ? (age < 0 ? Infinity : age) : ranks.get(c)];
+        }));
+        const sorted = cards.slice().sort((a,b) => (val.get(a)-val.get(b)) || (ranks.get(a)-ranks.get(b)));
+        // Swap only the video slots. Headers, shelves and continuation sentinels
+        // must keep their exact positions; leave already-sorted DOM untouched.
+        const slots = [];
+        for (let i = 0; i < cards.length; i++) if (cards[i] !== sorted[i]) {
+          const slot = document.createComment("yourtube-sort");
+          cards[i].replaceWith(slot); slots.push([slot, sorted[i]]);
         }
-        const value = (card) => {
-          const info = meta.get(card) || {};
-          if (mode === "views") return info.views < 0 ? -1 : info.views;
-          if (mode === "date") return info.age < 0 ? Number.MAX_SAFE_INTEGER : info.age;
-          if (mode === "duration") return info.duration;
-          return 0;
-        };
-        const sorted = cards.slice().sort((a, b) => {
-          // Age ascending is newest first; duration and views descending.
-          if (mode === "date") return value(a) - value(b);
-          return value(b) - value(a);
-        });
-        const fragment = document.createDocumentFragment();
-        for (const card of sorted) fragment.appendChild(card);
-        list.appendChild(fragment);
-        pe("Sorted " + cards.length + " results by " + mode + ".", 1800, "success");
+        for (const [slot, card] of slots) slot.replaceWith(card);
       };
-      const mount = () => {
-        if (!location.pathname.startsWith("/results")) return;
+      const sync = () => {
+        if (location.pathname !== "/results") return;
         const host = document.querySelector("ytd-search #container.ytd-search, ytd-search #primary");
-        if (!host || host.querySelector(".ytb-ui-sort-bar")) return;
-        const bar = To("div", "ytb-ui-sort-bar");
-        bar.appendChild(To("span", null, "Sort:"));
-        for (const [mode, label] of [["date", "Newest"], ["views", "Most viewed"], ["duration", "Longest"]]) {
-          const button = Oo(label, () => sortBy(mode));
-          if (S.sortSearchBy === mode) button.classList.add("active");
-          bar.appendChild(button);
+        if (!host) return;
+        let bar = host.querySelector(".ytb-ui-sort-bar");
+        if (!bar) {
+          bar = To("div", "ytb-ui-sort-bar");
+          bar.appendChild(To("span", null, "Sort:"));
+          for (const [value,label] of [["relevance","YouTube order"],["date","Newest"],["views","Most viewed"],["duration","Longest"]]) {
+            const button = Oo(label, () => { mode = value; sync(); });
+            button.dataset.order = value; bar.appendChild(button);
+          }
+          host.prepend(bar);
         }
-        bar.appendChild(To("span", null, "reorders the results already on the page"));
-        host.insertBefore(bar, host.firstChild);
+        for (const b of bar.querySelectorAll("[data-order]")) {
+          b.classList.toggle("active", b.dataset.order === mode);
+          b.setAttribute("aria-pressed", String(b.dataset.order === mode));
+        }
+        for (const list of document.querySelectorAll(lists)) reorder(list, mode);
       };
-      ctx.addInterval(mount, 2000);
-      ctx.onNav(() => ctx.addTimeout(mount, 900));
+      sync();
+      ctx.addInterval(sync, 2000);
+      ctx.onNav(() => { mode = S.sortSearchBy || "relevance"; ctx.addTimeout(sync, 300); });
       Yt["sort-search"].push(() => {
+        for (const list of document.querySelectorAll(lists)) reorder(list, "relevance");
         document.querySelectorAll(".ytb-ui-sort-bar").forEach((el) => el.remove());
       });
     },
@@ -32844,21 +32885,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     _cache: new Map(),
     _failed: new Map(),
     _pending: new Map(),
-    _page: null,
-    _pageAt: 0,
-
-    _getPage() {
-      const now = Date.now();
-      if (this._page && now - this._pageAt < 60000) return this._page;
-      try {
-        this._page = _fwParsePage();
-      } catch (_) {
-        this._page = { apiKey: "" };
-      }
-      this._pageAt = now;
-      return this._page;
-    },
-
     dateFor(videoId) {
       if (!videoId) return Promise.resolve("");
       const pending = this._pending.get(videoId);
@@ -32873,22 +32899,22 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       if (this._cache.has(videoId)) return this._cache.get(videoId);
       const failedAt = this._failed.get(videoId);
       if (failedAt && Date.now() - failedAt < 600000) return "";
-      const page = this._getPage();
-      if (!page || !page.apiKey) return "";
-      let auth = null;
+      // Use metadata already on this watch page when it belongs to this ID.
+      // The _fw* helpers are private to the Force Watched action and were
+      // never in scope here. A date lookup does not need its account machinery.
+      let json = null;
       try {
-        auth = await _fwSapisidHeader();
+        const current = e.ytInitialPlayerResponse;
+        if (current && current.videoDetails && current.videoDetails.videoId === videoId &&
+            current.microformat && current.microformat.playerMicroformatRenderer) json = current;
       } catch (_) {}
-      let resp = null;
-      try {
-        resp = await _fwInnerTube(page, "player", {
-          context: Mt(),
-          videoId,
-          contentCheckOk: true,
-          racyCheckOk: true,
-        }, auth);
-      } catch (_) {}
-      const json = resp && resp.json;
+      if (!json) {
+        try {
+          const result = await Ot("player", { context: Mt(), videoId }, { parseJson: true });
+          if (result && result.ok) json = result.json;
+          if (json && json.videoDetails && json.videoDetails.videoId && json.videoDetails.videoId !== videoId) json = null;
+        } catch (_) {}
+      }
       const micro = json && json.microformat && json.microformat.playerMicroformatRenderer;
       let when = "";
       if (micro) {
@@ -33543,6 +33569,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
   (async function () {
     try {
       z();
+      // Arm before the asynchronous config/DOM hydration and chunked card apply.
+      WatchSessions.configure();
+      g.on('cfg.changed', ({key}) => {if (['sessionRestoreOn','sessionResumeMode','sessionResumeDesign'].includes(key)) WatchSessions.configure();});
     } catch (e) {}
     try {
       u("inject mode: " + ((typeof GM_info !== "undefined" && GM_info && GM_info.injectInto) || "unknown"));
@@ -33673,7 +33702,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const _spec = typeof _ytKeySpec === "function" ? _ytKeySpec(e) : "";
         const _bound = (action) => {
           if (!_spec) return false;
-          const map = S.keymap && typeof S.keymap === "object" ? S.keymap : null;
+          const map = S.keymapOn && S.keymap && typeof S.keymap === "object" ? S.keymap : null;
           const custom = map && typeof map[action] === "string" ? map[action].toLowerCase() : "";
           const fallback = (typeof _YT_KEYMAP_DEFAULTS === "object" && _YT_KEYMAP_DEFAULTS[action]) || "";
           return _spec === (custom || fallback);
@@ -33801,7 +33830,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         };
         try {
           window.addEventListener("beforeunload", (ev) => {
-            try { Ze(); } catch (e2) {}
+            try { WatchSessions.flush(); } catch (e2) {}
             e(ev);
           }, { capture: !0 });
         } catch (e) {}

@@ -144,23 +144,6 @@ body.ytb-calm .ytb-t-success{border-left:3px solid var(--ytbc-ok)}
 body.ytb-calm .ytb-t-error{border-left:3px solid var(--ytbc-crit)}
 
 /* Resume prompt (watch overlay + inline card) */
-body.ytb-calm #ytb-resume-overlay>div,body.ytb-calm .ytb-resume-card-inner,body.ytb-calm .ytb-resume-card{background:var(--ytbc-card)!important;border:1px solid var(--ytbc-line2)!important;border-radius:12px!important;box-shadow:var(--ytbc-shadow)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-eyebrow{color:var(--ytbc-acc)}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-title{color:var(--ytbc-ink)}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-meta{color:var(--ytbc-ink3)}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-body{color:var(--ytbc-ink2)}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-thumb{border:1px solid var(--ytbc-line);box-shadow:none}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-footer{color:var(--ytbc-ink3);border-top-color:var(--ytbc-line)}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-dismiss{color:var(--ytbc-ink3)!important}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-dismiss:hover{color:var(--ytbc-ink)!important}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-primary{background:var(--ytbc-ink)!important;color:var(--ytbc-panel)!important;box-shadow:none!important;border-radius:6px}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-primary:hover{background:var(--ytbc-ink2)!important;box-shadow:none!important}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-secondary{background:var(--ytbc-card-hi)!important;color:var(--ytbc-ink)!important;border:1px solid var(--ytbc-line2)!important;border-radius:6px}
-body.ytb-calm #ytb-resume-overlay .ytb-resume-btn-secondary:hover{background:var(--ytbc-card-lo)!important}
-body.ytb-calm #ytb-resume-card{background:var(--ytbc-card)!important;color:var(--ytbc-ink)!important}
-body.ytb-calm #ytb-resume-card .ytb-resume-cta{color:var(--ytbc-acc)}
-body.ytb-calm #ytb-resume-card .ytb-resume-title{color:var(--ytbc-ink3)}
-body.ytb-calm #ytb-resume-card .ytb-resume-btn-primary:hover{background:var(--ytbc-ink2)!important}
 
 /* SponsorBlock floating surfaces */
 body.ytb-calm #ytb-sb-hud{background:var(--ytbc-card)!important;color:var(--ytbc-ink2)!important;border:1px solid var(--ytbc-line2)!important;border-radius:8px!important;box-shadow:var(--ytbc-shadow)!important;font-family:var(--ytbc-font)!important}
@@ -657,7 +640,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         speech,
         isQuiet: avg < 5,
         isSpeech: speech > 20 && avg > 10,
-        active: !!(video && !video.paused && !video.ended && !video.muted && video.volume > 0 && !document.hidden),
+        active: !!(entry.ctx && entry.ctx.state === "running" && video && !video.paused && !video.ended && !video.muted && video.volume > 0 && !document.hidden),
       };
     };
     const release = (video) => {
@@ -706,20 +689,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const meta = card.querySelector("#metadata-line");
       if (!meta) return null;
       const text = meta.textContent || "";
-      const viewMatch = text.match(/([\d,.]+[KMB]?)\s*views?/i);
-      const timeMatch = text.match(/(\d+)\s*(year|month|week|day)s?\s*ago/i);
-      let reach = "unknown";
-      if (viewMatch) {
-        const n = parseFloat(viewMatch[1].replace(/,/g, ""));
-        const v = viewMatch[1].includes("M") ? n * 1e6 : viewMatch[1].includes("K") ? n * 1e3 : n;
-        reach = v > 1e6 ? "high" : v > 1e4 ? "growing" : "emerging";
-      }
-      let age = null;
-      if (timeMatch) {
-        const num = parseInt(timeMatch[1], 10) || 0;
-        const unit = timeMatch[2];
-        age = unit === "year" ? num * 365 : unit === "month" ? num * 30 : unit === "week" ? num * 7 : num;
-      }
+      const count = _ytCardMeta.views(text);
+      const days = _ytCardMeta.ageDays(text);
+      const reach = count < 0 ? "unknown" : count > 1e6 ? "high" : count > 1e4 ? "growing" : "emerging";
+      const age = days < 0 ? null : days;
       return { reach, age };
     };
     const parseCount = (text) => {
@@ -2151,7 +2124,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           if (card.dataset.ytbCred) return;
           const meta = card.querySelector("#metadata-line");
 
-          if (!meta) { card.dataset.ytbCred = "1"; return; }
+          if (!meta) return; // retry when YouTube hydrates metadata
           const info = YourTubeSearch.analyzeCredibility(card);
           if (!info || info.reach === "unknown") return;
           const badge = document.createElement("span");
@@ -2207,13 +2180,13 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const check = () => {
         const ud = document.querySelector("#info-strings yt-formatted-string, ytd-video-primary-info-renderer #info span");
         if (!ud || ud.dataset.ytbChecked) return;
-        ud.dataset.ytbChecked = "1";
         const dm = (ud.textContent || "").match(/(\w+ \d+, \d{4})/);
         if (!dm) return;
         const when = new Date(dm[1]).getTime();
         // "Season 3, 2020" also matches the shape but is not a date; without
         // this guard the badge renders "NaN years old".
         if (!Number.isFinite(when)) return;
+        ud.dataset.ytbChecked = "1";
         const age = Date.now() - when;
         if (age <= 365 * 24 * 60 * 60 * 1000 * 2) return;
         const badge = document.createElement("span");
@@ -2591,6 +2564,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       Xt.perfMode = isActive;
       if (!isActive) {
         try { const el = document.getElementById("ytb-perf-style"); if (el) el.remove(); } catch (e) {}
+        if (S.perfModeAuto) ctx.addInterval(() => {
+          if (Xt.batteryLow || Xt.cpuConstrained || Xt.lowMemory || Xt.saveData) xa.apply("perf-mode");
+        }, 10000);
         return;
       }
       const LEVEL = Xt.perfLevel;
@@ -2603,7 +2579,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
       const tier = TIERS[LEVEL] || TIERS.balanced;
 
-      const on = (k) => !!S["perf" + k] || !!tier[k[0].toLowerCase() + k.slice(1)];
+      // A preset seeds the controls. After that, each switch is authoritative.
+      const on = (k) => k === "MaxPaint" ? !!tier.maxPaint && !!S.perfPaintReduction : !!S["perf" + k];
 
       const syncLevelToggles = (force) => {
         const lvl = S.perfModeLevel || "balanced";
@@ -2670,7 +2647,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       }
       if (on("KillAnim")) {
         addPerfCss("*, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }");
-        addPerfCss(".ytp-chrome-bottom, .ytp-progress-bar-container, .ytb-tooltip { transition: opacity 0.1s !important; }");
+        addPerfCss(".ytp-chrome-bottom, .ytp-progress-bar-container, .ytp-tooltip { transition: opacity 0.1s !important; }");
         addPerfCss("html, body { scroll-behavior: auto !important; }");
       }
       if (on("KillBlur")) {
@@ -2702,12 +2679,14 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
               }
             }
           }, { rootMargin: "500px 0px", threshold: 0.01 });
+          const initialAttrs = new WeakMap();
           const observeThumbs = () => {
             try {
               const thumbs = document.querySelectorAll("ytd-thumbnail img:not([data-ytb-perf-observed]), #thumbnail img:not([data-ytb-perf-observed]), .ytp-videowall-still-image:not([data-ytb-perf-observed])");
               for (const img of thumbs) {
                 if (!img.src || img.loading === "lazy") continue;
                 try {
+                  initialAttrs.set(img, [img.getAttribute("loading"), img.getAttribute("decoding")]);
                   img.loading = "lazy";
                   img.decoding = "async";
                   img.dataset.ytbPerfObserved = "1";
@@ -2733,7 +2712,12 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           Yt["perf-mode"].push(() => {
             // Restore downgraded thumbnails and clear the observation flags so
             // a re-enable can process them again.
-            document.querySelectorAll("img[data-ytb-perf-src]").forEach((img) => {
+            document.querySelectorAll("[data-ytb-perf-observed]").forEach((img) => {
+              const orig = initialAttrs.get(img);
+              if (orig) ["loading", "decoding"].forEach((attr,i) => {
+                if (img.getAttribute(attr) !== (i ? "async" : "lazy")) return;
+                if (orig[i] === null) img.removeAttribute(attr); else img.setAttribute(attr, orig[i]);
+              });
               try { if (img.dataset.ytbPerfSrc) img.src = img.dataset.ytbPerfSrc; } catch (_) {}
               delete img.dataset.ytbPerfSrc;
               delete img.dataset.ytbPerfObserved;
@@ -2790,6 +2774,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       }
       if (on("Preconnect")) {
         try {
+          const created = [];
+          Yt["perf-mode"].push(() => { for (const link of created) link.remove(); });
           const domains = ["https://i.ytimg.com", "https://yt3.ggpht.com", "https://www.google.com", "https://fonts.gstatic.com", "https://yt4.ggpht.com"];
           for (const domain of domains) {
             if (document.querySelector("link[rel=\"preconnect\"][href=\"" + domain + "\"]")) continue;
@@ -2797,7 +2783,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             link.rel = "preconnect";
             link.href = domain;
             link.crossOrigin = "anonymous";
-            document.head.appendChild(link);
+            if (!S.safeMode) { document.head.appendChild(link); created.push(link); }
           }
         } catch (e) {}
       }
@@ -2894,7 +2880,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const info = document.createElement("div");
       info.className = "ytb-hist-note";
       info.style.marginTop = "8px";
-      info.innerHTML = Xy("<strong>Level presets:</strong> each preset turns on a set of optimizations. Granular switches add individual optimizations on top of the selected level. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.");
+      info.innerHTML = Xy("<strong>Level presets:</strong> each preset turns on a set of optimizations. Changing level sets its defaults. You can then turn individual optimizations on or off. Maximum disables moving thumbnails, caps video quality, and maximizes paint reduction.");
       en.appendChild(info);
     } });
   xa.register({
@@ -3317,8 +3303,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
   const YourTubePack = (() => {
 
     const elBinder = (cardId) => {
-      const bound = new WeakSet();
-      const bind = (ctx, ev, fn, opts) => {
+      const bind = (bound, ctx, ev, fn, opts) => {
         const el = ie.el();
         if (!el || bound.has(el)) return false;
         bound.add(el);
@@ -3327,15 +3312,18 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
 
       return (ctx, ev, fn, opts) => {
-        bind(ctx, ev, fn, opts);
+        // Each event binding (not each video) owns a seen-set. Multiple event
+        // types registered through one binder must all attach to the same video.
+        const bound = new WeakSet();
+        bind(bound, ctx, ev, fn, opts);
         // The player element is replaced on miniplayer/theater changes, so keep
         // a rebind hook and a short-lived recovery ticker; the ticker is torn
         // down with the card so a disabled feature cannot rebind afterwards.
-        ctx.onNav(() => bind(ctx, ev, fn, opts));
+        ctx.onNav(() => bind(bound, ctx, ev, fn, opts));
         let attempts = 90;
         let disposed = false;
         const iv = YourTubeResources.SharedTicker.add(() => {
-          if (disposed || bind(ctx, ev, fn, opts) || --attempts <= 0) YourTubeResources.SharedTicker.remove(iv);
+          if (disposed || bind(bound, ctx, ev, fn, opts) || --attempts <= 0) YourTubeResources.SharedTicker.remove(iv);
         }, 2000, { pauseHidden: true, label: "ytb-ui-elbinder" });
         if (cardId && Yt[cardId]) {
           Yt[cardId].push(() => { disposed = true; YourTubeResources.SharedTicker.remove(iv); });
@@ -3377,8 +3365,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         let reading = null;
         try { reading = YourTubePlayback.readEnergy(vid); } catch (_) {}
 
-        if (!reading || !reading.active || !(reading.energy > 0)) quietMs = 0;
-        else if (reading.energy < 4) quietMs += 500;
+        if (!reading || !reading.active || !Number.isFinite(reading.energy)) {
+          quietMs = 0;
+          if (boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; }
+        } else if (reading.energy < 4) quietMs += 500;
         else quietMs = 0;
         if (quietMs >= 1500 && !boosted) { try { prevRate = vid.playbackRate || 1; vid.playbackRate = targetRate(); boosted = true; } catch (_) {} }
         else if (reading && reading.energy >= 4 && boosted) { try { vid.playbackRate = prevRate; } catch (_) {} boosted = false; quietMs = 0; }
@@ -3414,7 +3404,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           const pr = e.ytInitialPlayerResponse || {};
 
           if (!pr.videoDetails || pr.videoDetails.videoId !== vid) return;
-          chVid = vid;
           const bar = pr.playerOverlays && pr.playerOverlays.playerOverlayRenderer &&
             pr.playerOverlays.playerOverlayRenderer.decoratedPlayerBarRenderer;
           const map = bar && bar.decoratedPlayerBarRenderer && bar.decoratedPlayerBarRenderer.playerBar &&
@@ -3429,8 +3418,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             return first || null;
           })();
           const list = entries && entries.chapters;
-          if (!Array.isArray(list)) return;
-          chapters = list.map(c => ({
+          if (!Array.isArray(list) || !list.length) return;
+          chVid = vid;
+          chapters = list.filter(c => c && c.chapterRenderer && c.chapterRenderer.title).map(c => ({
             t: (c.chapterRenderer && c.chapterRenderer.timeRangeStartMillis || 0) / 1000,
             title: (c.chapterRenderer && c.chapterRenderer.title && c.chapterRenderer.title.simpleText ||
               ((c.chapterRenderer.title.runs || []).map(r => r.text).join("")) || "").toLowerCase(),
@@ -3453,7 +3443,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           }
         }
       };
-      binder(ctx, "timeupdate", YourTubeResources.DeferredTask.debounce.bind(null, "ytb-ui-chskip", check, 400));
+      // timeupdate often arrives every 250 ms. A trailing 400 ms debounce
+      // never fires during playback; a two-second poll can miss an intro.
+      let lastCheck = -Infinity;
+      binder(ctx, "timeupdate", () => {
+        const now = performance.now();
+        if (now - lastCheck < 120) return;
+        lastCheck = now;
+        check();
+      });
       ctx.addInterval(check, 2000);
       // Chapter lists belong to one video; drop them on navigation so a stale
       // list cannot skip into the new video's timeline.
@@ -3680,7 +3678,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       ctx.addListener(document, "keydown", (ev) => {
         if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyO" && !YourTubePack.guardKey(ev)) {
           ev.preventDefault();
-          const cycle = [0, 30, 60, 90];
+          const cycle = [...new Set([0, mins(), 30, 60, 90])];
           const wasFading = deadline && origVol !== null;
           armed = cycle[(cycle.indexOf(armed) + 1) % cycle.length];
           disarm(wasFading);
@@ -4193,7 +4191,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
       ctx.addListener(document.body, "copy", (ev) => {
         try {
-          const txt = (ev.clipboardData || window.clipboardData).getData("text");
+          const data = ev.clipboardData;
+          if (!data) return;
+          const selected = window.getSelection();
+          const txt = data.getData("text/plain") || (selected && selected.toString());
           if (!txt) return;
           const cleaned = clean(txt.trim());
           if (cleaned && cleaned !== txt.trim()) {
@@ -4413,13 +4414,14 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         try { el.pause(); el.currentTime += dir / fps(); } catch (_) {}
       };
       ctx.addListener(document, "keydown", (ev) => {
-        if (!ev.altKey || ev.ctrlKey || ev.metaKey || YourTubePack.guardKey(ev)) return;
+        if (!ev.altKey || ev.shiftKey || ev.ctrlKey || ev.metaKey || YourTubePack.guardKey(ev)) return;
         if (ev.code === "Comma") { ev.preventDefault(); step(-1); }
         if (ev.code === "Period") { ev.preventDefault(); step(1); }
       });
       YourTubeEngine.scheduleOnReady(ctx, () => {
         const bar = document.querySelector(".ytp-right-controls");
-        if (!bar || bar.querySelector("#ytb-frameback")) return !!bar.querySelector("#ytb-frameback");
+        if (!bar) return false;
+        if (bar.querySelector("#ytb-frameback")) return true;
         const mk = (id, label, dir) => {
           const b = document.createElement("button");
           b.id = id; b.className = "ytp-button"; b.title = label; b.textContent = dir < 0 ? "‹·" : "·›";
@@ -4867,19 +4869,23 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     const CARDS = "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer";
     const META = "#metadata-line, yt-content-metadata-view-model, .ytContentMetadataViewModelMetadataRow";
     const views = (text) => {
-      const match = /([\d.,]+)\s*([KMB])?\s*views/i.exec(String(text || ""));
+      const line = String(text || "").trim().replace(/^[•·]\s*/, "");
+      // Old: “1.2M views • 3 years ago”. Compact English search cards:
+      // “1.2M\n3y ago”. Only accept an unlabelled count in that metadata slot;
+      // durations, “276 watching”, and the age by itself are not view counts.
+      const match = /([\d.,]+)\s*([KMB])?\s*views?\b/i.exec(line) ||
+        /^([\d,]+(?:\.\d+)?)\s*([KMB])?(?=\s*$|\s*[•·]\s*|\s+(?:(?:streamed|premiered)\s+)?\d+\s*[a-z]+\s+ago\b)/i.exec(line);
       if (!match) return -1;
-      const value = Number(String(match[1]).replace(/,/g, ""));
-      if (!Number.isFinite(value)) return -1;
-      const scale = match[2] ? { K: 1e3, M: 1e6, B: 1e9 }[match[2].toUpperCase()] : 1;
-      return value * scale;
+      const value = Number(match[1].replace(/,/g, ""));
+      return Number.isFinite(value) ? value * ({ K: 1e3, M: 1e6, B: 1e9 }[(match[2] || "").toUpperCase()] || 1) : -1;
     };
     const ageDays = (text) => {
-      const match = /(\d+)\s*(year|month|week|day|hour)/i.exec(String(text || ""));
+      const match = /(\d+)\s*(years?|months?|weeks?|days?|hours?|minutes?|seconds?|mo|yr|[ywdhms])\s+ago\b/i.exec(String(text || ""));
       if (!match) return -1;
-      const value = parseInt(match[1], 10) || 0;
-      const factor = { year: 365, month: 30, week: 7, day: 1, hour: 0.04 }[match[2].toLowerCase()];
-      return value * factor;
+      const unit = match[2].toLowerCase();
+      const scale = unit[0] === "y" ? 365 : unit.startsWith("mo") ? 30 :
+        unit[0] === "w" ? 7 : unit[0] === "d" ? 1 : unit[0] === "h" ? 1/24 : unit[0] === "m" ? 1/1440 : 1/86400;
+      return Number(match[1]) * scale;
     };
     const formatCount = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n)));
     const durationSec = (row) => {
@@ -4987,7 +4993,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             delete card.dataset.ytbSeen;
             card.style.display = "";
           }
-          if (!at || now - at > 600000) { data[id] = now; recorded++; }
+          if (!hide && (!at || now - at > 600000)) { data[id] = now; recorded++; }
         });
         if (recorded) {
           pendingWrites += recorded;
@@ -5040,29 +5046,24 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       if (!S.hideLowViewsOn) return;
       const CARD_SELECTOR = _ytCardMeta.CARDS;
       const META_SELECTOR = _ytCardMeta.META;
-      const threshold = () => Math.max(0, Math.min(100000, Number(S.lowViewThreshold) || 1000));
+      const threshold = () => Math.max(0, Math.min(100000, Number.isFinite(+S.lowViewThreshold) ? +S.lowViewThreshold : 1000));
+      ctx.addStyle("[data-ytb-low-view]{display:none!important}");
       const scan = () => {
         const limit = threshold();
         document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
           const meta = card.querySelector(META_SELECTOR);
-          if (!meta) return;
-          const views = _ytCardMeta.views(meta.textContent);
-          if (views < 0) return;
-          const hide = views < limit;
-          if (hide) {
-            if (!card.dataset.ytbLowView) { card.dataset.ytbLowView = "1"; card.style.display = "none"; }
-          } else if (card.dataset.ytbLowView) {
-            delete card.dataset.ytbLowView;
-            card.style.display = "";
-          }
+          const views = meta ? _ytCardMeta.views(meta.textContent) : -1;
+          // Recycled, live or pending cards must lose our hide marker. Don't
+          // overwrite the page's inline display or other cards' visibility.
+          card.toggleAttribute("data-ytb-low-view", views >= 0 && views < limit);
         });
       };
+      scan();
       ctx.addObserver(document.body, YourTubeResources.DeferredTask.debounce.bind(null, "ytb-lowview", scan, 400), { childList: true, subtree: true });
       ctx.addInterval(scan, 6000);
       ctx.onNav(() => ctx.addTimeout(scan, 800));
       Yt["hide-low-views"].push(() => {
         document.querySelectorAll("[data-ytb-low-view]").forEach((el) => {
-          el.style.display = "";
           delete el.dataset.ytbLowView;
         });
       });
@@ -5101,7 +5102,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           const text = meta.textContent || "";
           const views = parseViews(text);
           const ageDays = parseAgeDays(text);
-          if (views < 0 && ageDays < 0) { card.dataset.ytbMeta = "1"; return; }
+          if (views < 0 && ageDays < 0) return; // metadata text can hydrate after its container
           const parts = [];
           if (S.cardMetaVelocity && views >= 0 && ageDays > 0.04) {
             parts.push("~" + formatCount(views / ageDays) + "/day");
@@ -5851,7 +5852,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         }
       };
       const applyThumb = (card, videoId, data) => {
-        if (!applyAlive || !card || !card.isConnected) return;
+        if (!applyAlive || S.safeMode || !card || !card.isConnected || _ytCardMeta.videoIdOf(card) !== videoId) return;
         if (!S.deArrowThumbs || !data || !Array.isArray(data.thumbnails) || !data.thumbnails.length) return;
         const best = data.thumbnails.find((entry) => entry && !entry.original && Number.isFinite(entry.timestamp)) || null;
         if (!best) return;
@@ -5980,7 +5981,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const p = document.getElementById("movie_player");
         if (!p) return null;
         if (hooked.has(p)) return p;
-        if (typeof p.setDrcUserPreference !== "function" && typeof p.updateCinematicSettings !== "function")
+        if (typeof p.setDrcUserPreference !== "function" && typeof p.setVoiceBoostUserPreference !== "function" && typeof p.updateCinematicSettings !== "function")
           return null; // the audio/cinematic surface arrives after the element; retry
         const orig = (p.__ytbFxOrig = p.__ytbFxOrig || {});
         if (typeof p.setDrcUserPreference === "function" && !orig.drc) {
@@ -6041,7 +6042,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         flexy.__ytbFxObs = 1;
         const obs = new MutationObserver(stripAmbientAttr);
         obs.observe(flexy, { attributes: !0, attributeFilter: ["ambient-mode-enabled"] });
-        Yt["player-effects-block"].push(() => { try { obs.disconnect(); } catch (_) {} });
+        Yt["player-effects-block"].push(() => { try { obs.disconnect(); delete flexy.__ytbFxObs; } catch (_) {} });
       };
       ctx.addInterval(() => { watchFlexy(); assert(); }, 4000);
       ctx.addTimeout(assert, 900);
@@ -6232,7 +6233,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!header || header.querySelector(".ytb-ui-mark-read")) return !!header;
         const button = Oo("Mark all read", () => {
           const target = Array.from(document.querySelectorAll("ytd-multi-page-menu-renderer button, ytd-multi-page-menu-renderer yt-button-shape button"))
-            .find((el) => /mark all( as)? read/i.test((el.textContent || "").trim()));
+            .find((el) => el !== button && !el.disabled && el.getClientRects().length &&
+              /mark all( as)? read/i.test((el.textContent || "") + " " + (el.getAttribute("aria-label") || "")));
           if (target) { target.click(); pe("Notifications marked as read.", 1500, "success"); }
           else pe("No mark-all-read control on this page.", 1800, "info");
         });
@@ -6361,6 +6363,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       en.appendChild(out);
       const fmtHours = (seconds) => (seconds >= 3600 ? (seconds / 3600).toFixed(1) + " h" : Math.round(seconds / 60) + " min");
       const render = async () => {
+        out.hidden = !S.watchStatsOn;
+        if (out.hidden) { out.textContent = ""; return; }
         out.textContent = "Reading local history…";
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}
@@ -6636,6 +6640,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const lines = Array.from(seen.entries()).map(([handle, name]) => name + "\t" + handle);
         save("yourtube-subscriptions-" + stamp() + ".txt", lines.join("\n"), "text/plain");
       }));
+      const sync = () => { row.style.display = S.exportDataOn ? "" : "none"; };
+      sync();
+      So("cfg.changed", ({key}) => { if (key === "exportDataOn") sync(); });
       en.appendChild(row);
       en.appendChild(To("div", "ytb-hist-note",
         "Files are written from local data only. The subscription list is read from the channels page you have open."));
@@ -6658,7 +6665,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!active) return null;
         const data = store.get() || {};
         const list = data[active];
-        return Array.isArray(list) && list.length ? new Set(list.map((c) => String(c).toLowerCase())) : null;
+        return Array.isArray(list) && list.length ? new Set(list.map((c) => String(c).trim().replace(/^@/, "").toLowerCase())) : null;
       };
       const channelOf = (card) => {
         const link = card.querySelector("a[href*='/@'], a[href*='/channel/']");
@@ -6974,7 +6981,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
 
   xa.register({
     id: "keymap", name: "Keymap",
-    summary: "Rebinds all of the script's keyboard shortcuts.",
+    summary: "Rebinds the listed playback and SponsorBlock shortcuts.",
       cat: "tools",
     masterKey: "keymapOn", keys: ["keymapOn", "keymap"],
     apply() { },
@@ -7178,58 +7185,56 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         ".ytb-ui-sort-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0 12px;font-size:12px;color:#aaa}" +
         ".ytb-ui-sort-bar .ytb-btn.active{background:rgba(255,61,127,.18);border-color:rgba(255,61,127,.4);color:#ff8aa5}",
       );
-      const parseViews = _ytCardMeta.views;
-      const parseAge = _ytCardMeta.ageDays;
-      const durationOf = _ytCardMeta.durationSec;
-      const sortBy = (mode) => {
-        const list = document.querySelector("ytd-search ytd-item-section-renderer #contents, #search ytd-item-section-renderer #contents");
-        if (!list) { pe("No results list on this page.", 1800, "info"); return; }
-        const cards = Array.from(list.querySelectorAll(":scope > ytd-video-renderer"));
-        if (cards.length < 2) { pe("Nothing to sort.", 1600, "info"); return; }
-        const meta = new Map();
-        for (const card of cards) {
-          const line = card.querySelector(_ytCardMeta.META);
-          const text = (line && line.textContent) || "";
-          meta.set(card, {
-            views: parseViews(text),
-            age: parseAge(text),
-            duration: durationOf(card),
-          });
+      const lists = "ytd-search ytd-item-section-renderer #contents, #search ytd-item-section-renderer #contents";
+      const ranks = new WeakMap();
+      let nextRank = 0, mode = S.sortSearchBy || "relevance";
+      const reorder = (list, order) => {
+        const cards = Array.from(list.children).filter((el) => el.matches("ytd-video-renderer"));
+        for (const card of cards) if (!ranks.has(card)) ranks.set(card, nextRank++);
+        if (cards.length < 2) return;
+        const val = new Map(cards.map((c) => {
+          const meta = c.querySelector(_ytCardMeta.META);
+          const text = meta ? meta.textContent : "";
+          const age = order === "date" ? _ytCardMeta.ageDays(text) : -1;
+          return [c, order === "views" ? -_ytCardMeta.views(text) :
+            order === "duration" ? -_ytCardMeta.durationSec(c) :
+            order === "date" ? (age < 0 ? Infinity : age) : ranks.get(c)];
+        }));
+        const sorted = cards.slice().sort((a,b) => (val.get(a)-val.get(b)) || (ranks.get(a)-ranks.get(b)));
+        // Swap only the video slots. Headers, shelves and continuation sentinels
+        // must keep their exact positions; leave already-sorted DOM untouched.
+        const slots = [];
+        for (let i = 0; i < cards.length; i++) if (cards[i] !== sorted[i]) {
+          const slot = document.createComment("yourtube-sort");
+          cards[i].replaceWith(slot); slots.push([slot, sorted[i]]);
         }
-        const value = (card) => {
-          const info = meta.get(card) || {};
-          if (mode === "views") return info.views < 0 ? -1 : info.views;
-          if (mode === "date") return info.age < 0 ? Number.MAX_SAFE_INTEGER : info.age;
-          if (mode === "duration") return info.duration;
-          return 0;
-        };
-        const sorted = cards.slice().sort((a, b) => {
-          // Age ascending is newest first; duration and views descending.
-          if (mode === "date") return value(a) - value(b);
-          return value(b) - value(a);
-        });
-        const fragment = document.createDocumentFragment();
-        for (const card of sorted) fragment.appendChild(card);
-        list.appendChild(fragment);
-        pe("Sorted " + cards.length + " results by " + mode + ".", 1800, "success");
+        for (const [slot, card] of slots) slot.replaceWith(card);
       };
-      const mount = () => {
-        if (!location.pathname.startsWith("/results")) return;
+      const sync = () => {
+        if (location.pathname !== "/results") return;
         const host = document.querySelector("ytd-search #container.ytd-search, ytd-search #primary");
-        if (!host || host.querySelector(".ytb-ui-sort-bar")) return;
-        const bar = To("div", "ytb-ui-sort-bar");
-        bar.appendChild(To("span", null, "Sort:"));
-        for (const [mode, label] of [["date", "Newest"], ["views", "Most viewed"], ["duration", "Longest"]]) {
-          const button = Oo(label, () => sortBy(mode));
-          if (S.sortSearchBy === mode) button.classList.add("active");
-          bar.appendChild(button);
+        if (!host) return;
+        let bar = host.querySelector(".ytb-ui-sort-bar");
+        if (!bar) {
+          bar = To("div", "ytb-ui-sort-bar");
+          bar.appendChild(To("span", null, "Sort:"));
+          for (const [value,label] of [["relevance","YouTube order"],["date","Newest"],["views","Most viewed"],["duration","Longest"]]) {
+            const button = Oo(label, () => { mode = value; sync(); });
+            button.dataset.order = value; bar.appendChild(button);
+          }
+          host.prepend(bar);
         }
-        bar.appendChild(To("span", null, "reorders the results already on the page"));
-        host.insertBefore(bar, host.firstChild);
+        for (const b of bar.querySelectorAll("[data-order]")) {
+          b.classList.toggle("active", b.dataset.order === mode);
+          b.setAttribute("aria-pressed", String(b.dataset.order === mode));
+        }
+        for (const list of document.querySelectorAll(lists)) reorder(list, mode);
       };
-      ctx.addInterval(mount, 2000);
-      ctx.onNav(() => ctx.addTimeout(mount, 900));
+      sync();
+      ctx.addInterval(sync, 2000);
+      ctx.onNav(() => { mode = S.sortSearchBy || "relevance"; ctx.addTimeout(sync, 300); });
       Yt["sort-search"].push(() => {
+        for (const list of document.querySelectorAll(lists)) reorder(list, "relevance");
         document.querySelectorAll(".ytb-ui-sort-bar").forEach((el) => el.remove());
       });
     },

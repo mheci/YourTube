@@ -147,7 +147,7 @@
       "Hide End Cards",
       "Blocks end-screen recommendation cards and teasers.",
       "hideEndscreen",
-      ".ytp-ce-element,.ytb-cards-teaser{display:none!important}",
+      ".ytp-ce-element,.ytp-cards-teaser{display:none!important}",
     "feed"
     ),
     Ha(
@@ -171,7 +171,7 @@
       "Hide Info Cards",
       "Blocks the interactive (i) teaser popups during playback.",
       "hideCards",
-      ".ytb-cards-button,.ytb-cards-teaser-text{display:none!important}",
+      ".ytp-cards-button,.ytp-cards-teaser-text{display:none!important}",
       "comments"
     ),
     Ha(
@@ -955,87 +955,44 @@
         S.geoTimezone && void 0 !== e.timeZone && (e.timeZone = S.geoTimezone));
     } catch (e) {}
   }
+  // Only two dedicated locale cookies belong to this feature. Never clear or
+  // rewrite YouTube's general PREF or its visitor/privacy state. Keep only the
+  // locale rollback record (not a cookie snapshot) across reloads in this tab.
+  const geoCookieKey = "yourtube.geo.locale-rollback";
+  function geoCookie(name) {
+    const part = document.cookie.split(/;\s*/).find((p) => p.startsWith(name + "="));
+    return part === undefined ? null : part.slice(name.length + 1);
+  }
+  function geoRecord() {
+    try { return JSON.parse(sessionStorage.getItem(geoCookieKey)) || {}; }
+    catch (_) { return {}; }
+  }
   function Mn() {
-    const e = vn(),
-      t = kn(),
-      a = new Date(Date.now() + 3456e7).toUTCString(),
-      n = (function (e, t, a) {
-        const n = {};
-        return (
-          e &&
-            e.split("&").forEach((e) => {
-              const t = e.indexOf("=");
-              t > 0 && (n[e.substring(0, t)] = e.substring(t + 1));
-            }),
-          (n.gl = t),
-          (n.hl = a),
-          n.f6 || (n.f6 = "8"),
-          Object.keys(n)
-            .map((e) => e + "=" + n[e])
-            .join("&")
-        );
-      })(
-        (function () {
-          try {
-            const e = document.cookie.match(/(?:^|;\s*)PREF=([^;]*)/);
-            return e ? decodeURIComponent(e[1]) : "";
-          } catch (e) {
-            return "";
-          }
-        })(),
-        e,
-        t,
-      ),
-      r = [""];
-    for (let o = 0; o < r.length; o++) {
-      const i = "; expires=" + a + "; path=/; SameSite=Lax";
-      try {
-        if (typeof ti !== 'undefined' && ti.cookieControl && ti.cookieControl.manager) {
-          ti.cookieControl.manager.set("PREF", n, { domain: r[o], path: "/", sameSite: "Lax", expires: a });
-          ti.cookieControl.manager.set("GL", e, { domain: r[o], path: "/", sameSite: "Lax", expires: a });
-          ti.cookieControl.manager.set("HL", t, { domain: r[o], path: "/", sameSite: "Lax", expires: a });
-        } else {
-          document.cookie = "PREF=" + n + i;
-          document.cookie = "GL=" + e + i;
-          document.cookie = "HL=" + t + i;
-        }
-      } catch (e) {
-        try { document.cookie = "PREF=" + n + i; } catch (e2) {}
-        try { document.cookie = "GL=" + e + i; } catch (e2) {}
-        try { document.cookie = "HL=" + t + i; } catch (e2) {}
+    if (!S.geoOverrideOn) return;
+    try {
+      const rec = geoRecord();
+      for (const [key,val] of [["GL",vn()],["HL",kn()]]) {
+        if (!/^[a-z0-9-]{1,35}$/i.test(val)) continue;
+        const old = geoCookie(key);
+        if (old === val || (old !== null && !/^[a-z0-9-]{0,35}$/i.test(old))) continue;
+        // If YouTube changed a value since we wrote it, restore that choice.
+        rec[key] = { before: rec[key] && rec[key].applied === old ? rec[key].before : old, applied: val };
+        sessionStorage.setItem(geoCookieKey, JSON.stringify(rec));
+        document.cookie = key + "=" + val + "; path=/; SameSite=Lax; Secure";
       }
-    }
+    } catch (_) {}
   }
   function Ln() {
-    const e = new Date(0).toUTCString(),
-      t = [""],
-      a = ["GL", "HL", "PREF", "VISITOR_PRIVACY_METADATA"];
-    for (const n of t)
-      for (const t of a) {
-        try {
-          if (typeof ti !== 'undefined' && ti.cookieControl && ti.cookieControl.manager) {
-            ti.cookieControl.manager.delete(t, { domain: n || ".youtube.com", path: "/" });
-          } else {
-            const a =
-              "; expires=" +
-              e +
-              "; path=/" +
-              (n ? "; domain=" + n : "") +
-              "; SameSite=Lax";
-            document.cookie = t + "=" + a;
-          }
-        } catch (e2) {
-          try {
-            const a =
-              "; expires=" +
-              e +
-              "; path=/" +
-              (n ? "; domain=" + n : "") +
-              "; SameSite=Lax";
-            document.cookie = t + "=" + a;
-          } catch (e3) {}
-        }
+    try {
+      const rec = geoRecord();
+      for (const key of ["GL","HL"]) {
+        const r = rec[key];
+        if (!r || r.applied !== geoCookie(key)) continue;
+        if (r.before === null) document.cookie = key + "=; path=/; max-age=0; SameSite=Lax; Secure";
+        else if (/^[a-z0-9-]{0,35}$/i.test(r.before)) document.cookie = key + "=" + r.before + "; path=/; SameSite=Lax; Secure";
       }
+      sessionStorage.removeItem(geoCookieKey);
+    } catch (_) {}
   }
   function An() {
     const t = vn(),
@@ -1103,18 +1060,15 @@
         un = !1;
       }
     } catch (_e1) {}
+  }
+  function restoreGeoNavigator() {
     try {
       if (hn) {
-        _xp.define(navigator, "language", {
-          get: () => bn.language,
-          configurable: !0,
-          enumerable: !0,
-        });
-        _xp.define(navigator, "languages", {
-          get: () => _xp.clone(bn.languages),
-          configurable: !0,
-          enumerable: !0,
-        });
+        for (const key of ["language", "languages"]) {
+          const descriptor = bn[key + "Descriptor"];
+          if (descriptor) Object.defineProperty(navigator, key, descriptor);
+          else delete navigator[key];
+        }
         hn = !1;
       }
     } catch (_e2) {}
@@ -1406,7 +1360,7 @@
   (xa.register({
     id: "geo-override",
     name: "Geo Override",
-    summary: "Presents a different region/language to YouTube's client; can unblock region-locked content.",
+    summary: "Changes YouTube client locale hints. It does not change your IP address or guarantee regional availability.",
       cat: "privacy",
     masterKey: "geoOverrideOn",
         keys: [
@@ -1420,15 +1374,18 @@
       "geoPatchNavigator",
     ],
     apply(t) {
-        if (!S.geoOverrideOn) return (En(), Bn(), Pn(), void Ln());
+        if (!S.geoOverrideOn) return (En(), Bn(), Pn(), restoreGeoNavigator(), void Ln());
+        if (!S.geoPatchNavigator) restoreGeoNavigator();
       (!(function () {
         if (!hn && S.geoPatchNavigator) {
           hn = !0;
           try {
             bn.language = navigator.language;
+            bn.languageDescriptor = Object.getOwnPropertyDescriptor(navigator, "language");
           } catch (e) {}
           try {
             bn.languages = navigator.languages;
+            bn.languagesDescriptor = Object.getOwnPropertyDescriptor(navigator, "languages");
           } catch (e) {}
           try {
             (_xp.define(navigator, "language", {
@@ -1607,24 +1564,21 @@
         Oo(
           "Re-apply all now",
           () => {
-            (In(), pe("Country settings re-applied.", 1500, "success"));
+            if (S.geoOverrideOn) { In(); pe("Country settings re-applied.", 1500, "success"); }
           },
           "primary",
         ),
       ),
         n.appendChild(
           Oo("Reload page", () => {
-            (In(), setTimeout(() => location.reload(), 200));
+            (S.geoOverrideOn && In(), setTimeout(() => location.reload(), 200));
           }),
         ),
         n.appendChild(
           Oo(
-            "Clear cookies & restore",
+            "Turn off & restore locale",
             () => {
-              (Ln(),
-                En(),
-                Bn(),
-                Pn(),
+              (Ta("geoOverrideOn", false),
                 pe(
                   "Country settings cleared. Refresh the page to apply.",
                   2500,
@@ -1639,7 +1593,7 @@
           To(
             "div",
             "ytb-hist-note",
-            "Cookies are set at page start so YouTube servers see the new region on load. After changing region, click Reload for full effect. The advanced fetch/XHR/beacon toggles are OFF by default; enable only if cookie+ytcfg patching alone is insufficient.",
+            "Uses GL/HL locale cookies and client settings, without changing PREF or visitor privacy cookies. Turn off and reload to restore native client settings. Network interception is optional.",
           ),
         ));
     },
@@ -2177,9 +2131,10 @@
           try {
             const r = a.getAvailableAudioTracks();
             if (!r || !r.length) return;
-            const o = r.find((t) => t && (t.audioIsOriginal === true || t.isDefault === true)) ||
-              r.find((t) => t && t.id && /orig/i.test(String(t.id))) ||
-              r.find((t) => t && t.id && /orig/i.test(String(t.label || "")));
+            const eligible = r.filter((t) => t && t.id && !t.isAutoDubbed);
+            const o = eligible.find((t) => t.audioIsOriginal === true) ||
+              eligible.find((t) => /original/i.test(String(t.id) + " " + String(t.label || ""))) ||
+              eligible.find((t) => t.isDefault === true);
             if (!o || !o.id) return;
             let cur = null;
             try { cur = typeof a.getAudioTrack === "function" ? a.getAudioTrack() : null; } catch (_) {}
@@ -2234,11 +2189,14 @@
         const t = (a) => {
           if (!a || a.tagName !== "A") return;
           const n = a.getAttribute("href") || "";
-          if (!/^https?:\/\/(?:www\.)?youtube\.com\/redirect\b/i.test(n)) return;
+          if (!n || !n.includes("/redirect")) return;
           try {
-            const r = new URL(n);
-            const o = r.searchParams.get("q");
-            if (o) a.setAttribute("href", o);
+            const r = new URL(n, location.href);
+            if (r.pathname !== "/redirect" || !(n.startsWith("/redirect?") ||
+                /^(?:www\.|m\.)?youtube\.com$/i.test(r.hostname))) return;
+            const dest = new URL(r.searchParams.get("q") || "");
+            if (["https:", "http:"].includes(dest.protocol) && dest.href !== r.href)
+              a.setAttribute("href", dest.href);
           } catch (e) {}
         };
         const n = new MutationObserver((e) => {
@@ -2280,15 +2238,16 @@
         const t = (a) => {
           if (!a || a.tagName !== "A") return;
 
-          if (a.dataset && a.dataset.shortened === "1") return;
           const n = a.getAttribute("href") || "";
           if (!/^https?:\/\/youtu\.be\//i.test(n)) return;
           try {
             const r = new URL(n);
-            const o = r.pathname.replace(/^\//, "");
-            const keep = ["t", "list", "index", "start", "pp"];            const qs = keep.map((k2) => { const v2 = r.searchParams.get(k2); return v2 === null ? null : k2 + "=" + v2; }).filter(Boolean).join("&");            const i = o + (qs ? "?" + qs : "");
-            a.setAttribute("href", "https://youtu.be/" + i);
-            a.setAttribute("data-shortened", "1");
+            const keep = new Set(["t", "list", "index", "start", "pp"]);
+            for (const key of Array.from(r.searchParams.keys())) {
+              if (!keep.has(key)) r.searchParams.delete(key);
+            }
+            // Idempotent even if YouTube reuses this anchor for the next video.
+            if (r.href !== n) a.setAttribute("href", r.href);
           } catch (e) {}
         };
         const a = new MutationObserver((e) => {
@@ -2380,15 +2339,19 @@
       masterKey: "defaultChannelTab",
       keys: ["defaultChannelTab"],
       apply(e) {
-        e.onNav(() => {
+        const route = () => {
           const want = S.defaultChannelTab || "featured";
-          if (want === "featured") return;
+          if (!["videos", "shorts", "live", "playlists", "community", "about"].includes(want)) return;
+          // The more specific landing-tab feature owns navigation if configured.
+          if (S.channelLandingTab && S.channelLandingTab !== "home") return;
           const r = location.pathname.match(/^\/(@[^\/]+)\/?$/);
           if (!r) return;
           try {
-            location.replace(r[1] + "/" + want);
+            location.replace(r[1] + "/" + (want === "live" ? "streams" : want));
           } catch (e) {}
-        });
+        };
+        route();
+        e.onNav(route);
       },
       settings(e) {
         const tabs = {
@@ -3777,10 +3740,10 @@
     xa.register({
       id: "cookie-control",
       name: "Cookie Control",
-      summary: "View, edit and back up YouTube cookies and storage.",
+      summary: "Inspect, search and edit cookies visible to this page.",
       cat: "privacy",
       masterKey: "cookieControlOn",
-      keys: ["cookieControlOn", "cookieControlLive", "cookieControlNotify", "cookieControlAutoBackup", "cookieControlFavorites", "cookieControlCategories"],
+      keys: ["cookieControlOn", "cookieControlLive", "cookieControlNotify"],
       apply(e) {
         const prev = Yt["cookie-control"] || [];
         for (const fn of prev) { try { fn(); } catch (e2) {} }
@@ -3913,7 +3876,6 @@
             }catch(e){return false;}
           }
         };
-        try{ if(typeof ti!=='undefined'){ ti.cookieControl=Manager; } }catch(e){}
         const openUI=()=>{
           let overlay=document.getElementById("ytb-cookie-control");
           if(overlay){
@@ -3945,9 +3907,16 @@
           const list=document.createElement("div");
           list.style.cssText="flex:1;overflow:auto;padding:8px 16px;";
           overlay.appendChild(list);
+          let lastValues = null;
           const render=()=>{
             const q=search.value.toLowerCase();
             const all=Manager.getAll();
+            const now = new Map(all.map(c => [c.name, c.value]));
+            const changed = lastValues && new Set([...lastValues.keys(), ...now.keys()]);
+            const count = changed ? [...changed].filter(k => lastValues.get(k) !== now.get(k)).length : 0;
+            lastValues = now;
+            header.firstChild.textContent = "Cookie Control — " + all.length + " visible cookies";
+            if (count && S.cookieControlNotify) pe("Cookie Control: " + count + " changed.", 2000, "info");
             let filtered=all.filter(c=>!q||c.name.toLowerCase().includes(q)||c.value.toLowerCase().includes(q));
             list.replaceChildren();
             for(const c of filtered){
@@ -4018,15 +3987,20 @@
 
           const _pg = ("undefined"!=typeof unsafeWindow?unsafeWindow:window);
           _pg.__ytbCookieOpen = openUI;
-          _pg.YourTube=_pg.YourTube||{};
-          if(_pg.YourTube){ _pg.YourTube.cookieControl={open:openUI,manager:Manager}; }
+          ti.cookieControl = {open:openUI, manager:Manager};
+          Yt["cookie-control"].push(() => {
+            const ov = document.getElementById("ytb-cookie-control");
+            if (ov) { clearInterval(ov.__ytbTimer); ov.remove(); }
+            if (_pg.__ytbCookieOpen === openUI) delete _pg.__ytbCookieOpen;
+            if (ti.cookieControl && ti.cookieControl.open === openUI) delete ti.cookieControl;
+          });
         }catch(e2){}
       },
       settings(e) {
         e.appendChild(Io("Enable Cookie Control", "cookieControlOn"));
         e.appendChild(Io("Live monitoring", "cookieControlLive"));
         e.appendChild(Io("Notify on changes", "cookieControlNotify"));
-        e.appendChild(To("div", "ytb-hist-note", "Cookie Control: shows every YouTube cookie (60+ known: YSC, VISITOR_INFO1_LIVE, PREF with f1,f2,f5,f6,al,gl,hl, CONSENT, SOCS, HSID, SSID, APISID, SAPISID, SID, Secure-1PAPISID, SIDCC, AEC, NID, 1P_JAR, ANID, IDE, yt-remote-*, yt.innertube::*, yt-player-*, ytidb::*, __Secure-*, pm_sess, GPS, ST-, S-). Each shows full metadata: Name, Value, Domain, Path, Expiration, SameSite, Secure, HttpOnly, Size, Creation, Last Modified, Session/Persistent, State, Purpose, Confidence. Live updates, search, filters, bulk export/import/delete, backup/restore, per-PREF toggles. All edits apply immediately."));
+        e.appendChild(To("div", "ytb-hist-note", "Shows cookies readable by this page, not HttpOnly cookies or other browser storage. Search, edit, delete, and inspect individual PREF fields. Live mode refreshes every second while open; change notices never include cookie values."));
 
         if (!e.querySelector("#ytb-cc-open-dashboard")) {
           const openBtn=document.createElement("button");
@@ -4035,13 +4009,8 @@
           openBtn.style.cssText="padding:8px 14px;background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border:0;border-radius:8px;font:600 12px system-ui;cursor:pointer;margin-top:8px;";
           openBtn.onclick=()=>{ try{
 
-            const arm = (ov) => { try { clearInterval(ov.__ytbTimer); if (typeof ov.__ytbRender === "function") ov.__ytbTimer = setInterval(ov.__ytbRender, S.cookieControlLive ? 1000 : 5000); } catch (e3) {} };
-            const _pg = ("undefined"!=typeof unsafeWindow?unsafeWindow:window);
-            const existing = document.getElementById("ytb-cookie-control");
-            if (existing) { existing.style.display = "flex"; arm(existing); return; }
-            let opener = _pg.__ytbCookieOpen;
-            if (typeof opener !== "function") { xa.apply("cookie-control"); opener = _pg.__ytbCookieOpen; }
-            if (typeof opener === "function") { opener(); const ov2 = document.getElementById("ytb-cookie-control"); if (ov2) arm(ov2); }
+            if (!S.cookieControlOn) { pe("Enable Cookie Control first.", 1500, "info"); return; }
+            if (ti.cookieControl && ti.cookieControl.open) ti.cookieControl.open();
           }catch(e2){} };
           e.appendChild(openBtn);
         }
@@ -4876,9 +4845,8 @@
                 "button,yt-button-shape button,tp-yt-paper-item,ytd-menu-service-item-renderer",
               ),
             ).find((e) =>
-              /transcript/i.test(
-                e.textContent || e.getAttribute("aria-label") || "",
-              ),
+              !e.closest(".ytb-extra-transcript, #ytb-backdrop") && e.getClientRects().length &&
+              /transcript/i.test((e.textContent || "") + " " + (e.getAttribute("aria-label") || "")),
             );
             e
               ? e.click()

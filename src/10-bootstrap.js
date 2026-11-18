@@ -932,9 +932,6 @@ algoBlockChannels: "",
         cookieControlOn: !1,
         cookieControlLive: !1,
         cookieControlNotify: !1,
-        cookieControlAutoBackup: !1,
-        cookieControlFavorites: "",
-        cookieControlCategories: "",
         loopVideo: !1,
         abLoopOn: !1,
         abA: -1,
@@ -976,8 +973,8 @@ algoBlockChannels: "",
         sbSeekbar: !0,
         sbHud: !1,
         sessionRestoreOn: !1,
-        sessionResumeMode: "card",
-        sessionResumeDesign: "default",
+        sessionResumeMode: "ask",
+        sessionResumeDesign: "folio",
         sessionResumePromptMigrated: !1,
         fpsCounterOn: !1,
         fpsCounterPos: "tl",
@@ -1373,7 +1370,7 @@ algoBlockChannels: "",
             try { clearTimeout(_stall); } catch (_) {}
             const _db = t.result;
             // Release the handle so a newer tab's schema upgrade is not blocked.
-            try { _db.onversionchange = () => _db.close(); } catch (_) {}
+            try { _db.onversionchange = () => { f = null; _db.close(); }; _db.onclose = () => { f = null; }; } catch (_) {}
             e(_db);
           }),
           (t.onerror = () => _finish(null, "IDB open failed", t.error)),
@@ -1637,10 +1634,14 @@ algoBlockChannels: "",
       (S.highlightShortVideosOn =
         "short" === S.highlightVideoLengthMode ||
         "both" === S.highlightVideoLengthMode));
-    if (!S.sessionResumePromptMigrated && "silent" === S.sessionResumeMode) {
-      S.sessionResumeMode = "card";
+    // Old card/overlay/silent modes now require an explicit decision. Record-only
+    // is a deliberate new selection; the history master remains opt-in.
+    if (!['ask','record'].includes(S.sessionResumeMode)) S.sessionResumeMode='ask';
+    if (!['folio','signal','dock'].includes(S.sessionResumeDesign)) {
+      S.sessionResumeDesign = S.sessionResumeDesign==='cinema'?'signal':
+        (S.sessionResumeDesign==='compact'||e.sessionResumeMode==='card')?'dock':'folio';
     }
-    S.sessionResumePromptMigrated = !0;
+    S.sessionResumePromptMigrated = true;
     if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
     else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
     else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";
@@ -2056,22 +2057,6 @@ algoBlockChannels: "",
       Z.abort();
     } catch (er) {}
 
-    try {
-      if (typeof Ma !== "undefined" && Ma) {
-        Ma.awaitingResume = !1;
-        Ma.awaitingResumeVid = null;
-      }
-    } catch (er) {}
-
-    try { Ze(); } catch (er) {}
-    try { Qe(); } catch (er) {}
-    try {
-      // The resume gate must not stay installed after the feature is reset.
-      if (window.__ytbRealPlay && HTMLMediaElement.prototype.play !== window.__ytbRealPlay) {
-        HTMLMediaElement.prototype.play = window.__ytbRealPlay;
-      }
-      Je._playGate = !1;
-    } catch (er) {}
     try { _fwDisarm(); } catch (er) {}
     Z = new AbortController();
     oe.vid = void 0;

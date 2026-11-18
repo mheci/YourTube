@@ -2477,12 +2477,12 @@
         {
           id: "player-cards",
           name: "Info cards (i) teaser",
-          selector: ".ytb-cards-button, .ytb-cards-teaser-text",
+          selector: ".ytp-cards-button, .ytp-cards-teaser-text",
         },
         {
           id: "player-cards-icon",
           name: "Info card icon only",
-          selector: ".ytb-cards-button-icon",
+          selector: ".ytp-cards-button-icon",
         },
         {
           id: "player-watermark",
@@ -2532,7 +2532,7 @@
         {
           id: "player-subtitles",
           name: "Subtitles / CC button",
-          selector: ".ytb-subtitles-button",
+          selector: ".ytp-subtitles-button",
         },
         {
           id: "player-settings",
@@ -2607,12 +2607,12 @@
         {
           id: "player-tooltip",
           name: "Seek bar preview tooltip",
-          selector: ".ytb-tooltip",
+          selector: ".ytp-tooltip",
         },
         {
           id: "player-preview-image",
           name: "Seek bar preview thumbnail",
-          selector: ".ytp-preview, .ytb-tooltip-image",
+          selector: ".ytp-preview, .ytp-tooltip-image",
         },
         {
           id: "player-bezel",
@@ -4539,91 +4539,6 @@
         t === e.masterKey && l();
       }),
       t
-    );
-  }
-  const qo = { query: "", limit: 30 };
-  function Vo(t, a) {
-    const n = t.progress || 0,
-      r = !!t.completed,
-      o = !r && (t.lastPosition || 0) > 5,
-      i = To("div", "ytb-hcard" + (r ? " done" : "")),
-      d = To("div", "ytb-hthumb"),
-      c = t.thumbnail || ie.thumb(t.videoId, "mqdefault");
-
-    const _veCached = Ve.get(t.videoId);
-    if (_veCached) {
-      try { YourTubeResources.TrackedBlobURL.touch(_veCached); } catch (_) {}
-      d.style.backgroundImage = "url('" + _veCached + "')";
-    } else {
-      const safeC = sanitizeUrlForCSS(c);
-      d.style.backgroundImage = safeC ? "url('" + encodeURI(safeC).replace(/'/g, "%27") + "')" : "none";
-      je(t.videoId)
-        .then((e) => {
-          if (e && d.style.backgroundImage.indexOf(_veCached || "blob:") === -1) {
-            d.style.backgroundImage = "url('" + e + "')";
-          } else if (!e) {
-            We(t.videoId, c).catch(() => {});
-          }
-        })
-        .catch(() => {});
-    }
-    (r
-      ? d.appendChild(To("div", "ytb-hbadge done", "Done"))
-      : o && d.appendChild(To("div", "ytb-hbadge res", ce(t.lastPosition))));
-    const s = To("div", "ytb-hinfo");
-    (s.appendChild(To("div", "ytb-htitle", t.title || t.videoId)),
-      s.appendChild(To("div", "ytb-hchan", t.channel || "Unknown")));
-    const l = [];
-    (t.duration && l.push(ce(t.duration)),
-      !r && t.remaining > 0 && l.push(ce(t.remaining) + " left"),
-      t.lastWatched &&
-        l.push(
-          (function (e) {
-            if (!e) return "Never";
-            const t = Date.now() - e;
-            return t < 6e4
-              ? "Just now"
-              : t < 36e5
-                ? Math.floor(t / 6e4) + "m ago"
-                : t < 864e5
-                  ? Math.floor(t / 36e5) + "h ago"
-                  : t < 6048e5
-                    ? Math.floor(t / 864e5) + "d ago"
-                    : new Date(e).toLocaleDateString();
-          })(t.lastWatched),
-        ),
-      s.appendChild(To("div", "ytb-hmeta", l.join(" - "))));
-    const p = To("div", "ytb-hpt"),
-      u = To("div", "ytb-hpf" + (r ? " done" : ""));
-    ((u.style.width = Math.min(100, n) + "%"),
-      p.appendChild(u),
-      s.appendChild(p));
-    const h = To("div", "ytb-hacts");
-    return (
-      o &&
-        h.appendChild(
-          Mo(
-            "Resume " + ce(t.lastPosition),
-            () => {
-              e.location.href =
-                "https://www.youtube.com/watch?v=" +
-                t.videoId +
-                "&t=" +
-                Math.floor(t.lastPosition);
-            },
-            "primary",
-          ),
-        ),
-      h.appendChild(
-        Mo(r ? "Rewatch" : "Open", () => {
-          e.location.href = "https://www.youtube.com/watch?v=" + t.videoId;
-        }),
-      ),
-      h.appendChild(Mo("Remove", () => Pe(t.videoId).then(a), "danger")),
-      s.appendChild(h),
-      i.appendChild(d),
-      i.appendChild(s),
-      i
     );
   }
   function Yp_clampRect(e, t, a, n) {

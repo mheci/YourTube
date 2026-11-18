@@ -46,8 +46,11 @@ jobs:
         run: |
           /usr/bin/python3.12 -m venv "$RUNNER_TEMP/guide-venv"
           "$RUNNER_TEMP/guide-venv/bin/python" -m pip install --only-binary=:all: --require-hashes -r tests/requirements-guide-ci.txt
-      - name: Check overlay and persistent guide paint with the runner's Chrome
+      - name: Check guide paint and feature interactions with the runner's Chrome
         run: |
           chrome="$(command -v google-chrome)"
           "$chrome" --version
           "$RUNNER_TEMP/guide-venv/bin/python" tests/guide_overlay.py --browser "$chrome"
+          "$RUNNER_TEMP/guide-venv/bin/python" tests/guide_all_themes.py --browser "$chrome"
+          "$RUNNER_TEMP/guide-venv/bin/python" tests/feature_effects.py --browser "$chrome"
+          "$RUNNER_TEMP/guide-venv/bin/python" tests/watch_sessions.py --browser "$chrome"

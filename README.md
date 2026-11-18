@@ -71,9 +71,8 @@ Latest release: [github.com/mheci/YourTube/releases](https://github.com/mheci/Yo
 - Block Player Enhancements force-disables YouTube's own player extras:
   Ambient Mode glow, Stable Volume (dynamic range compression) and Voice
   Boost, each toggled individually.
-- Calm Popups & Toasts carries the dashboard's design onto every floating
-  surface: toasts, skip notices, resume prompts, gates and panels, in light
-  and dark.
+- Calm Popups & Toasts styles toasts, skip notices and related panels. The
+  Session History prompt has its own three player-mounted designs.
 - Session history, bookmarks, study notes, subscription groups, watch Later
   helpers, playlist resume and shuffle.
 - Watch-time statistics, weekly summary, budget overlay, Shorts limits and
@@ -103,6 +102,27 @@ userscript). Keep auto-updates enabled.
 Open the dashboard from the guide menu, the player button or the keyboard
 shortcut. Changes apply immediately; nothing needs a reload. Settings export to
 a file and import back.
+
+### Session History (private 1.12.5-rc.3 candidate)
+
+Turn on **Session History** and select **Pause and ask**. Watch past five seconds,
+pause and leave the video, then reopen its ordinary watch URL. **Resume at …**
+restores the saved position; **Start fresh** goes to zero without deleting notes,
+pins or previous visits. Escape or **Minimize** folds the prompt; neither is a
+playback choice. Choose **Folio**, **Signal** or **Dock** in the same card.
+
+A new or completed video plays normally. **Record only** leaves playback to
+YouTube; an explicit timestamp (including `t=0`) also takes precedence. Ads,
+live streams, previews and native unavailability notices are not resume targets.
+An unreadable history lookup releases playback without overwriting an unknown
+save; an already-known stopping point has no automatic timeout. If a browser
+requires another playback gesture, use the **Play at …** button.
+
+The journal lives in this browser's existing history database. Search by title or
+channel, filter, pin, follow a timestamp, or export/import a local JSON backup.
+Removal and clearing require confirmation. This journal is separate from your
+YouTube account's history and the Session Replay diagnostic feature. The regular
+public release is not changed by this private candidate.
 
 Two settings deserve a note:
 
@@ -152,13 +172,16 @@ npm run verify    # rebuild and compare sha256 against the committed bundle
 
 Bun 1.4 or newer can run the same scripts faster: `bun scripts/build-userscript.js`, `bun scripts/check.js`, and `bun scripts/verify-bundle.js`.
 
-The Quality workflow also runs `tests/guide_overlay.py` against its installed Chrome.
-This offline fixture checks the actual assembled userscript in dark, light, glass and
-native modes. The test driver is a development-only dependency. To repeat locally
-with a compatible Python environment and browser, run `python -m pip install playwright`
-then `python tests/guide_overlay.py --browser /path/to/chromium`.
+The Quality workflow runs offline Chromium regressions against the assembled bundle.
+`tests/guide_overlay.py` checks the original guide-paint regression;
+`tests/guide_all_themes.py` covers every built-in palette, all four overhaul flag
+pairs, and closed, modal and persistent guides. `tests/feature_effects.py` checks
+native controls, sort order, teardown, locale-cookie preservation, privacy and
+same-document navigation. These fixtures do not contact YouTube or mutate an account.
+Install the test-only Playwright driver in a virtual environment and run, for example,
+`python tests/feature_effects.py --browser /path/to/chromium`.
 
-`src/` holds fourteen fragment modules concatenated in numeric order
+`src/` holds numbered fragment modules concatenated in numeric order
 (`00-header` through `90-boot`). The shipped userscript must be byte-identical
 to a rebuild from source: CI enforces that on every push and tag, and a weekly
 workflow rebuilds the tagged release and compares hashes against what the

@@ -56,11 +56,12 @@
  },
  {
   "id": "force-cc",
-  "name": "Forced Captions",
+  "name": "Caption Preferences",
   "cat": "playback",
   "master": "forceCC",
   "keys": [
    "forceCC",
+   "ccAutoEnable",
    "forceCCLang",
    "ccNativePrefs",
    "ccFontSize",
@@ -84,7 +85,7 @@
    "ccRespectManualOff",
    "ccReEngageOnPlay"
   ],
-  "summary": "Enables captions on every video with style, position and language rules."
+  "summary": "Style native captions and optionally enable preferred tracks automatically."
  },
  {
   "id": "autoskip-ad-btn",

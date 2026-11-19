@@ -1752,7 +1752,7 @@
     lastVerifyFix: 0,
   };
   function La() {
-    if (!S.forceCC) return !1;
+    if (!S.forceCC || !S.ccAutoEnable) return !1;
     if (
       S.ccSkipMusic &&
       (function () {
@@ -1776,6 +1776,8 @@
   }
   function Aa() {
     if (!S.forceCC || !S.ccNativePrefs) return;
+    // In styling-only mode do not load the module while native captions are off.
+    if (!S.ccAutoEnable && ca(".ytp-subtitles-button", 800)?.getAttribute("aria-pressed") !== "true") return;
     const e = ie.api();
     if (e) {
       try {
@@ -2043,12 +2045,13 @@
   }
   (xa.register({
     id: "force-cc",
-    name: "Forced Captions",
-    summary: "Enables captions on every video with style, position and language rules.",
+    name: "Caption Preferences",
+    summary: "Style native captions and optionally enable preferred tracks automatically.",
       cat: "playback",
     masterKey: "forceCC",
     keys: [
       "forceCC",
+      "ccAutoEnable",
       "forceCCLang",
       "ccNativePrefs",
       "ccFontSize",
@@ -2264,7 +2267,7 @@
       (o(),
 
         e.addInterval(() => {
-          if (!S.forceCC) return;
+          if (!La()) return;
 
           try {
             const _p = location.pathname || "";
@@ -2301,7 +2304,9 @@
         }));
     },
     settings(e) {
-      (e.appendChild(Ro("Preferred language", "forceCCLang", Ba(!0))),
+      (e.appendChild(Io("Automatically enable captions and select preferred tracks", "ccAutoEnable")),
+        e.appendChild(To("div", "ytb-hist-note", "Turn automatic enabling off to style YouTube's native captions without changing whether captions are on or which track you selected.")),
+        e.appendChild(Ro("Preferred language", "forceCCLang", Ba(!0))),
         e.appendChild(
           _o("Fallback languages (comma-separated)", "ccFallbackLangs"),
         ),

@@ -6118,6 +6118,43 @@ const WatchAnalytics = (() => {
   return { summarize };
 })();
 
+// Preserve a one-time, atomic local snapshot before any data-lifecycle
+// migration. A failed backup never marks the migration safe to perform.
+const MigrationBackup = (() => {
+  const key = 'yourtube/migration-backup/v1';
+  const selected = new Set(['__yourtube_notes__','__yourtube_bookmarks__','__yourtube_collections__','__yourtube_pl_resume__']);
+  async function ensure() {
+    const db = await b();
+    if (!db) throw new Error('Local storage unavailable');
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['history','kv'], 'readwrite');
+      const kv = tx.objectStore('kv'), history = tx.objectStore('history');
+      const existing = kv.get(key), rows = history.getAll(), values = kv.getAll();
+      let made = false;
+      values.onsuccess = () => {
+        if (existing.result) return;
+        const records = values.result.filter(row => row && typeof row.k === 'string' &&
+          (selected.has(row.k) || row.k.startsWith('note:video:')));
+        kv.put({k:key, v:{format:'yourtube-migration-backup-v1', createdAt:Date.now(),
+          settings:{...S}, history:rows.result || [], records}});
+        made = true;
+      };
+      tx.oncomplete = () => resolve(made);
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('Migration backup failed'));
+    });
+  }
+  async function read() {
+    const db = await b();
+    if (!db) throw new Error('Local storage unavailable');
+    return new Promise((resolve,reject) => {
+      const tx = db.transaction('kv','readonly'), req = tx.objectStore('kv').get(key);
+      tx.oncomplete = () => resolve(req.result?.v || null);
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('Migration backup read failed'));
+    });
+  }
+  return {ensure, read};
+})();
+
 // Lightweight, local diagnostics: no payloads, authentication material or
 // response bodies are collected. Errors are reported once per status change.
 const IntegrationDiagnostics = (() => {
@@ -27524,6 +27561,16 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const stamp = () => new Date().toISOString().slice(0, 10);
       const row = To("div", "ytb-rowb");
       row.style.flexWrap = "wrap";
+      row.appendChild(Oo("Migration backup (JSON)", async () => {
+        try {
+          const backup = await MigrationBackup.read();
+          if (!backup) { pe("No migration backup is available.", 2400, "info"); return; }
+          save("yourtube-migration-backup-" + stamp() + ".json", JSON.stringify(backup, null, 2));
+        } catch (error) {
+          m("migration backup export failed", error);
+          pe("Could not read the migration backup.", 2400, "error");
+        }
+      }));
       row.appendChild(Oo("History (JSON)", async () => {
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}
@@ -28427,6 +28474,12 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
   (async function () {
     try {
       z();
+      // Snapshot existing local data before lifecycle migrations. A failed
+      // backup is reported; no retention deletion is enabled by this step.
+      MigrationBackup.ensure().catch(error => {
+        m('migration backup failed', error);
+        try { pe('Local backup could not be created. Your existing data was left unchanged.', 5000, 'error'); } catch (_) {}
+      });
       // Arm before the asynchronous config/DOM hydration and chunked card apply.
       WatchSessions.configure();
       IntegrationDiagnostics.checkClient();

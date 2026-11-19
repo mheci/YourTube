@@ -4156,6 +4156,16 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const stamp = () => new Date().toISOString().slice(0, 10);
       const row = To("div", "ytb-rowb");
       row.style.flexWrap = "wrap";
+      row.appendChild(Oo("Migration backup (JSON)", async () => {
+        try {
+          const backup = await MigrationBackup.read();
+          if (!backup) { pe("No migration backup is available.", 2400, "info"); return; }
+          save("yourtube-migration-backup-" + stamp() + ".json", JSON.stringify(backup, null, 2));
+        } catch (error) {
+          m("migration backup export failed", error);
+          pe("Could not read the migration backup.", 2400, "error");
+        }
+      }));
       row.appendChild(Oo("History (JSON)", async () => {
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}

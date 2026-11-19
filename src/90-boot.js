@@ -1,6 +1,12 @@
   (async function () {
     try {
       z();
+      // Snapshot existing local data before lifecycle migrations. A failed
+      // backup is reported; no retention deletion is enabled by this step.
+      MigrationBackup.ensure().catch(error => {
+        m('migration backup failed', error);
+        try { pe('Local backup could not be created. Your existing data was left unchanged.', 5000, 'error'); } catch (_) {}
+      });
       // Arm before the asynchronous config/DOM hydration and chunked card apply.
       WatchSessions.configure();
       IntegrationDiagnostics.checkClient();

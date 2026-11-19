@@ -201,6 +201,7 @@ def main():
 if(location.pathname==='/watch' && location.search.includes('db=slow')){const open=indexedDB.open.bind(indexedDB);indexedDB.open=(...a)=>{const facade={};setTimeout(()=>{const req=open(...a);for(const k of ['result','error','transaction'])Object.defineProperty(facade,k,{get:()=>req[k]});for(const k of ['success','error','blocked','upgradeneeded'])req['on'+k]=ev=>facade['on'+k]?.(ev)},1250);return facade;}}
 if(location.pathname==='/watch' && location.search.includes('db=blocked')){indexedDB.open=()=>{throw new DOMException('Controlled DB denial','SecurityError')}}
 if(location.pathname==='/watch' && location.search.includes('write=fault')){const orig=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...a){if(this.name==='history')throw new DOMException('Controlled commit fault','QuotaExceededError');return orig.apply(this,a)}}
+if(location.pathname==='/watch' && location.search.includes('backup=fault')){const orig=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,...rest){if(this.name==='kv'&&v?.k==='yourtube/migration-backup/v1')throw new DOMException('Controlled backup fault','QuotaExceededError');return orig.call(this,v,...rest)}}
 if(location.pathname==='/watch' && location.search.includes('play=denied')){window.fieldDeny=true;HTMLMediaElement.prototype.play=function(){return window.fieldDeny?Promise.reject(new DOMException('Controlled user activation denial','NotAllowedError')):window.fieldNative.apply(this,arguments)}}"""
         )
         p = c.new_page()
@@ -1250,6 +1251,37 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 return {"legacyPreferenceMigrated":True,"explicitHomePersists":True,"legacyValuePreserved":True}
 
             case("channel-tab-migration", channel_tab_migration)
+
+            def migration_backup():
+                init([record(C,24,title='Backup original')], {"speedDefault":1.75})
+                p.evaluate("""async()=>{await YourTube.storage.set('note:video:FieldFilm03','saved note');await YourTube.storage.set('__yourtube_collections__',[{id:'backup-col',name:'Saved',videos:[],createdAt:42}]);const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').delete('yourtube/migration-backup/v1');tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close()}""")
+                watch()
+                p.wait_for_function("""async()=>{const x=await YourTube.storage.get('yourtube/migration-backup/v1');return x?.history?.some(r=>r.title==='Backup original')}""",timeout=8000)
+                snap=p.evaluate("async()=>YourTube.storage.get('yourtube/migration-backup/v1')")
+                assert snap['format']=='yourtube-migration-backup-v1' and snap['settings']['speedDefault']==1.75
+                assert any(r['k']=='note:video:FieldFilm03' and r['v']=='saved note' for r in snap['records'])
+                assert any(r['k']=='__yourtube_collections__' and r['v'][0]['name']=='Saved' for r in snap['records'])
+                p.evaluate("async()=>{await YourTube.history.del('FieldFilm03');await YourTube.storage.set('note:video:FieldFilm03','changed')}")
+                watch()
+                snap2=p.evaluate("async()=>YourTube.storage.get('yourtube/migration-backup/v1')")
+                assert snap2==snap
+                return {"historyAndNotesSaved":True,"settingsSaved":True,"unchangedAfterEdits":True}
+
+            case("migration-backup-is-atomic-and-preserved", migration_backup)
+
+            def migration_backup_failure():
+                init([record(C,24,title='Never remove on failure')])
+                p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').delete('yourtube/migration-backup/v1');tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close()}""")
+                watch(extra='&backup=fault')
+                p.wait_for_timeout(500)
+                assert data(C)['title']=='Never remove on failure'
+                assert p.evaluate("async()=>await YourTube.storage.get('yourtube/migration-backup/v1')") is None
+                watch()
+                p.wait_for_function("async()=>!!(await YourTube.storage.get('yourtube/migration-backup/v1'))")
+                assert data(C)['title']=='Never remove on failure'
+                return {"noFalseBackup":True,"dataPreserved":True,"retryCreatedBackup":True}
+
+            case("migration-backup-failure-keeps-data", migration_backup_failure)
         c.close()
         if not args.profile:
             b.close()

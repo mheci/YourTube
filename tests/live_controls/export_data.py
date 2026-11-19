@@ -41,4 +41,16 @@ def run(p):
         trash.update(filename=info.value.suggested_filename,pass_=True);trash['pass']=trash.pop('pass_')
     except Exception as ex:
         trash.update(error=str(ex)[:250]);trash['pass']=False
-    return [row,trash]
+    backup={"id":"export-data","key":"Migration backup (JSON)","description":"Real download exports the immutable local migration snapshot"}
+    try:
+        p.wait_for_function("async()=>!!(await YourTube.storage.get('yourtube/migration-backup/v1'))",timeout=8000)
+        p.evaluate('pick("export-data")')
+        with p.expect_download(timeout=8000) as info:
+            p.locator('[data-feat="export-data"]').get_by_role('button',name='Migration backup (JSON)',exact=True).click()
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'backup.json';info.value.save_as(path);out=json.loads(path.read_text())
+        assert out['format']=='yourtube-migration-backup-v1' and 'settings' in out and isinstance(out['history'],list) and isinstance(out['records'],list)
+        backup.update(filename=info.value.suggested_filename,pass_=True);backup['pass']=backup.pop('pass_')
+    except Exception as ex:
+        backup.update(error=str(ex)[:250]);backup['pass']=False
+    return [row,trash,backup]

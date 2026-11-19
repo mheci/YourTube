@@ -27802,12 +27802,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       out.style.cssText = "margin-top:8px;white-space:pre-line";
       en.appendChild(out);
       const fmtHours = (seconds) => (seconds >= 3600 ? (seconds / 3600).toFixed(1) + " h" : Math.round(seconds / 60) + " min");
+      let renderVersion = 0;
       const render = async () => {
+        const version = ++renderVersion;
         out.hidden = !S.watchStatsOn;
         if (out.hidden) { out.textContent = ""; return; }
         out.textContent = "Reading local history…";
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}
+        if (version !== renderVersion || !S.watchStatsOn) return;
         const windowDays = Math.max(1, Math.min(365, Number(S.watchStatsDays) || 30));
         const cutoff = Date.now() - windowDays * 86400000;
         const summary = WatchAnalytics.summarize(rows, cutoff, S.sessionGapMinutes);
@@ -27845,12 +27848,17 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const STORE = "__yourtube_report__";
       const store = YourTubeEngine.createStore(STORE, { lastShown: 0 });
       const fmtHours = (seconds) => (seconds >= 3600 ? (seconds / 3600).toFixed(1) + " h" : Math.round(seconds / 60) + " min");
+      let active = true;
+      Yt["weekly-report"].push(() => { active = false; });
       const run = async () => {
+        try { await store.load(); } catch (_) { return; }
+        if (!active) return;
         const state = store.get() || {};
         const week = 7 * 86400000;
         if (state.lastShown && Date.now() - state.lastShown < week) return;
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}
+        if (!active) return;
         const cutoff = Date.now() - week;
         const summary = WatchAnalytics.summarize(rows, cutoff, S.sessionGapMinutes);
         if (!summary.videos) return;

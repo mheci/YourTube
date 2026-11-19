@@ -147,11 +147,11 @@ def main():
             focus_open()
             faces = paint()
             check(
-                "Journal paper, green controls and serif headings in a dark browser",
-                faces["paper"] == "rgb(255, 251, 239)"
-                and faces["green"] == "rgb(34, 91, 72)"
+                "Native light site colors take priority over a dark browser",
+                faces["paper"] == "rgb(255, 255, 255)"
+                and faces["green"] == "rgb(15, 15, 15)"
                 and faces["mode"] == "light"
-                and "Georgia" in faces["title"],
+                and "Arial" in faces["title"],
                 faces,
             )
             legacy = lambda: p.evaluate(
@@ -263,7 +263,7 @@ def main():
             p.wait_for_function(
                 "()=>!!document.querySelector('#ytb-theme-engine-style')"
             )
-            check("Site palette and overhaul cannot reskin dashboard", paint() == faces)
+            check("Site palette preserves dashboard navigation", paint()["skin"] == faces["skin"] and switch.is_visible())
             p.evaluate(
                 "()=>{YourTube.setCfgMany({themeEngineOn:false,themeSelected:'none',themeOverhaulOn:false});YourTube.features.apply('theme-engine')}"
             )
@@ -446,9 +446,33 @@ def main():
                     "Clean install opens directly in Journal with motion reduction respected",
                     paper.locator(".yj-view-title").inner_text() == "All features"
                     and paper.evaluate(
-                        "n=>getComputedStyle(n).backgroundColor==='rgb(255, 251, 239)' && getComputedStyle(n).transitionDuration==='0s'"
+                        "n=>getComputedStyle(n).backgroundColor==='rgb(255, 255, 255)' && getComputedStyle(n).transitionDuration==='0s'"
                     ),
                 )
+                for mode in ("light", "dark"):
+                    new.evaluate("dark=>document.documentElement.toggleAttribute('dark',dark)", mode == "dark")
+                    new.evaluate("YourTube.setCfgMany({guidedPreset:null,hideRecs:false,autoHD:false,qualityPref:'hd1080',sessionRestoreOn:false,sessionResumeMode:'record'})")
+                    paper.get_by_role("button", name="Presets", exact=True).click()
+                    panel = paper.locator(".ytg-panel")
+                    panel.get_by_text("Find my preset", exact=True).click()
+                    panel.get_by_role("radio", name="Recommendations", exact=True).check()
+                    panel.get_by_text("Next", exact=True).click()
+                    panel.get_by_role("radio", name="Prefer 720p").check()
+                    panel.get_by_text("Next", exact=True).click()
+                    panel.get_by_text("Back", exact=True).click()
+                    assert panel.get_by_role("radio", name="Prefer 720p").is_checked()
+                    panel.get_by_text("Next", exact=True).click()
+                    panel.get_by_role("radio", name="Ask where to start").check()
+                    panel.get_by_text("Review changes", exact=True).click()
+                    assert new.evaluate("!YourTube.cfg.autoHD && !YourTube.cfg.sessionRestoreOn && !YourTube.cfg.hideRecs")
+                    panel.get_by_role("checkbox", name="Hide recommendations:", exact=False).uncheck()
+                    if args.out:
+                        paper.screenshot(path=args.out / ("preset-review-" + mode + ".png"))
+                    panel.get_by_role("button", name="Apply 4 changes").click()
+                    assert new.evaluate("YourTube.cfg.autoHD && YourTube.cfg.qualityPref==='hd720' && YourTube.cfg.sessionRestoreOn && YourTube.cfg.sessionResumeMode==='ask' && !YourTube.cfg.hideRecs")
+                    paper.locator(".ytb-search").fill("auto-hd")
+                    paper.locator('[data-feat="auto-hd"] select[data-key="qualityPref"]').select_option("hd1080")
+                    check("Reviewed patch and manual override in " + mode, paper.locator(".ytg-badge").inner_text() == "Customized" and new.evaluate("YourTube.cfg.qualityPref==='hd1080'"))
             finally:
                 fresh.close()
         finally:

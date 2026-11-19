@@ -23,3 +23,18 @@ local interception, not actual network traffic. This does not measure video
 playback, a real YouTube page, a signed-in account, real external traffic or
 representative user behavior. Do not extrapolate it into claims of real-world
 performance savings.
+
+## Signed-out live search
+
+`compare_live_search.py` uses the same metrics on a real public YouTube search,
+with a new signed-out browser profile and direct userscript injection for every
+sample. It makes real network requests and records CDP request counts and
+encoded bytes for completed requests. For example, replace the command above
+with `compare_live_search.py` and use `--rounds 3`.
+
+YouTube can return different recommendations, video counts, experiments or
+verification gates for each run. The script records errors instead of silently
+dropping failed samples, and exits nonzero if any sample fails. Network totals
+and timings in unequal responses cannot establish the userscript's real-world
+impact; this does not measure authenticated playback or account history. Never
+run the script with a personal browser profile.

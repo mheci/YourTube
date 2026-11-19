@@ -993,6 +993,7 @@ algoBlockChannels: "",
         skipPausedContinueOn: !1,
         logoToSubsOn: !1,
         defaultChannelTab: "featured",
+        channelTabMigrated: !1,
         hideTopLiveGamesOn: !1,
         hfrAllowOn: !1,
         autoRecoverOn: !1,
@@ -1650,6 +1651,10 @@ algoBlockChannels: "",
     S.qualityLockMigrated = true;
     if (!a.collectionSendMigrated && a.quickCollectionSendOn && !a.collectionsOn) S.collectionsOn = true;
     S.collectionSendMigrated = true;
+    if (!a.channelTabMigrated && (!a.channelLandingTab || a.channelLandingTab === "home") &&
+        ["videos", "shorts", "live", "playlists", "community", "about"].includes(a.defaultChannelTab))
+      S.channelLandingTab = a.defaultChannelTab;
+    S.channelTabMigrated = true;
     if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
     else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
     else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";

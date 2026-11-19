@@ -1030,6 +1030,7 @@ algoBlockChannels: "",
         skipPausedContinueOn: !1,
         logoToSubsOn: !1,
         defaultChannelTab: "featured",
+        channelTabMigrated: !1,
         hideTopLiveGamesOn: !1,
         hfrAllowOn: !1,
         autoRecoverOn: !1,
@@ -1687,6 +1688,10 @@ algoBlockChannels: "",
     S.qualityLockMigrated = true;
     if (!a.collectionSendMigrated && a.quickCollectionSendOn && !a.collectionsOn) S.collectionsOn = true;
     S.collectionSendMigrated = true;
+    if (!a.channelTabMigrated && (!a.channelLandingTab || a.channelLandingTab === "home") &&
+        ["videos", "shorts", "live", "playlists", "community", "about"].includes(a.defaultChannelTab))
+      S.channelLandingTab = a.defaultChannelTab;
+    S.channelTabMigrated = true;
     if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
     else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
     else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";
@@ -14123,36 +14128,33 @@ const IntegrationDiagnostics = (() => {
     xa.register({
       id: "default-channel-tab",
       name: "Channel Default Tab",
-      summary: "Opens channel pages on your preferred tab.",
+      summary: "Opens channel root pages on your chosen tab; deep links stay unchanged.",
       cat: "channels",
-      masterKey: "defaultChannelTab",
-      keys: ["defaultChannelTab"],
-      apply(e) {
-        const route = () => {
-          const want = S.defaultChannelTab || "featured";
-          if (!["videos", "shorts", "live", "playlists", "community", "about"].includes(want)) return;
-          // The more specific landing-tab feature owns navigation if configured.
-          if (S.channelLandingTab && S.channelLandingTab !== "home") return;
-          const r = location.pathname.match(/^\/(@[^\/]+)\/?$/);
-          if (!r) return;
+      masterKey: "channelLandingTab",
+      settingsAlways: true,
+      isOn: () => String(S.channelLandingTab || "home") !== "home",
+      keys: ["channelLandingTab"],
+      apply(ctx) {
+        const tabs = { videos: "/videos", shorts: "/shorts", live: "/streams", playlists: "/playlists", community: "/community", about: "/about" };
+        const run = () => {
           try {
-            location.replace(r[1] + "/" + (want === "live" ? "streams" : want));
-          } catch (e) {}
+            const tab = tabs[String(S.channelLandingTab || "home")];
+            if (!tab) return;
+            const path = location.pathname;
+            if (!/^\/(?:@[^/]+|channel\/[^/]+|c\/[^/]+|user\/[^/]+)(?:\/featured)?\/?$/.test(path)) return;
+            const base = path.replace(/\/featured\/?$/, "").replace(/\/$/, "");
+            location.replace(base + tab);
+          } catch (_) {}
         };
-        route();
-        e.onNav(route);
+        run();
+        ctx.onNav(() => { run(); ctx.addTimeout(run, 300); });
       },
-      settings(e) {
-        const tabs = {
-          featured: "Featured (default)",
-          videos: "Videos",
-          shorts: "Shorts",
-          live: "Live",
-          playlists: "Playlists",
-          community: "Community",
-          about: "About",
-        };
-        e.appendChild(Ro("Default channel tab", "defaultChannelTab", tabs));
+      settings(panel) {
+        panel.appendChild(Ro("Open channels on", "channelLandingTab", {
+          home: "Home (default)", videos: "Videos", shorts: "Shorts", live: "Live",
+          playlists: "Playlists", community: "Community", about: "About",
+        }));
+        panel.appendChild(To("div", "ytb-hist-note", "Applies to channel root links, not deep links. Redirecting to a different tab navigates the page."));
       },
     }),
 
@@ -14951,8 +14953,35 @@ const IntegrationDiagnostics = (() => {
       summary: "Re-binds featured-video artwork on channel pages when YouTube's preview fails.",
       cat: "appearance",
       masterKey: "heroHealOn",
-      keys: ["heroHealOn"],
+      settingsAlways: true,
+      isOn: () => !!S.heroHealOn || String(S.channelBannerMode || "default") !== "default",
+      keys: ["heroHealOn", "channelBannerMode"],
       apply(ctx) {
+      const mode = String(S.channelBannerMode || "default");
+      const page = 'ytd-browse[page-subtype="channels"] ';
+      if ("scroll" === mode) {
+        ctx.addStyle(
+          page + "app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "tp-yt-app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
+          page + "ytd-tabbed-page-header #page-header-banner," +
+          page + "yt-page-header-renderer #page-header-banner," +
+          page + "yt-image-banner-view-model{" +
+          "transform:none!important;position:absolute;left:0!important;top:0;margin-top:0}",
+        );
+      } else if ("hide" === mode) {
+        ctx.addStyle(
+          page + "div#contentContainer.style-scope.app-header-layout{padding-top:148px!important}" +
+          page + "div#contentContainer.style-scope.app-header{height:148px!important}" +
+          page + "div.banner-visible-area.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "div.page-header-banner.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
+          page + "ytd-tabbed-page-header #page-header-banner," +
+          page + "yt-page-header-renderer #page-header-banner," +
+          page + "yt-image-banner-view-model{display:none!important}" +
+          page + "tp-yt-app-header#header.ytd-tabbed-page-header{transform:none!important;position:absolute!important;left:0!important;margin-top:0!important}",
+        );
+      }
         if (!S.heroHealOn) return;
 
         const QUAL = ["maxresdefault", "sddefault", "hqdefault"];
@@ -15048,6 +15077,7 @@ const IntegrationDiagnostics = (() => {
       },
       settings(en) {
         en.appendChild(Io("Self-heal broken channel hero artwork", "heroHealOn"));
+        en.appendChild(Ro("Banner behaviour", "channelBannerMode", { default: "Default", scroll: "Scroll it away", hide: "Hide it entirely" }));
       },
     }),
     xa.register({
@@ -28256,86 +28286,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
 
 
 
-  xa.register({
-    id: "channel-banner-mode",
-    name: "Channel Banner",
-    summary: "Scrolls the channel banner away or hides it entirely.",
-    cat: "channels",
-    masterKey: "channelBannerMode",
-    isOn: () => String(S.channelBannerMode || "default") !== "default",
-    keys: ["channelBannerMode"],
-    apply(ctx) {
-      const mode = String(S.channelBannerMode || "default");
-      const page = 'ytd-browse[page-subtype="channels"] ';
-      if ("scroll" === mode) {
-        ctx.addStyle(
-          page + "app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "tp-yt-app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
-          page + "ytd-tabbed-page-header #page-header-banner," +
-          page + "yt-page-header-renderer #page-header-banner," +
-          page + "yt-image-banner-view-model{" +
-          "transform:none!important;position:absolute;left:0!important;top:0;margin-top:0}",
-        );
-      } else if ("hide" === mode) {
-        ctx.addStyle(
-          page + "div#contentContainer.style-scope.app-header-layout{padding-top:148px!important}" +
-          page + "div#contentContainer.style-scope.app-header{height:148px!important}" +
-          page + "div.banner-visible-area.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "div.page-header-banner.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
-          page + "ytd-tabbed-page-header #page-header-banner," +
-          page + "yt-page-header-renderer #page-header-banner," +
-          page + "yt-image-banner-view-model{display:none!important}" +
-          page + "tp-yt-app-header#header.ytd-tabbed-page-header{transform:none!important;position:absolute!important;left:0!important;margin-top:0!important}",
-        );
-      }
-    },
-    settings(en) {
-      en.appendChild(Ro("Banner behaviour", "channelBannerMode", {
-        default: "Default", scroll: "Scroll it away", hide: "Hide it entirely",
-      }));
-    },
-  });
 
-  xa.register({
-    id: "channel-landing-tab",
-    name: "Channel Landing Tab",
-    summary: "Opens a channel on the tab you use most instead of its home page.",
-    cat: "channels",
-    masterKey: "channelLandingTab",
-    isOn: () => String(S.channelLandingTab || "home") !== "home",
-    keys: ["channelLandingTab"],
-    apply(ctx) {
-      const tabs = {
-        videos: "/videos", shorts: "/shorts", live: "/streams", playlists: "/playlists",
-        community: "/community", about: "/about",
-      };
-      const run = () => {
-        try {
-          const tab = tabs[String(S.channelLandingTab || "home")];
-          if (!tab) return;
-          const path = location.pathname;
-          if (!/^\/(?:@[^/]+|channel\/[^/]+|c\/[^/]+|user\/[^/]+)(?:\/featured)?\/?$/.test(path)) return;
-          const base = path.replace(/\/featured\/?$/, "").replace(/\/$/, "");
-          location.replace(base + tab);
-        } catch (_) {}
-      };
-      run();
-      ctx.onNav(() => {
-        run();
-        ctx.addTimeout(run, 300);
-      });
-    },
-    settings(en) {
-      en.appendChild(Ro("Open channels on", "channelLandingTab", {
-        home: "Home (default)", videos: "Videos", shorts: "Shorts", live: "Live",
-        playlists: "Playlists", community: "Community", about: "About",
-      }));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Only applies when you land on a channel's root URL. Deep links are left alone."));
-    },
-  });
+
+
 
   xa.register({
     id: "resume-timestamps",

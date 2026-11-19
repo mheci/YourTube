@@ -443,86 +443,9 @@
 
 
 
-  xa.register({
-    id: "channel-banner-mode",
-    name: "Channel Banner",
-    summary: "Scrolls the channel banner away or hides it entirely.",
-    cat: "channels",
-    masterKey: "channelBannerMode",
-    isOn: () => String(S.channelBannerMode || "default") !== "default",
-    keys: ["channelBannerMode"],
-    apply(ctx) {
-      const mode = String(S.channelBannerMode || "default");
-      const page = 'ytd-browse[page-subtype="channels"] ';
-      if ("scroll" === mode) {
-        ctx.addStyle(
-          page + "app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "tp-yt-app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
-          page + "ytd-tabbed-page-header #page-header-banner," +
-          page + "yt-page-header-renderer #page-header-banner," +
-          page + "yt-image-banner-view-model{" +
-          "transform:none!important;position:absolute;left:0!important;top:0;margin-top:0}",
-        );
-      } else if ("hide" === mode) {
-        ctx.addStyle(
-          page + "div#contentContainer.style-scope.app-header-layout{padding-top:148px!important}" +
-          page + "div#contentContainer.style-scope.app-header{height:148px!important}" +
-          page + "div.banner-visible-area.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "div.page-header-banner.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
-          page + "ytd-tabbed-page-header #page-header-banner," +
-          page + "yt-page-header-renderer #page-header-banner," +
-          page + "yt-image-banner-view-model{display:none!important}" +
-          page + "tp-yt-app-header#header.ytd-tabbed-page-header{transform:none!important;position:absolute!important;left:0!important;margin-top:0!important}",
-        );
-      }
-    },
-    settings(en) {
-      en.appendChild(Ro("Banner behaviour", "channelBannerMode", {
-        default: "Default", scroll: "Scroll it away", hide: "Hide it entirely",
-      }));
-    },
-  });
 
-  xa.register({
-    id: "channel-landing-tab",
-    name: "Channel Landing Tab",
-    summary: "Opens a channel on the tab you use most instead of its home page.",
-    cat: "channels",
-    masterKey: "channelLandingTab",
-    isOn: () => String(S.channelLandingTab || "home") !== "home",
-    keys: ["channelLandingTab"],
-    apply(ctx) {
-      const tabs = {
-        videos: "/videos", shorts: "/shorts", live: "/streams", playlists: "/playlists",
-        community: "/community", about: "/about",
-      };
-      const run = () => {
-        try {
-          const tab = tabs[String(S.channelLandingTab || "home")];
-          if (!tab) return;
-          const path = location.pathname;
-          if (!/^\/(?:@[^/]+|channel\/[^/]+|c\/[^/]+|user\/[^/]+)(?:\/featured)?\/?$/.test(path)) return;
-          const base = path.replace(/\/featured\/?$/, "").replace(/\/$/, "");
-          location.replace(base + tab);
-        } catch (_) {}
-      };
-      run();
-      ctx.onNav(() => {
-        run();
-        ctx.addTimeout(run, 300);
-      });
-    },
-    settings(en) {
-      en.appendChild(Ro("Open channels on", "channelLandingTab", {
-        home: "Home (default)", videos: "Videos", shorts: "Shorts", live: "Live",
-        playlists: "Playlists", community: "Community", about: "About",
-      }));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Only applies when you land on a channel's root URL. Deep links are left alone."));
-    },
-  });
+
+
 
   xa.register({
     id: "resume-timestamps",

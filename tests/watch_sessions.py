@@ -1237,6 +1237,19 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 return {"textPreservedOnFailure":True,"retrySavedOnce":True}
 
             case("note-write-failure-recovery", note_write_recovery)
+
+            def channel_tab_migration():
+                init([], {"channelLandingTab":"home", "defaultChannelTab":"videos", "channelTabMigrated":False})
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.channelTabMigrated===true&&YourTube.cfg.channelLandingTab==='videos'")
+                assert p.evaluate("YourTube.cfg.defaultChannelTab") == 'videos'
+                p.evaluate("YourTube.setCfg('channelLandingTab','home')")
+                p.wait_for_timeout(1400)
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.channelLandingTab==='home'",timeout=5000)
+                return {"legacyPreferenceMigrated":True,"explicitHomePersists":True,"legacyValuePreserved":True}
+
+            case("channel-tab-migration", channel_tab_migration)
         c.close()
         if not args.profile:
             b.close()

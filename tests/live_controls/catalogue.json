@@ -372,11 +372,11 @@
   "id": "default-channel-tab",
   "name": "Channel Default Tab",
   "cat": "channels",
-  "master": "defaultChannelTab",
+  "master": "channelLandingTab",
   "keys": [
-   "defaultChannelTab"
+   "channelLandingTab"
   ],
-  "summary": "Opens channel pages on your preferred tab."
+  "summary": "Opens channel root pages on your chosen tab; deep links stay unchanged."
  },
  {
   "id": "hide-top-live-games",
@@ -456,7 +456,8 @@
   "cat": "appearance",
   "master": "heroHealOn",
   "keys": [
-   "heroHealOn"
+   "heroHealOn",
+   "channelBannerMode"
   ],
   "summary": "Re-binds featured-video artwork on channel pages when YouTube's preview fails."
  },
@@ -1239,26 +1240,6 @@
    "hideVideoShelvesOn"
   ],
   "summary": "Removes Shorts shelves that appear around a video."
- },
- {
-  "id": "channel-banner-mode",
-  "name": "Channel Banner",
-  "cat": "channels",
-  "master": "channelBannerMode",
-  "keys": [
-   "channelBannerMode"
-  ],
-  "summary": "Scrolls the channel banner away or hides it entirely."
- },
- {
-  "id": "channel-landing-tab",
-  "name": "Channel Landing Tab",
-  "cat": "channels",
-  "master": "channelLandingTab",
-  "keys": [
-   "channelLandingTab"
-  ],
-  "summary": "Opens a channel on the tab you use most instead of its home page."
  },
  {
   "id": "resume-timestamps",

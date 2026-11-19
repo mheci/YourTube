@@ -307,7 +307,7 @@ test(
     "location.pathname",
     "x==='/@FieldLab/videos'",
     path="/@FieldLab",
-    cfg={"defaultChannelTab": "videos"},
+    cfg={"channelLandingTab": "videos"},
 )
 hide(
     "hide-top-live-games",
@@ -1423,7 +1423,7 @@ S["resume-timestamps"]["cfg"] = {
     "resumeBarStyle": "default",
 }
 S["hide-low-views"]["action"] = NAV
-S["default-channel-tab"].setdefault("cfg", {}).update(channelLandingTab="home")
+S["default-channel-tab"].setdefault("cfg", {}).update(channelLandingTab="videos")
 S["geo-override"]["reset"] = True
 
 # Chromium serializes the CSS combination `layout style paint` as its `content` shorthand.

@@ -1269,6 +1269,18 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
 
             case("migration-backup-is-atomic-and-preserved", migration_backup)
 
+            def migration_backup_newest_settings():
+                init([record(C,24,title='Newer IDB configuration')], {"speedDefault":1.25})
+                p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('kv','readwrite'),store=tx.objectStore('kv');store.delete('yourtube/migration-backup/v1');store.put({k:'__cfg__',v:{speedDefault:1.875,sessionRestoreOn:true},ver:987654321,updatedAt:Date.now()+1000});tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close()}""")
+                watch()
+                p.wait_for_function("async()=>!!(await YourTube.storage.get('yourtube/migration-backup/v1'))")
+                snap=p.evaluate("async()=>YourTube.storage.get('yourtube/migration-backup/v1')")
+                assert snap['settings']['speedDefault']==1.875, snap['settings'].get('speedDefault')
+                assert any(x['src']=='idb' and x['data']['speedDefault']==1.875 for x in snap['settingsSources'])
+                return {"newestIdbConfigPreserved":True,"sourceSnapshotsSaved":True}
+
+            case("migration-backup-selects-newest-settings", migration_backup_newest_settings)
+
             def migration_backup_failure():
                 init([record(C,24,title='Never remove on failure')])
                 p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').delete('yourtube/migration-backup/v1');tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close()}""")

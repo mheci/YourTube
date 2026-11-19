@@ -6191,8 +6191,22 @@ const MigrationBackup = (() => {
         if (existing.result) return;
         const records = values.result.filter(row => row && typeof row.k === 'string' &&
           (selected.has(row.k) || row.k.startsWith('note:video:')));
+        // z() only hydrates synchronous mirrors. IndexedDB may contain a newer
+        // configuration until the later asynchronous boot merge has finished.
+        // Select from the same version/timestamp sources as that merge, while
+        // retaining raw copies for recovery instead of silently backing up defaults.
+        const stored = values.result.find(row => row?.k === I);
+        const candidates = [];
+        if (stored?.v && typeof stored.v === 'object')
+          candidates.push({src:'idb', data:stored.v, ver:stored.ver || 0, ts:stored.updatedAt || 0});
+        const gm = q(), local = V();
+        if (gm) candidates.push({src:'gm', data:gm, ver:gm.__ver || 0, ts:gm.__ts || 0});
+        if (local) candidates.push({src:'local', data:local, ver:local.__ver || 0, ts:local.__ts || 0});
+        const selectedConfig = F(candidates.slice());
+        const settings = selectedConfig ? {...selectedConfig.data} : {...S};
+        delete settings.__ts; delete settings.__ver;
         kv.put({k:key, v:{format:'yourtube-migration-backup-v1', createdAt:Date.now(),
-          settings:{...S}, history:rows.result || [], records}});
+          settings, settingsSources:candidates, history:rows.result || [], records}});
         made = true;
       };
       tx.oncomplete = () => resolve(made);

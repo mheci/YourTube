@@ -4299,7 +4299,11 @@ algoBlockChannels: "",
     }
   }
   const Ee = (e) => v("history", e),
-    Be = (e) => k("history", e),
+    Be = async (e) => {
+      const result = await k("history", e);
+      g.emit('history.updated', {videoId: e && e.videoId});
+      return result;
+    },
     Pe = (e) => CheckpointStore.erase(e),
     Ie = () => w("history", "lw", "prev"),
     Re = () => CheckpointStore.erase(null);

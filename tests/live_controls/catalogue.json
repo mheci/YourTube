@@ -50,12 +50,9 @@
   "master": "autoHD",
   "keys": [
    "autoHD",
-   "qualityPref",
-   "qualityLockStrict",
-   "videoCodecPref",
-   "audioCodecPref"
+   "qualityPref"
   ],
-  "summary": "Locks the chosen resolution and codecs, then re-asserts them while YouTube adapts."
+  "summary": "Keeps your preferred resolution, falling back to the nearest lower available quality."
  },
  {
   "id": "force-cc",
@@ -1046,17 +1043,6 @@
    "loudnessStrength"
   ],
   "summary": "Compressor evens quiet dialogue and loud segments."
- },
- {
-  "id": "sticky-quality",
-  "name": "Live Quality Lock",
-  "cat": "playback",
-  "master": "stickyQualityOn",
-  "keys": [
-   "stickyQualityOn",
-   "qualityPref"
-  ],
-  "summary": "Re-applies the preferred quality on live streams."
  },
  {
   "id": "return-dislike",

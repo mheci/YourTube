@@ -158,10 +158,12 @@
           } catch (e) {}
       },
       levels() {
-        const e = ie.api();
-        return e && e.getAvailableQualityLevels
-          ? e.getAvailableQualityLevels()
-          : [];
+        try {
+          const api = ie.api();
+          const levels = api && typeof api.getAvailableQualityLevels === "function"
+            ? api.getAvailableQualityLevels() : null;
+          return Array.isArray(levels) ? levels : [];
+        } catch (_) { return []; }
       },
       currentQuality() {
         try {
@@ -185,12 +187,12 @@
         if (exact) return exact.label;
         const rank = ["hd2160", "hd1440", "hd1080", "hd720", "large", "medium", "small", "tiny"];
         const wantIndex = rank.indexOf(wanted);
-        if (wantIndex < 0) return levels[0];
+        if (wantIndex < 0) return "";
         const ordered = pairs
           .filter((pair) => rank.indexOf(pair.norm) >= 0)
           .sort((a, b) => rank.indexOf(a.norm) - rank.indexOf(b.norm));
         const atOrBelow = ordered.find((pair) => rank.indexOf(pair.norm) >= wantIndex);
-        return (atOrBelow || ordered[0] || pairs[0]).label;
+        return atOrBelow ? atOrBelow.label : "";
       },
       isAd: () => !!document.querySelector(".ad-showing,.ad-interrupting"),
     },

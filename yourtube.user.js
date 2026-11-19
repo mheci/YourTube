@@ -974,6 +974,7 @@ algoBlockChannels: "",
         autoHD: !1,
         qualityPref: "hd1080",
         qualityLockStrict: !0,
+        qualityLockMigrated: !1,
         videoCodecPref: "auto",
         audioCodecPref: "auto",
         forceCC: !1,
@@ -1679,6 +1680,10 @@ algoBlockChannels: "",
         (S.sessionResumeDesign==='compact'||e.sessionResumeMode==='card')?'dock':'folio';
     }
     S.sessionResumePromptMigrated = true;
+    // The former live-only lock is subsumed by the quality lock. Migrate its
+    // opt-in once while keeping all legacy codec and strictness settings.
+    if (!a.qualityLockMigrated && a.stickyQualityOn && !a.autoHD) S.autoHD = true;
+    S.qualityLockMigrated = true;
     if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
     else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
     else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";
@@ -4042,10 +4047,12 @@ algoBlockChannels: "",
           } catch (e) {}
       },
       levels() {
-        const e = ie.api();
-        return e && e.getAvailableQualityLevels
-          ? e.getAvailableQualityLevels()
-          : [];
+        try {
+          const api = ie.api();
+          const levels = api && typeof api.getAvailableQualityLevels === "function"
+            ? api.getAvailableQualityLevels() : null;
+          return Array.isArray(levels) ? levels : [];
+        } catch (_) { return []; }
       },
       currentQuality() {
         try {
@@ -4069,12 +4076,12 @@ algoBlockChannels: "",
         if (exact) return exact.label;
         const rank = ["hd2160", "hd1440", "hd1080", "hd720", "large", "medium", "small", "tiny"];
         const wantIndex = rank.indexOf(wanted);
-        if (wantIndex < 0) return levels[0];
+        if (wantIndex < 0) return "";
         const ordered = pairs
           .filter((pair) => rank.indexOf(pair.norm) >= 0)
           .sort((a, b) => rank.indexOf(a.norm) - rank.indexOf(b.norm));
         const atOrBelow = ordered.find((pair) => rank.indexOf(pair.norm) >= wantIndex);
-        return (atOrBelow || ordered[0] || pairs[0]).label;
+        return atOrBelow ? atOrBelow.label : "";
       },
       isAd: () => !!document.querySelector(".ad-showing,.ad-interrupting"),
     },
@@ -10921,126 +10928,54 @@ const WatchAnalytics = (() => {
     xa.register({
       id: "auto-hd",
       name: "Preferred Quality Lock",
-      summary: "Locks the chosen resolution and codecs, then re-asserts them while YouTube adapts.",
+      summary: "Keeps your preferred resolution, falling back to the nearest lower available quality.",
       cat: "playback",
       masterKey: "autoHD",
-      keys: ["autoHD", "qualityPref", "qualityLockStrict", "videoCodecPref", "audioCodecPref"],
-      apply(e) {
+      keys: ["autoHD", "qualityPref"],
+      apply(ctx) {
         if (!S.autoHD) return;
-        let lastVid = "";
-        let lastStream = null, lastCodecKey = "", qualityOwner = null, written = "";
-        const filtered = [];
-        function restoreFormats() {
-          for (const {formats, original, kept} of filtered.splice(0)) {
-            // Leave native replacements untouched; undo only our own unchanged edit.
-            if (formats.length === kept.length && kept.every((row,i) => formats[i] === row))
-              formats.splice(0, formats.length, ...original);
-          }
-        }
-        Yt["auto-hd"].push(() => {
-          restoreFormats();
-          if (qualityOwner && written && (qualityOwner.getPlaybackQuality?.() === written || !qualityOwner.getPlaybackQuality)) {
-            qualityOwner.setPlaybackQualityRange?.("auto","auto");
-          }
-        });
+        let qualityOwner = null, written = "";
         const bound = new WeakSet();
-
-        const wantedCodec = (value) => String(value || "auto").toLowerCase();
-
-        const filterFormats = (formats, muxed) => {
-          if (!Array.isArray(formats) || !formats.length) return false;
-          const videoPref = wantedCodec(S.videoCodecPref);
-          const audioPref = wantedCodec(S.audioCodecPref);
-          const matchVideo = (format) => {
-            if (videoPref === "auto") return true;
-            const text = String(format.codecs || format.mimeType || "").toLowerCase();
-            if (videoPref === "av1") return text.includes("av01");
-            if (videoPref === "vp9") return text.includes("vp09") || text.includes("vp9");
-            if (videoPref === "avc") return text.includes("avc1");
-            return true;
-          };
-          const matchAudio = (format) => {
-            if (audioPref === "auto") return true;
-            const text = String(format.codecs || format.mimeType || "").toLowerCase();
-            if (audioPref === "opus") return text.includes("opus");
-            if (audioPref === "aac") return text.includes("mp4a");
-            return true;
-          };
-          const keep = formats.filter((format) => {
-            const mime = String(format.mimeType || "").toLowerCase();
-            if (mime.startsWith("video/")) return matchVideo(format) && (!muxed || matchAudio(format));
-            if (mime.startsWith("audio/")) return matchAudio(format);
-            return muxed ? matchVideo(format) || matchAudio(format) : true;
-          });
-          if (!keep.length || keep.length === formats.length) return false;
-          filtered.push({formats, original:formats.slice(), kept:keep});
-          formats.splice(0, formats.length, ...keep);
-          return true;
-        };
-
-        const applyCodecs = () => {
-          const key = wantedCodec(S.videoCodecPref) + "|" + wantedCodec(S.audioCodecPref);
-          if (key === "auto|auto") { lastCodecKey = key; return false; }
-          const api = ie.api();
-          const response = api && typeof api.getPlayerResponse === "function" ? api.getPlayerResponse() : null;
-          const streaming = response && response.streamingData;
-          if (!streaming || (key === lastCodecKey && lastStream === streaming)) return false;
-          restoreFormats(); lastStream = streaming;
-          let changed = false;
-          if (Array.isArray(streaming.adaptiveFormats)) changed = filterFormats(streaming.adaptiveFormats, false) || changed;
-          if (Array.isArray(streaming.formats)) changed = filterFormats(streaming.formats, true) || changed;
-          lastCodecKey = key;
-          return changed;
-        };
-
+        Yt["auto-hd"].push(() => {
+          try {
+            if (qualityOwner && written && (qualityOwner.getPlaybackQuality?.() === written || !qualityOwner.getPlaybackQuality))
+              qualityOwner.setPlaybackQualityRange?.("auto", "auto");
+          } catch (_) {}
+        });
         const enforce = () => {
           if (!S.autoHD || ie.isAd()) return;
-          const videoId = (ie.videoId && ie.videoId()) || "";
-          if (videoId !== lastVid) {
-            lastVid = videoId;
-            lastCodecKey = "";
-          }
-          const codecChanged = applyCodecs();
           const target = ie.qualityTarget(S.qualityPref);
-          if (!target) return;
-          if (ie.currentQuality() === target && !codecChanged) return;
-          qualityOwner = ie.api(); written = target;
+          if (!target) {
+            // Do not leave a higher previously locked quality in place when no
+            // permitted fallback exists for the current stream.
+            try {
+              if (qualityOwner && written && qualityOwner.getPlaybackQuality?.() === written)
+                qualityOwner.setPlaybackQualityRange?.("auto", "auto");
+            } catch (_) {}
+            qualityOwner = null; written = "";
+            return;
+          }
+          if (ie.currentQuality() === target) return;
+          const api = ie.api();
+          if (!api || (typeof api.setPlaybackQualityRange !== "function" && typeof api.setPlaybackQuality !== "function")) return;
+          qualityOwner = api; written = target;
           ie.setQuality(target);
         };
-
         const bind = () => {
           const video = ie.el();
           if (!video || bound.has(video)) return;
           bound.add(video);
-          ["playing", "canplay", "loadedmetadata", "loadeddata", "seeking", "ratechange"].forEach((event) => {
-            e.addListener(video, event, enforce);
-          });
+          ["playing", "canplay", "loadedmetadata", "loadeddata", "seeking", "ratechange"].forEach(event => ctx.addListener(video, event, enforce));
         };
-
-        enforce();
-        bind();
-        if (S.qualityLockStrict !== false) {
-          e.addInterval(enforce, 1500, { pauseWhenHidden: true });
-        }
-        e.addListener(document, "visibilitychange", enforce, { passive: true });
-        e.onNav(() => {
-          lastVid = "";
-          lastCodecKey = "";
-          e.addTimeout(enforce, 300);
-          e.addTimeout(bind, 800);
-        });
+        enforce(); bind();
+        ctx.addInterval(enforce, 1500, { pauseWhenHidden: true, skipWhenPopup: false });
+        ctx.addListener(document, "visibilitychange", enforce, { passive: true });
+        ctx.onNav(() => { ctx.addTimeout(enforce, 300); ctx.addTimeout(bind, 800); });
       },
-      settings(e) {
-        e.appendChild(Ro("Quality", "qualityPref", d));
-        e.appendChild(Io("Strict lock (re-assert while YouTube adapts)", "qualityLockStrict"));
-        e.appendChild(Ro("Video codec", "videoCodecPref", {
-          auto: "Auto", av1: "AV1", vp9: "VP9", avc: "H.264",
-        }));
-        e.appendChild(Ro("Audio codec", "audioCodecPref", {
-          auto: "Auto", opus: "Opus", aac: "AAC",
-        }));
-        e.appendChild(To("div", "ytb-hist-note",
-          "Strict lock re-checks every 1.5 seconds while a video plays. Codec choice filters the player's stream list. YouTube may keep the current stream until the next load, and it has no public audio-codec switch."));
+      settings(panel) {
+        panel.appendChild(Ro("Preferred quality", "qualityPref", d));
+        panel.appendChild(To("div", "ytb-hist-note", "Changes use the current player's quality API when available. The nearest lower quality is used if the preference is unavailable, and the preference is retried while visible. YouTube may reject a request."));
+        panel.appendChild(To("div", "ytb-hist-note", "Codec choices are unavailable: no immediate codec switch has been verified for this player. Existing codec preferences remain saved but are not applied."));
       },
     }),
 
@@ -26837,42 +26772,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  xa.register({
-    id: "sticky-quality", name: "Live Quality Lock",
-    summary: "Re-applies the preferred quality on live streams.",
-      cat: "playback",
-    masterKey: "stickyQualityOn", keys: ["stickyQualityOn", "qualityPref"],
-    apply(ctx) {
-      if (!S.stickyQualityOn) return;
-      const reassert = () => {
-        try {
-          if (!_isLiveStream()) return;
-          const el = ie.el();
-          if (!el || el.paused) return;
-          const levels = ie.levels();
-          if (!levels || !levels.length) return;
-          const target = ie.qualityTarget(S.qualityPref);
-          if (!target) return;
-          // Skip when the player is already on the target: re-asserting every
-          // 5s fights YouTube's own adaptation for no reason.
-          const current = (() => {
-            try {
-              const api = ie.api && ie.api();
-              return api && typeof api.getPlaybackQuality === "function" ? api.getPlaybackQuality() : "";
-            } catch (_) { return ""; }
-          })();
-          if (current !== target) ie.setQuality(target);
-        } catch (_) {}
-      };
-      ctx.addInterval(reassert, 5000);
-      ctx.onNav(() => ctx.addTimeout(reassert, 2500));
-    },
-    settings(en) {
-      en.appendChild(Io("Keep my quality on livestreams", "stickyQualityOn"));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Re-asserts the same preference used by 'Preferred Quality Lock' every five seconds on live streams."));
-    },
-  });
+
 
 
 

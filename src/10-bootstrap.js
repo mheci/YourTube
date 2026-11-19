@@ -937,6 +937,7 @@ algoBlockChannels: "",
         autoHD: !1,
         qualityPref: "hd1080",
         qualityLockStrict: !0,
+        qualityLockMigrated: !1,
         videoCodecPref: "auto",
         audioCodecPref: "auto",
         forceCC: !1,
@@ -1642,6 +1643,10 @@ algoBlockChannels: "",
         (S.sessionResumeDesign==='compact'||e.sessionResumeMode==='card')?'dock':'folio';
     }
     S.sessionResumePromptMigrated = true;
+    // The former live-only lock is subsumed by the quality lock. Migrate its
+    // opt-in once while keeping all legacy codec and strictness settings.
+    if (!a.qualityLockMigrated && a.stickyQualityOn && !a.autoHD) S.autoHD = true;
+    S.qualityLockMigrated = true;
     if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
     else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
     else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";

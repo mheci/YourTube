@@ -3498,42 +3498,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  xa.register({
-    id: "sticky-quality", name: "Live Quality Lock",
-    summary: "Re-applies the preferred quality on live streams.",
-      cat: "playback",
-    masterKey: "stickyQualityOn", keys: ["stickyQualityOn", "qualityPref"],
-    apply(ctx) {
-      if (!S.stickyQualityOn) return;
-      const reassert = () => {
-        try {
-          if (!_isLiveStream()) return;
-          const el = ie.el();
-          if (!el || el.paused) return;
-          const levels = ie.levels();
-          if (!levels || !levels.length) return;
-          const target = ie.qualityTarget(S.qualityPref);
-          if (!target) return;
-          // Skip when the player is already on the target: re-asserting every
-          // 5s fights YouTube's own adaptation for no reason.
-          const current = (() => {
-            try {
-              const api = ie.api && ie.api();
-              return api && typeof api.getPlaybackQuality === "function" ? api.getPlaybackQuality() : "";
-            } catch (_) { return ""; }
-          })();
-          if (current !== target) ie.setQuality(target);
-        } catch (_) {}
-      };
-      ctx.addInterval(reassert, 5000);
-      ctx.onNav(() => ctx.addTimeout(reassert, 2500));
-    },
-    settings(en) {
-      en.appendChild(Io("Keep my quality on livestreams", "stickyQualityOn"));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Re-asserts the same preference used by 'Preferred Quality Lock' every five seconds on live streams."));
-    },
-  });
+
 
 
 

@@ -1158,6 +1158,20 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 return {"validRestored": True, "expiredDiscarded": True, "originalWindowPreserved": True}
 
             case("history-trash-import-retains-window", history_trash_import)
+
+            def quality_migration():
+                init([], {"autoHD":False,"stickyQualityOn":True,"qualityLockMigrated":False,"videoCodecPref":"vp9"})
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.qualityLockMigrated===true&&YourTube.cfg.autoHD===true")
+                assert p.evaluate("YourTube.cfg.videoCodecPref") == "vp9"
+                p.evaluate("YourTube.setCfg('autoHD',false)")
+                p.wait_for_timeout(1500)
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.autoHD===false", timeout=5000)
+                assert p.evaluate("YourTube.cfg.videoCodecPref") == "vp9"
+                return {"liveLockMigrated": True, "explicitOffPersists": True, "codecSettingPreserved": True}
+
+            case("quality-live-lock-migration", quality_migration)
         c.close()
         if not args.profile:
             b.close()

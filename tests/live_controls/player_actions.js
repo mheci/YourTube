@@ -175,42 +175,47 @@ async () => {
     "hd720",
     "hd1080",
   );
-  await paired(
-    "auto-hd",
-    "videoCodecPref",
-    "Switching codecs reconsiders streams removed by the previous choice",
-    "av1",
-    "vp9",
-    () =>
-      response.streamingData.adaptiveFormats
-        .filter((x) => x.id[0] !== "a" || x.id === "av1")
-        .filter((x) => x.mimeType.startsWith("video"))
-        .map((x) => x.id),
-    ["av1"],
-    ["vp9"],
-  );
-  await paired(
-    "auto-hd",
-    "audioCodecPref",
-    "Successive audio-codec selections operate on the same stream list",
-    "aac",
-    "opus",
-    () =>
-      response.streamingData.adaptiveFormats.filter((x) => x.mimeType.startsWith("audio")).map((x) => x.id),
-    ["aac"],
-    ["opus"],
-  );
-  await trial(
-    "auto-hd",
-    "autoHD",
-    "Off restores original offered streams and releases range lock",
-    async (r) => {
-      await set("auto-hd", "autoHD", false);
-      r.streams = response.streamingData.adaptiveFormats.map((x) => x.id);
-      r.range = level;
-      r.pass = r.range === "auto" && JSON.stringify(r.streams) === JSON.stringify(available.map((x) => x.id));
-    },
-  );
+  await trial("auto-hd", "fallback", "Uses the next lower offered level, then retries the preference", async (r) => {
+    mp.getAvailableQualityLevels = () => ["hd720", "small"];
+    await set("auto-hd", "qualityPref", "hd1080");
+    r.fallback = await equal(() => level, "hd720");
+    mp.getAvailableQualityLevels = () => ["hd1080", "hd720", "small"];
+    r.preferred = await equal(() => level, "hd1080", 7000);
+    r.pass = true;
+  });
+  await trial("auto-hd", "no-higher-fallback", "Does not force a higher level when no lower quality is offered", async (r) => {
+    mp.getAvailableQualityLevels = () => ["hd1080", "hd720"];
+    level = "auto";
+    await set("auto-hd", "qualityPref", "small");
+    await wait(1600);
+    r.observed = level;
+    r.pass = level === "auto";
+  });
+  await trial("auto-hd", "compatibility-fallback", "Invalid or throwing quality APIs leave native playback alone", async (r) => {
+    mp.getAvailableQualityLevels = () => { throw Error('unsupported API'); };
+    level = "auto";
+    await set("auto-hd", "qualityPref", "hd1080");
+    v.dispatchEvent(new Event("playing"));
+    await wait(50);
+    r.observed = level; r.quarantined = YourTube.features.isQuarantined("auto-hd");
+    if(r.observed !== "auto" || r.quarantined) throw Error('Unsafe fallback');
+    mp.getAvailableQualityLevels = () => ["hd1080", "hd720"];
+    r.pass = true;
+  });
+  await trial("auto-hd", "codec-unavailable", "Legacy codecs stay saved without filtering or claiming an immediate switch", async (r) => {
+    YourTube.setCfgMany({videoCodecPref:"av1",audioCodecPref:"opus"});
+    await set("auto-hd", "qualityPref", "hd720");
+    await wait(50);
+    r.streams = response.streamingData.adaptiveFormats.map(x => x.id);
+    r.video = YourTube.cfg.videoCodecPref; r.audio = YourTube.cfg.audioCodecPref;
+    r.noCodecControl = !pane("auto-hd").querySelector('[data-key="videoCodecPref"],[data-key="audioCodecPref"]');
+    r.pass = JSON.stringify(r.streams) === JSON.stringify(available.map(x => x.id)) && r.video === "av1" && r.audio === "opus" && r.noCodecControl;
+  });
+  await trial("auto-hd", "autoHD", "Off releases range lock", async (r) => {
+    await set("auto-hd", "autoHD", false);
+    r.range = level;
+    r.pass = r.range === "auto";
+  });
   const ab = "ab-repeat";
   await trial(
     ab,

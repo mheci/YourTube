@@ -1219,6 +1219,24 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 return {"collections":101,"videosInFirst":501,"bookmarkVideos":201,"bookmarksInVideo":101,"noteVideos":201,"notesInVideo":101}
 
             case("local-data-does-not-silently-truncate", local_data_no_silent_truncation)
+
+            def note_write_recovery():
+                init([], {"timestampNotesOn":True})
+                p.evaluate("async()=>YourTube.storage.set('__yourtube_notes__',{})")
+                watch()
+                p.evaluate("""()=>{window._normalPut=IDBObjectStore.prototype.put;window._failNotes=true;IDBObjectStore.prototype.put=function(v,...rest){if(this.name==='kv'&&v?.k==='__yourtube_notes__'&&window._failNotes)throw new DOMException('Controlled write failure','QuotaExceededError');return window._normalPut.call(this,v,...rest)}}""")
+                p.keyboard.press('Alt+n')
+                box=p.locator('#ytb-notes');box.fill('keep on failed write');box.press('Control+Enter')
+                p.wait_for_timeout(300)
+                assert box.input_value()=='keep on failed write'
+                assert not (p.evaluate("async()=>await YourTube.storage.get('__yourtube_notes__')") or {}).get(A)
+                p.evaluate('window._failNotes=false')
+                box.press('Control+Enter')
+                p.wait_for_function("""async id=>{const n=await YourTube.storage.get('__yourtube_notes__');return n?.[id]?.length===1&&n[id][0].text==='keep on failed write'}""",arg=A,timeout=6000)
+                assert box.input_value()==''
+                return {"textPreservedOnFailure":True,"retrySavedOnce":True}
+
+            case("note-write-failure-recovery", note_write_recovery)
         c.close()
         if not args.profile:
             b.close()

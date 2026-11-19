@@ -218,11 +218,25 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const store = new YourTubeResources.StateStore(key, initial, {
         storage: {
           get: async (storeKey) => {
-            const row = await v("kv", storeKey);
-            return row && row.v !== undefined ? row.v : undefined;
+            const db = await b();
+            if (!db) throw new Error("Local storage unavailable");
+            return new Promise((resolve, reject) => {
+              const tx = db.transaction("kv", "readonly"), req = tx.objectStore("kv").get(storeKey);
+              let value;
+              req.onsuccess = () => { value = req.result?.v; };
+              tx.oncomplete = () => resolve(value);
+              tx.onerror = tx.onabort = () => reject(tx.error || new Error("Local store read failed"));
+            });
           },
           set: async (storeKey, value) => {
-            return k("kv", { k: storeKey, v: value, updatedAt: Date.now() });
+            const db = await b();
+            if (!db) throw new Error("Local storage unavailable");
+            return new Promise((resolve, reject) => {
+              const tx = db.transaction("kv", "readwrite");
+              tx.objectStore("kv").put({ k: storeKey, v: value, updatedAt: Date.now() });
+              tx.oncomplete = resolve;
+              tx.onerror = tx.onabort = () => reject(tx.error || new Error("Local store write failed"));
+            });
           },
         },
       });
@@ -233,6 +247,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         update: (fn) => store.update(fn),
         load: () => store.load(),
         flush: () => store.flush(),
+        dirty: () => store._dirty,
         onChange: (fn) => store.onChange(fn),
         offChange: (fn) => store.offChange(fn),
       };
@@ -821,6 +836,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     const collections = {
       list() { return collectionsStore.get().slice(); },
       ready() { return collectionsStore.load(); },
+      flush() { return collectionsStore.flush(); },
       onChange(fn) { return collectionsStore.onChange(fn); },
       offChange(fn) { return collectionsStore.offChange(fn); },
       create(name, desc) {
@@ -2046,20 +2062,22 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       YourTubeEngine.scheduleOnReady(ctx, insert, { attempts: 8, delayMs: 500 });
       ctx.onNav(() => YourTubeEngine.scheduleOnReady(ctx, insert, { attempts: 8, delayMs: 500 }));
       panel.addEventListener("click", async (ev) => {
-        await YourTubeSession.collections.ready();
+        try { await YourTubeSession.collections.ready(); } catch (_) { pe("Could not load collections. Nothing was changed; try again.", 3000, "error"); return; }
         if (!alive) return;
         const btn = ev.target.closest("[data-col]");
         if (btn) {
           const vid = ie.videoId();
           if (!vid) return;
           YourTubeSession.collections.addVideo(btn.dataset.col, { videoId: vid, title: ie.title() || vid });
-          pe("Added to collection.", 1500, "success");
+          if (await YourTubeSession.collections.flush()) pe("Added to collection.", 1500, "success");
+          else pe("Collection change is in memory but could not be saved. Keep this page open and retry.", 3500, "error");
           rebuild();
         }
         if (ev.target.id === "ytb-col-new") {
-          _ytInlinePrompt(ev.target, "Collection name", (name) => {
+          _ytInlinePrompt(ev.target, "Collection name", async (name) => {
             YourTubeSession.collections.create(name);
-            pe("Created: " + name, 1500, "success");
+            if (await YourTubeSession.collections.flush()) pe("Created: " + name, 1500, "success");
+            else pe("Collection is in memory but could not be saved. Keep this page open and retry.", 3500, "error");
             rebuild();
           });
         }
@@ -2316,12 +2334,13 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const add = async () => {
         const vid = cur(), el = ie.el(); if (!vid || !el) return;
         const row = { t: el.currentTime, note: "", at: Date.now() };
-        await marks.load();
+        try { await marks.load(); } catch (_) { pe("Could not load bookmarks. Nothing was saved; try again.", 3000, "error"); return; }
         marks.update(d => {
           const list = (d[vid] = d[vid] || []);
           list.push(row);
         });
-        pe("Bookmark at " + YourTubePack.fmtTs(row.t), 1400, "success");
+        if (await marks.flush()) pe("Bookmark at " + YourTubePack.fmtTs(row.t), 1400, "success");
+        else pe("Bookmark is in memory but could not be saved. Keep this page open and retry.", 3500, "error");
       };
       ctx.addListener(document, "keydown", (ev) => {
         if (ev.altKey && !ev.repeat && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyB" && !YourTubePack.guardKey(ev)) {
@@ -2371,20 +2390,31 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       if (!S.timestampNotesOn) return;
       YourTubeEngine.injectCSS();
       const notesStore = YourTubeEngine.createStore("__yourtube_notes__", {});
-      let box = null;
+      let box = null, pendingCapture = null, savingNote = false;
       const cur = () => ie.videoId() || "";
       const capture = async () => {
+        if (savingNote) return;
         const text = box && box.value.trim(), videoId = cur();
         if (!text || !videoId) return;
         const el = ie.el();
         const row = { t: el ? el.currentTime : 0, text, at: Date.now() };
-        await notesStore.load();
-        notesStore.update(d => {
-          const list = (d[videoId] = d[videoId] || []);
-          list.push(row);
-        });
-        if (box && box.value.trim() === text) box.value = "";
-        pe("Note captured at " + YourTubePack.fmtTs(row.t), 1200, "success");
+        savingNote = true;
+        try {
+          try { await notesStore.load(); } catch (_) { pe("Could not load notes. Your text is still in the editor; try again.", 3000, "error"); return; }
+          if (!pendingCapture || pendingCapture.videoId !== videoId || pendingCapture.text !== text) {
+            notesStore.update(d => {
+              const list = (d[videoId] = d[videoId] || []);
+              list.push(row);
+            });
+            pendingCapture = { videoId, text };
+          }
+          const saved = !notesStore.dirty() || await notesStore.flush();
+          if (saved && !notesStore.dirty()) {
+            pendingCapture = null;
+            if (box && box.value.trim() === text) box.value = "";
+            pe("Note captured at " + YourTubePack.fmtTs(row.t), 1200, "success");
+          } else pe("Note is in memory but could not be saved. Keep this page open; the store will retry.", 3500, "error");
+        } finally { savingNote = false; }
       };
       const build = () => {
         if (box || !document.body) return false;
@@ -4159,7 +4189,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             ["__yourtube_bookmarks__", {}],
             ["__yourtube_collections__", []],
           ].map(([key, initial]) => YourTubeEngine.createStore(key, initial));
-          await Promise.all(stores.map(async store => { await store.load(); await store.flush(); }));
+          await Promise.all(stores.map(async store => {
+            await store.load();
+            if (store.dirty()) await store.flush();
+            if (store.dirty()) throw new Error("Pending changes could not be saved");
+          }));
           const records = await w("kv");
           const out = {
             format: "yourtube-local-notes-v1",

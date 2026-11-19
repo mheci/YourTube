@@ -32,7 +32,7 @@ jobs:
       - name: Build and deterministic verify
         run: npm run check && npm run verify
       - name: Test release and rerun rules without publishing
-        run: node --test tests/release_pipeline.test.cjs tests/watch_analytics.test.cjs
+        run: node --test tests/release_pipeline.test.cjs tests/watch_analytics.test.cjs tests/state_store.test.cjs
       - name: Verify bundle matches sources
         run: git diff --exit-code -- yourtube.user.js yourtube.meta.js
 

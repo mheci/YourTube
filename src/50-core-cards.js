@@ -524,6 +524,17 @@
     if (_isLiveStream()) {
       return void pe("Live streams can't be marked as watched.", 2000, "info");
     }
+    if (ie.isAd()) return void pe("Wait until the ad ends before marking the video.", 2500, "info");
+    // The explicit action ends the current video immediately, independently of
+    // network availability or either history option. Do not synthesize an
+    // ended event: the native player owns its own lifecycle.
+    const originalPosition = Number.isFinite(e.currentTime) ? Math.max(0, e.currentTime) : 0;
+    try {
+      if (t && typeof t.seekTo === "function") t.seekTo(n, true);
+      else e.currentTime = n;
+    } catch (_) {
+      try { e.currentTime = n; } catch (_) { pe("Could not seek to the end.", 2200, "error"); }
+    }
     jt = !0;
     const runToken = ++_fwRunSeq;
 
@@ -677,7 +688,7 @@
     try { return JSON.stringify(resp.json).indexOf('"videoId":"' + videoId + '"') >= 0; } catch (e) { return false; }
   }
 
-  async function _fwAdvanced(videoId, durFallback) {
+  async function _fwAdvanced(videoId, durFallback, originalPosition) {
     const stats = { attempts: 0, verified: false, beacons: 0, transport: "gmx" };
     if (typeof GM_xmlhttpRequest !== "function") { try { pe("Force Watched: GM transport unavailable", 2600, "error"); } catch (e) {} return stats; }
     const page = _fwParsePage();
@@ -724,23 +735,8 @@
     const DU = Math.round(dur * 1000) / 1000;
     const UA = _fwUA();
     const t0 = _t();
-    let cur0 = 0;
-    try { cur0 = vEl && isFinite(vEl.currentTime) && vEl.currentTime > 0 ? Math.round(vEl.currentTime * 1000) / 1000 : 0; } catch (_) {}
+    const cur0 = Math.min(DU, Math.max(0, Number(originalPosition) || 0));
     _fwArm(DU, videoId, cpn);
-    try {
-      if (vEl && !document.querySelector(".ad-showing,.ad-interrupting")) {
-        try {
-          const target = (isFinite(vEl.duration) && vEl.duration > 0) ? vEl.duration : DU;
-          try { vEl.currentTime = target; } catch (_) { try { vEl.currentTime = Math.max(0, target - 0.001); } catch (e3) {} }
-          try { vEl.dispatchEvent(new Event("timeupdate")); } catch (_) {}
-          try { vEl.dispatchEvent(new Event("ended")); } catch (_) {}
-          try {
-            const pEl = document.getElementById("movie_player");
-            if (pEl && typeof pEl.seekTo === "function") { try { pEl.seekTo(target, true); } catch (_) {} }
-          } catch (_) {}
-        } catch (_) {}
-      }
-    } catch (e) {}
     const clientBlock = {
       c: "WEB", cver: page.ver, cbr: UA.browser, cbrver: UA.bver, cos: UA.os, cosver: UA.osver || "10.0",
       hl: page.hl, cr: page.gl, mos: 0, fmt: _fwVfmt() || 243,
@@ -803,7 +799,7 @@
     }
     try {
       pe(stats.verified === true
-        ? "Force Watched: verified in account history"
+        ? "Force Watched: video found in account history; completion is not verified"
         : stats.verified === "skipped"
           ? "Force Watched: campaign complete (signed-out, verification skipped)"
           : "Force Watched: campaign complete, history check pending", 3400, stats.verified === true ? "success" : "info");
@@ -815,14 +811,14 @@
 
     if (!1 !== S.forceWatchedAccountHistory) {
       Promise.resolve().then(() => {
-        _fwAdvanced(a, n).then(
+        _fwAdvanced(a, n, originalPosition).then(
           () => { try { if (runToken === _fwRunSeq) jt = !1; } catch (_) {} },
           (er) => { try { h("fw advanced", er); } catch (_) {} try { if (runToken === _fwRunSeq) jt = !1; } catch (_) {} },
         );
       });
     } else if (!1 === S.forceWatchedLocalHistory) {
       try { if (runToken === _fwRunSeq) jt = !1; } catch (_) {}
-      try { pe("Force Watched: turn on account history and/or local history for this to do anything.", 3200, "info"); } catch (_) {}
+      try { pe("Video ended; enable account and/or local history to also attempt marking it watched.", 3200, "info"); } catch (_) {}
     } else {
       // Account history off, local history on: nothing to verify, so release
       // the guard immediately instead of leaving it latched for a minute.
@@ -936,8 +932,7 @@
           m("perfInterval " + e.featureId, t);
         }
         const n = performance.now() - a;
-        (S.perfProfilerOn && aa(e.featureId, "interval", n),
-          n > 12 && e.backoff < 4
+        (n > 12 && e.backoff < 4
             ? (e.backoff = Math.min(4, 1.3 * e.backoff))
             : t && e.backoff > 1
               ? (e.backoff = Math.max(1, 0.8 * e.backoff))
@@ -1100,7 +1095,7 @@
                   fa(e, t);
                 }
           };
-          if (a === document.body && r && r.childList && r.subtree) {
+          if (a === document.body && r && r.childList && r.subtree && !r.characterData && !r.attributes) {
             const e =
               ((o = i),
               !oa &&
@@ -1309,7 +1304,6 @@
         } catch (t) {
           return void fa(e, t);
         }
-        const a = S.perfProfilerOn ? performance.now() : 0;
         try {
           const a = t.apply(ua(e));
           a && "function" == typeof a.then && a.catch((t) => fa(e, t));
@@ -1319,10 +1313,6 @@
         } catch (t) {
           fa(e, t);
         }
-        if (S.perfProfilerOn)
-          try {
-            aa(e, "apply", performance.now() - a);
-          } catch (e) {}
       },
       isQuarantined: ba,
       clearQuarantine(e) {
@@ -1346,7 +1336,7 @@
           ).push(n);
         const n = t.concat(a);
         let r = 0;
-        const o = Xt.cpuConstrained || Xt.lowMemory || Xt.perfMode || S.perfModeOn ? 3 : 6;
+        const o = Xt.cpuConstrained || Xt.lowMemory ? 3 : 6;
         (async () => {
           for (; r < n.length; ) {
             const e = Math.min(r + o, n.length);
@@ -1700,126 +1690,54 @@
     xa.register({
       id: "auto-hd",
       name: "Preferred Quality Lock",
-      summary: "Locks the chosen resolution and codecs, then re-asserts them while YouTube adapts.",
+      summary: "Keeps your preferred resolution, falling back to the nearest lower available quality.",
       cat: "playback",
       masterKey: "autoHD",
-      keys: ["autoHD", "qualityPref", "qualityLockStrict", "videoCodecPref", "audioCodecPref"],
-      apply(e) {
+      keys: ["autoHD", "qualityPref"],
+      apply(ctx) {
         if (!S.autoHD) return;
-        let lastVid = "";
-        let lastStream = null, lastCodecKey = "", qualityOwner = null, written = "";
-        const filtered = [];
-        function restoreFormats() {
-          for (const {formats, original, kept} of filtered.splice(0)) {
-            // Leave native replacements untouched; undo only our own unchanged edit.
-            if (formats.length === kept.length && kept.every((row,i) => formats[i] === row))
-              formats.splice(0, formats.length, ...original);
-          }
-        }
-        Yt["auto-hd"].push(() => {
-          restoreFormats();
-          if (qualityOwner && written && (qualityOwner.getPlaybackQuality?.() === written || !qualityOwner.getPlaybackQuality)) {
-            qualityOwner.setPlaybackQualityRange?.("auto","auto");
-          }
-        });
+        let qualityOwner = null, written = "";
         const bound = new WeakSet();
-
-        const wantedCodec = (value) => String(value || "auto").toLowerCase();
-
-        const filterFormats = (formats, muxed) => {
-          if (!Array.isArray(formats) || !formats.length) return false;
-          const videoPref = wantedCodec(S.videoCodecPref);
-          const audioPref = wantedCodec(S.audioCodecPref);
-          const matchVideo = (format) => {
-            if (videoPref === "auto") return true;
-            const text = String(format.codecs || format.mimeType || "").toLowerCase();
-            if (videoPref === "av1") return text.includes("av01");
-            if (videoPref === "vp9") return text.includes("vp09") || text.includes("vp9");
-            if (videoPref === "avc") return text.includes("avc1");
-            return true;
-          };
-          const matchAudio = (format) => {
-            if (audioPref === "auto") return true;
-            const text = String(format.codecs || format.mimeType || "").toLowerCase();
-            if (audioPref === "opus") return text.includes("opus");
-            if (audioPref === "aac") return text.includes("mp4a");
-            return true;
-          };
-          const keep = formats.filter((format) => {
-            const mime = String(format.mimeType || "").toLowerCase();
-            if (mime.startsWith("video/")) return matchVideo(format) && (!muxed || matchAudio(format));
-            if (mime.startsWith("audio/")) return matchAudio(format);
-            return muxed ? matchVideo(format) || matchAudio(format) : true;
-          });
-          if (!keep.length || keep.length === formats.length) return false;
-          filtered.push({formats, original:formats.slice(), kept:keep});
-          formats.splice(0, formats.length, ...keep);
-          return true;
-        };
-
-        const applyCodecs = () => {
-          const key = wantedCodec(S.videoCodecPref) + "|" + wantedCodec(S.audioCodecPref);
-          if (key === "auto|auto") { lastCodecKey = key; return false; }
-          const api = ie.api();
-          const response = api && typeof api.getPlayerResponse === "function" ? api.getPlayerResponse() : null;
-          const streaming = response && response.streamingData;
-          if (!streaming || (key === lastCodecKey && lastStream === streaming)) return false;
-          restoreFormats(); lastStream = streaming;
-          let changed = false;
-          if (Array.isArray(streaming.adaptiveFormats)) changed = filterFormats(streaming.adaptiveFormats, false) || changed;
-          if (Array.isArray(streaming.formats)) changed = filterFormats(streaming.formats, true) || changed;
-          lastCodecKey = key;
-          return changed;
-        };
-
+        Yt["auto-hd"].push(() => {
+          try {
+            if (qualityOwner && written && (qualityOwner.getPlaybackQuality?.() === written || !qualityOwner.getPlaybackQuality))
+              qualityOwner.setPlaybackQualityRange?.("auto", "auto");
+          } catch (_) {}
+        });
         const enforce = () => {
           if (!S.autoHD || ie.isAd()) return;
-          const videoId = (ie.videoId && ie.videoId()) || "";
-          if (videoId !== lastVid) {
-            lastVid = videoId;
-            lastCodecKey = "";
-          }
-          const codecChanged = applyCodecs();
           const target = ie.qualityTarget(S.qualityPref);
-          if (!target) return;
-          if (ie.currentQuality() === target && !codecChanged) return;
-          qualityOwner = ie.api(); written = target;
+          if (!target) {
+            // Do not leave a higher previously locked quality in place when no
+            // permitted fallback exists for the current stream.
+            try {
+              if (qualityOwner && written && qualityOwner.getPlaybackQuality?.() === written)
+                qualityOwner.setPlaybackQualityRange?.("auto", "auto");
+            } catch (_) {}
+            qualityOwner = null; written = "";
+            return;
+          }
+          if (ie.currentQuality() === target) return;
+          const api = ie.api();
+          if (!api || (typeof api.setPlaybackQualityRange !== "function" && typeof api.setPlaybackQuality !== "function")) return;
+          qualityOwner = api; written = target;
           ie.setQuality(target);
         };
-
         const bind = () => {
           const video = ie.el();
           if (!video || bound.has(video)) return;
           bound.add(video);
-          ["playing", "canplay", "loadedmetadata", "loadeddata", "seeking", "ratechange"].forEach((event) => {
-            e.addListener(video, event, enforce);
-          });
+          ["playing", "canplay", "loadedmetadata", "loadeddata", "seeking", "ratechange"].forEach(event => ctx.addListener(video, event, enforce));
         };
-
-        enforce();
-        bind();
-        if (S.qualityLockStrict !== false) {
-          e.addInterval(enforce, 1500, { pauseWhenHidden: true });
-        }
-        e.addListener(document, "visibilitychange", enforce, { passive: true });
-        e.onNav(() => {
-          lastVid = "";
-          lastCodecKey = "";
-          e.addTimeout(enforce, 300);
-          e.addTimeout(bind, 800);
-        });
+        enforce(); bind();
+        ctx.addInterval(enforce, 1500, { pauseWhenHidden: true, skipWhenPopup: false });
+        ctx.addListener(document, "visibilitychange", enforce, { passive: true });
+        ctx.onNav(() => { ctx.addTimeout(enforce, 300); ctx.addTimeout(bind, 800); });
       },
-      settings(e) {
-        e.appendChild(Ro("Quality", "qualityPref", d));
-        e.appendChild(Io("Strict lock (re-assert while YouTube adapts)", "qualityLockStrict"));
-        e.appendChild(Ro("Video codec", "videoCodecPref", {
-          auto: "Auto", av1: "AV1", vp9: "VP9", avc: "H.264",
-        }));
-        e.appendChild(Ro("Audio codec", "audioCodecPref", {
-          auto: "Auto", opus: "Opus", aac: "AAC",
-        }));
-        e.appendChild(To("div", "ytb-hist-note",
-          "Strict lock re-checks every 1.5 seconds while a video plays. Codec choice filters the player's stream list. YouTube may keep the current stream until the next load, and it has no public audio-codec switch."));
+      settings(panel) {
+        panel.appendChild(Ro("Preferred quality", "qualityPref", d));
+        panel.appendChild(To("div", "ytb-hist-note", "Changes use the current player's quality API when available. The nearest lower quality is used if the preference is unavailable, and the preference is retried while visible. YouTube may reject a request."));
+        panel.appendChild(To("div", "ytb-hist-note", "Codec choices are unavailable: no immediate codec switch has been verified for this player. Existing codec preferences remain saved but are not applied."));
       },
     }),
 
@@ -1834,7 +1752,7 @@
     lastVerifyFix: 0,
   };
   function La() {
-    if (!S.forceCC) return !1;
+    if (!S.forceCC || !S.ccAutoEnable) return !1;
     if (
       S.ccSkipMusic &&
       (function () {
@@ -1858,6 +1776,8 @@
   }
   function Aa() {
     if (!S.forceCC || !S.ccNativePrefs) return;
+    // In styling-only mode do not load the module while native captions are off.
+    if (!S.ccAutoEnable && ca(".ytp-subtitles-button", 800)?.getAttribute("aria-pressed") !== "true") return;
     const e = ie.api();
     if (e) {
       try {
@@ -2125,12 +2045,13 @@
   }
   (xa.register({
     id: "force-cc",
-    name: "Forced Captions",
-    summary: "Enables captions on every video with style, position and language rules.",
+    name: "Caption Preferences",
+    summary: "Style native captions and optionally enable preferred tracks automatically.",
       cat: "playback",
     masterKey: "forceCC",
     keys: [
       "forceCC",
+      "ccAutoEnable",
       "forceCCLang",
       "ccNativePrefs",
       "ccFontSize",
@@ -2346,7 +2267,7 @@
       (o(),
 
         e.addInterval(() => {
-          if (!S.forceCC) return;
+          if (!La()) return;
 
           try {
             const _p = location.pathname || "";
@@ -2383,7 +2304,9 @@
         }));
     },
     settings(e) {
-      (e.appendChild(Ro("Preferred language", "forceCCLang", Ba(!0))),
+      (e.appendChild(Io("Automatically enable captions and select preferred tracks", "ccAutoEnable")),
+        e.appendChild(To("div", "ytb-hist-note", "Turn automatic enabling off to style YouTube's native captions without changing whether captions are on or which track you selected.")),
+        e.appendChild(Ro("Preferred language", "forceCCLang", Ba(!0))),
         e.appendChild(
           _o("Fallback languages (comma-separated)", "ccFallbackLangs"),
         ),
@@ -2578,6 +2501,7 @@
         });
       },
       settings(e) {
+        IntegrationDiagnostics.mount(e, "SponsorBlock");
         e.appendChild(
           Io("Privacy mode (hide video IDs from database server)", "sbPrivacy")
         );
@@ -2735,77 +2659,28 @@
     xa.register({
       id: "session-restore", name: "Session History",
       summary: "A private watch journal. Choose your saved time or start fresh before playback.",
-      cat: "data", masterKey: "sessionRestoreOn", keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
-      apply() { WatchSessions.configure(); },
+      cat: "data", masterKey: "sessionRestoreOn", settingsAlways: true,
+      keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign", "sessionGapMinutes", "stripResumeTimesOn", "resumeBarStyle"],
+      apply(ctx) { WatchSessions.configure(); applyResumeLinkSettings(ctx); },
       settings(panel) {
         panel.appendChild(Ro("When returning to a video", "sessionResumeMode", {ask:"Pause and ask (recommended)",record:"Record only · use YouTube playback"}));
         panel.appendChild(Ro("Resume prompt", "sessionResumeDesign", {folio:"Folio · reading card",signal:"Signal · time display",dock:"Dock · compact bar"}));
+        panel.appendChild(No("Combine visits within", "sessionGapMinutes", 0, 240, 5, v => v + " min"));
+        panel.appendChild(Io("Remove resume timestamps from video links", "stripResumeTimesOn"));
+        panel.appendChild(Ro("Resume bar", "resumeBarStyle", {default:"Default",full:"Full thumbnail width",hide:"Hide it"}));
+        panel.appendChild(To("div", "ytb-hist-note", "Timestamps in the address bar and shared links are untouched; only link targets on the page are rewritten."));
+        panel.appendChild(To("div","ytb-hist-note","Dated visits within this gap are grouped. Three calendar months after a group ends it expires. It can be recovered from history trash for seven days from expiry; if cleanup first runs after that window, it is discarded. Restored visits are exempt. Undated legacy data is kept, and the currently open video is skipped until a later cleanup. A one-time migration backup is kept separately."));
         panel.appendChild(To("div","ytb-hist-note","A timestamped link takes precedence. Ads and live streams are not saved. Minimize keeps a saved video paused; it does not make the choice for you."));
         mountWatchLibrary(panel);
       },
     }),
-    xa.register({
-      id: "pip-button",
-      name: "Picture-in-Picture",
-      summary: "Adds a PiP button; detaches the video into a floating window.",
-      cat: "playback",
-      apply() {},
-      settings(e) {
-        e.appendChild(Eo([Oo("Toggle PiP now", Pa, "primary")]));
-      },
-    }),
-    xa.register({
-      id: "screenshot",
-      name: "Frame Capture",
-      summary: "Saves the current video frame as PNG/JPG; optional clipboard copy; hotkey available.",
-      cat: "playback",
-      masterKey: "screenshotOn",
-      keys: ["screenshotOn", "screenshotFmt", "screenshotScale", "screenshotClipboard"],
-      apply(e) {
-        if (!S.screenshotOn) return;
-        const mountBtn = () => {
-          const bar = document.querySelector(".ytp-right-controls") || document.querySelector(".ytp-chrome-controls");
-          if (!bar || document.getElementById("ytb-shot-btn")) return false;
-          const b = document.createElement("button");
-          b.id = "ytb-shot-btn";
-          b.type = "button";
-          b.className = "ytp-button";
-          b.setAttribute("aria-label", "Screenshot (X)");
-          b.title = "Screenshot (X)";
-          b.innerHTML = Xy('<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7l1.5-2.5h5L16 7"/><circle cx="12" cy="13" r="3.5"/></svg>');
-          b.style.cssText = "display:flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;opacity:.9";
-          b.addEventListener("click", (ev) => { ev.stopPropagation(); try { Ia(); } catch (_) {} });
-          bar.appendChild(b);
-          return true;
-        };
-        if (mountBtn()) return;
 
-        const iv = setInterval(() => { if (mountBtn() || document.getElementById("ytb-shot-btn")) clearInterval(iv); }, 800);
-        e.onNav(() => e.addTimeout(mountBtn, 1500));
-        Yt["screenshot"].push(() => {
-          clearInterval(iv);
-          const b = document.getElementById("ytb-shot-btn");
-          if (b && b.parentNode) b.parentNode.removeChild(b);
-        });
-      },
-      settings(e) {
-        (e.appendChild(
-          Ro("Format", "screenshotFmt", { png: "PNG", jpg: "JPEG" }),
-        ),
-          e.appendChild(
-            No("Scale", "screenshotScale", 0.5, 4, 0.5, (e) => e + "x"),
-          ),
-          e.appendChild(
-            Io("Copy to clipboard (no download)", "screenshotClipboard"),
-          ),
-          e.appendChild(Eo([Oo("Capture now", Ia, "primary")])));
-      },
-    }),
-    
+
+
     xa.register({
       id: "force-watched",
       name: "Mark as Watched",
-      summary: "Shift+W sends a full-play beacon and records the video in account history.",
+      summary: "Shift+W ends the video and attempts to update history; account completion is not guaranteed.",
       cat: "playback",
       masterKey: "forceWatchedOn",
       keys: [
@@ -2830,7 +2705,7 @@
 
         e.appendChild(
           Io(
-            "Mark it in my YouTube history (Account History)",
+            "Attempt to update YouTube account history (completion cannot be verified)",
             "forceWatchedAccountHistory",
           ),
         );
@@ -2879,97 +2754,8 @@
       },
       settings() {},
     }),
-    
-    xa.register({
-      id: "cinema-mode",
-      name: "Cinema Mode",
-      summary: "Dims everything outside the player with adjustable opacity.",
-      cat: "playback",
-      masterKey: "cinemaMode",
-      keys: ["cinemaMode", "cinemaOp"],
-      apply(e) {
-        if (!S.cinemaMode) {
-          document.documentElement.classList.remove("ytb-cinema-mode");
-          const old = document.getElementById("ytb-cinema-backdrop");
-          if (old) old.remove();
-          return;
-        }
 
-        const CINEMA_STYLE = [
-          "#ytb-cinema-backdrop {",
-          "  position: fixed !important;",
-          "  inset: 0 !important;",
-          "  width: 100vw !important;",
-          "  height: 100vh !important;",
-          "  background-color: #000000 !important;",
-          "  opacity: var(--ytp-cinema-opacity, 0.85) !important;",
-          "  z-index: 1000 !important;",
-          "  pointer-events: none !important;",
-          "  transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;",
-          "}",
-          "html.ytb-cinema-mode ytd-watch-flexy #player-full-bleed-container,",
-          "html.ytb-cinema-mode ytd-watch-flexy #player-container,",
-          "html.ytb-cinema-mode ytd-watch-flexy #player-container-outer,",
-          "html.ytb-cinema-mode ytd-watch-flexy #player,",
-          "html.ytb-cinema-mode #movie_player,",
-          "html.ytb-cinema-mode .html5-video-player {",
-          "  z-index: 1001 !important;",
-          "  position: relative !important;",
-          "}",
-          "html.ytb-cinema-mode .ytp-popup,",
-          "html.ytb-cinema-mode .ytp-settings-menu,",
-          "html.ytb-cinema-mode .ytp-panel-menu,",
-          "html.ytb-cinema-mode ytd-popup-container,",
-          "html.ytb-cinema-mode tp-yt-paper-dialog {",
-          "  z-index: 2200 !important;",
-          "}"
-        ].join("\n");
-
-        e.addStyle(CINEMA_STYLE);
-
-        const syncCinema = () => {
-          const isWatch = location.pathname.startsWith("/watch");
-          if (!S.cinemaMode || !isWatch) {
-            document.documentElement.classList.remove("ytb-cinema-mode");
-            const bd = document.getElementById("ytb-cinema-backdrop");
-            if (bd) bd.style.display = "none";
-            return;
-          }
-
-          const op = Math.max(0.05, Math.min(0.98, Number(S.cinemaOp) || 0.85));
-          document.documentElement.style.setProperty("--ytp-cinema-opacity", String(op));
-          document.documentElement.classList.add("ytb-cinema-mode");
-
-          let bd = document.getElementById("ytb-cinema-backdrop");
-          if (!bd) {
-            bd = document.createElement("div");
-            bd.id = "ytb-cinema-backdrop";
-            (document.body || document.documentElement).appendChild(bd);
-          }
-          bd.style.display = "block";
-        };
-
-        syncCinema();
-        e.onNav(() => e.addTimeout(syncCinema, 50));
-        Yt["cinema-mode"].push(() => {
-          document.documentElement.classList.remove("ytb-cinema-mode");
-          const bd = document.getElementById("ytb-cinema-backdrop");
-          if (bd) bd.remove();
-        });
-      },
-      settings(e) {
-        e.appendChild(
-          No(
-            "Dimming Level",
-            "cinemaOp",
-            0.1,
-            0.95,
-            0.05,
-            (v) => Math.round(100 * v) + "%",
-          ),
-        );
-      },
-    }));
+    void 0);
 
   let Ra = 0,
     Na = !1;

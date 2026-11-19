@@ -158,10 +158,12 @@
           } catch (e) {}
       },
       levels() {
-        const e = ie.api();
-        return e && e.getAvailableQualityLevels
-          ? e.getAvailableQualityLevels()
-          : [];
+        try {
+          const api = ie.api();
+          const levels = api && typeof api.getAvailableQualityLevels === "function"
+            ? api.getAvailableQualityLevels() : null;
+          return Array.isArray(levels) ? levels : [];
+        } catch (_) { return []; }
       },
       currentQuality() {
         try {
@@ -185,12 +187,12 @@
         if (exact) return exact.label;
         const rank = ["hd2160", "hd1440", "hd1080", "hd720", "large", "medium", "small", "tiny"];
         const wantIndex = rank.indexOf(wanted);
-        if (wantIndex < 0) return levels[0];
+        if (wantIndex < 0) return "";
         const ordered = pairs
           .filter((pair) => rank.indexOf(pair.norm) >= 0)
           .sort((a, b) => rank.indexOf(a.norm) - rank.indexOf(b.norm));
         const atOrBelow = ordered.find((pair) => rank.indexOf(pair.norm) >= wantIndex);
-        return (atOrBelow || ordered[0] || pairs[0]).label;
+        return atOrBelow ? atOrBelow.label : "";
       },
       isAd: () => !!document.querySelector(".ad-showing,.ad-interrupting"),
     },
@@ -395,7 +397,11 @@
     }
   }
   const Ee = (e) => v("history", e),
-    Be = (e) => k("history", e),
+    Be = async (e) => {
+      const result = await k("history", e);
+      g.emit('history.updated', {videoId: e && e.videoId});
+      return result;
+    },
     Pe = (e) => CheckpointStore.erase(e),
     Ie = () => w("history", "lw", "prev"),
     Re = () => CheckpointStore.erase(null);
@@ -543,28 +549,8 @@
   }
   async function Ge() {
     await CheckpointStore.pruneTickets();
-    const e = await Ie(),
-      t = e
-        .slice()
-        .sort(
-          (e, t) =>
-            (t.pinned || 0) - (e.pinned || 0) ||
-            (t.lastWatched || 0) - (e.lastWatched || 0),
-        );
-    if (t.length > 500)
-      for (const e of t.slice(500))
-        if (!e.pinned)
-          try {
-            await Pe(e.videoId);
-          } catch (e) {}
-    {
-      const t = Date.now() - 5184e6;
-      for (const a of e)
-        if (!a.pinned && (a.lastWatched || 0) < t)
-          try {
-            await Pe(a.videoId);
-          } catch (e) {}
-    }
+    // History is retained per dated session, not by a 500-row cap or the
+    // former 60-day whole-video prune. Session retention owns expiry/trash.
     (await (async function (e) {
       try {
         const t = await w("thumbCache", "ts", "next");
@@ -588,7 +574,12 @@
       if (Number.isFinite(meta.duration) && meta.duration>0) r.duration=meta.duration;
       r.title ||= id; r.thumbnail ||= ie.thumb(id,'mqdefault');
       r.completed=true; r.lastPosition=0; r.progress=100; r.remaining=0; r.lastWatched=now;
-      r.watchCount=(Number(r.watchCount)||0)+1; r.sessions=(Array.isArray(r.sessions)?r.sessions:[]).slice(-49).concat({start:now,kind:'forced'});
+      let sessions = Array.isArray(r.sessions) ? r.sessions : [];
+      if (r.retentionExempt) {
+        sessions = sessions.map(s => s && typeof s === 'object' ? {...s, retentionExempt:true} : s);
+        r.retentionExempt = false;
+      }
+      r.watchCount=(Number(r.watchCount)||0)+1; r.sessions=sessions.concat({start:now,kind:'forced'});
       r._checkpoint={start:Math.max(now,(r._checkpoint?.start||0)+1),sid:CheckpointStore.nonce(),seq:1};
       return r;
     });
@@ -670,6 +661,7 @@
     pin: async id => { await CheckpointStore.edit(id,r => r && {...r,pinned:Date.now()});g.emit('history.updated',{videoId:id}); },
     unpin: async id => { await CheckpointStore.edit(id,r => r && {...r,pinned:0});g.emit('history.updated',{videoId:id}); },
     prune: Ge,
+    retentionSweep: () => CheckpointStore.expireSessions(),
     saveNow: () => WatchSessions.flush(),
     recorderState: () => WatchSessions.status(),
     forceWatched: Xe,

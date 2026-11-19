@@ -35,7 +35,7 @@ def main():
     ap.add_argument("--bundle", type=Path, default=D.parents[1] / "yourtube.user.js")
     ap.add_argument("--browser", default="/usr/bin/chromium")
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--select", default="inventory,dispatch,elements,options,sponsors,player_actions,shell,bundles")
+    ap.add_argument("--select", default="inventory,dispatch,elements,options,sponsors,player_actions,shell,bundles,local_feed,retired,feed_race,theme_schedule,text_preview,bundle_dedup,export_data,watch_analytics,channel_merge,discover_novelty,geo_immediate,caption_native,resume_merge")
     a = ap.parse_args()
     a.out.mkdir(exist_ok=True, parents=True)
     bundle = a.bundle.read_bytes()
@@ -100,6 +100,15 @@ def main():
                     )
                 ),
             )
+            # Simulate an upgrade with legacy account automation enabled. The
+            # new local-only implementation must ignore, not erase, those keys.
+            if suite == "local_feed":
+                seeds.update(algoAutoLikeOn=True, algoAutoDislikeOn=True, algoBoostOn=True,
+                             algoDiversityOn=True, algoShortsOn=True, algoAutoTrain=False)
+            if suite == "retired":
+                seeds.update(watchBudgetOn=True, credLayerOn=True, screenWakeOn=True)
+            requests = []
+            p.on("request", lambda req: requests.append(req.url) if "/youtubei/" in req.url else None)
             p.add_init_script(
                 'localStorage.setItem("yourtube.cfg",'
                 + json.dumps(json.dumps(seeds))
@@ -126,6 +135,14 @@ def main():
                     from shell_io import run
 
                     data.extend(run(p))
+                if suite == "export_data":
+                    from export_data import run
+
+                    data.extend(run(p))
+                if suite == "local_feed":
+                    data.append({"id":"algo-intelligence", "key":"network-safety",
+                                 "description":"No YouTube internal API requests despite enabled legacy account settings",
+                                 "requests":requests, "pass":not requests})
                 res["results"] = data
                 if suite != "inventory":
                     bad = [x for x in data if x.get("pass") != True]

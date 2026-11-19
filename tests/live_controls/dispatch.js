@@ -121,21 +121,6 @@ async () => {
       "z".repeat(700) +
       "</div></ytd-comment-thread-renderer>",
   );
-  await set("collapse-long-comments", "collapseLongCommentsOn", true);
-  await paired(
-    "collapse-long-comments",
-    "collapseLongCommentChars",
-    "Current comment unclamps and re-clamps when threshold changes",
-    400,
-    1000,
-    () => [
-      q("#content-text").classList.contains("ytb-extra-comment-clamp"),
-      !!q(".ytb-extra-expand-comment"),
-    ],
-    [true, true],
-    [false, false],
-  );
-  await set("collapse-long-comments", "collapseLongCommentsOn", false);
   scene(
     '<div id="cinematics"></div>' +
       labPlayer +

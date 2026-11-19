@@ -56,76 +56,7 @@
     "ytd-watch-metadata{font-size:13px!important}#title h1{font-size:18px!important}#secondary{font-size:12px!important}",
       "appearance",
   ),
-    xa.register({
-      id: "video-filters",
-      name: "Video Adjustments",
-      summary: "Brightness, contrast, saturation, hue, zoom and flip applied to the player.",
-      cat: "playback",
-      masterKey: "videoFiltersOn",
-      keys: [
-        "videoFiltersOn",
-        "vfBright",
-        "vfContrast",
-        "vfSat",
-        "vfHue",
-        "vfGray",
-        "vfFlip",
-        "vfZoom",
-      ],
-      apply(e) {
-        if (!S.videoFiltersOn) return;
-        const t =
-            "brightness(" +
-            S.vfBright +
-            "%) contrast(" +
-            S.vfContrast +
-            "%) saturate(" +
-            S.vfSat +
-            "%) hue-rotate(" +
-            S.vfHue +
-            "deg)" +
-            (S.vfGray ? " grayscale(1)" : ""),
-          a =
-            "scale(" +
-            (S.vfZoom / 100).toFixed(3) +
-            ")" +
-            (S.vfFlip ? " scaleX(-1)" : "") +
-            " scaleX(var(--ytb-flip-h,1)) scaleY(var(--ytb-flip-v,1))";
-        e.addStyle(
-          "video.html5-main-video,#movie_player video{filter:" +
-            t +
-            "!important;transform:" +
-            a +
-            "!important;transform-origin:center center!important}",
-        );
-      },
-      settings(e) {
-        (e.appendChild(No("Brightness", "vfBright", 0, 200, 1, (e) => e + "%")),
-          e.appendChild(
-            No("Contrast", "vfContrast", 0, 200, 1, (e) => e + "%"),
-          ),
-          e.appendChild(No("Saturation", "vfSat", 0, 200, 1, (e) => e + "%")),
-          e.appendChild(No("Hue", "vfHue", 0, 360, 1, (e) => e + "deg")),
-          e.appendChild(No("Zoom", "vfZoom", 50, 200, 1, (e) => e + "%")),
-          e.appendChild(Io("Grayscale", "vfGray")),
-          e.appendChild(Io("Mirror", "vfFlip")),
-          e.appendChild(
-            Eo([
-              Oo("Reset filters", () =>
-                Oa({
-                  vfBright: 100,
-                  vfContrast: 100,
-                  vfSat: 100,
-                  vfHue: 0,
-                  vfZoom: 100,
-                  vfGray: !1,
-                  vfFlip: !1,
-                }),
-              ),
-            ]),
-          ));
-      },
-    }),
+
     Ha(
       "hide-recs",
       "Hide Recommendations",
@@ -1005,7 +936,6 @@
       a = kn();
     try {
       if (e.ytcfg && e.ytcfg.set && e.ytcfg.get) {
-        if (e.ytcfg.get("GL") === t && e.ytcfg.get("HL") === a) return;
         e.ytcfg.set({
           GL: t,
           HL: a,
@@ -1091,6 +1021,16 @@
       }
     } catch (_e3) {}
   }
+  let geoDocumentLanguage = null;
+  function restoreGeoDocumentLanguage() {
+    try {
+      const el = document.documentElement, record = geoDocumentLanguage;
+      if (el && record && el.getAttribute("lang") === record.applied) {
+        if (record.before === null) el.removeAttribute("lang");
+        else el.setAttribute("lang", record.before);
+      }
+    } finally { geoDocumentLanguage = null; }
+  }
   function In() {
     (Mn(),
       An(),
@@ -1133,10 +1073,12 @@
       (function () {
         try {
           const e = document.documentElement;
-          e &&
-            xn() &&
-            e.getAttribute("lang") !== kn() &&
+          if (e && xn() && e.getAttribute("lang") !== kn()) {
+            const old = e.getAttribute("lang");
+            const before = geoDocumentLanguage && geoDocumentLanguage.applied === old ? geoDocumentLanguage.before : old;
+            geoDocumentLanguage = { before, applied: kn() };
             e.setAttribute("lang", kn());
+          }
         } catch (e) {}
       })());
   }
@@ -1380,7 +1322,7 @@
       "geoPatchNavigator",
     ],
     apply(t) {
-        if (!S.geoOverrideOn) return (En(), Bn(), Pn(), restoreGeoNavigator(), void Ln());
+        if (!S.geoOverrideOn) return (En(), Bn(), Pn(), restoreGeoNavigator(), restoreGeoDocumentLanguage(), void Ln());
         if (!S.geoPatchNavigator) restoreGeoNavigator();
       (!(function () {
         if (!hn && S.geoPatchNavigator) {
@@ -1576,17 +1518,12 @@
         ),
       ),
         n.appendChild(
-          Oo("Reload page", () => {
-            (S.geoOverrideOn && In(), setTimeout(() => location.reload(), 200));
-          }),
-        ),
-        n.appendChild(
           Oo(
-            "Turn off & restore locale",
+            "Turn off locale override",
             () => {
               (Ta("geoOverrideOn", false),
                 pe(
-                  "Country settings cleared. Refresh the page to apply.",
+                  "Locale interception is off. Existing YouTube content and client state may still reflect the previous locale.",
                   2500,
                   "info",
                 ));
@@ -1599,590 +1536,42 @@
           To(
             "div",
             "ytb-hist-note",
-            "Uses GL/HL locale cookies and client settings, without changing PREF or visitor privacy cookies. Turn off and reload to restore native client settings. Network interception is optional.",
+            "Updates supported client locale hints immediately and optionally intercepts selected requests. Existing content may not change; the IP address, account region and server-side availability are not changed. Disabling restores script-owned language and locale cookies where possible, but cannot undo all YouTube client state.",
           ),
         ));
     },
   }),
-    xa.register({
-      id: "stats-overlay",
-      name: "Playback Stats Overlay",
-      summary: "On-player panel: resolution, quality, FPS, bitrate, time, rate, buffer.",
-      cat: "playback",
-      masterKey: "statsOverlay",
-      keys: ["statsOverlay"],
-      apply(e) {
-        if (!S.statsOverlay) return;
-        const t = document.createElement("div");
-        ((t.id = "ytb-stats"), document.body && document.body.appendChild(t));
-        let a = "",
-          _fps = 0,
-          _fFrames = 0,
-          _fAt = 0;
-        (e.addInterval(() => {
-          const e = ie.el();
-          if (!e) return !1;
-          const n = e.buffered.length
-              ? e.buffered.end(e.buffered.length - 1) - e.currentTime
-              : 0,
-            q = (() => {
-              try {
-                const p = ie.api && ie.api();
-                const lv = p && typeof p.getPlaybackQuality === "function" ? p.getPlaybackQuality() : "";
-                const fmt = _ytParseVideoStats((() => {
-                  try { return p && typeof p.getVideoStats === "function" ? p.getVideoStats() : null; } catch (_) { return null; }
-                })());
-                return [
-                  e.videoWidth && e.videoHeight ? e.videoWidth + "x" + e.videoHeight : "",
-                  lv && lv !== "auto" ? lv : "",
-                  fmt && fmt.fmt ? fmt.fmt : "",
-                ].filter(Boolean).join(" ");
-              } catch (_) { return ""; }
-            })(),
-            _br = (() => {
-              try {
-                const p = ie.api && ie.api();
-                const fmt = _ytParseVideoStats((() => {
-                  try { return p && typeof p.getVideoStats === "function" ? p.getVideoStats() : null; } catch (_) { return null; }
-                })());
-                return fmt && fmt.bitrate ? fmt.bitrate : "";
-              } catch (_) { return ""; }
-            })();
-          try {
-            const p = ie.api && ie.api();
-            if (p && typeof p.getVideoPlaybackQuality === "function") {
-              const vq = p.getVideoPlaybackQuality();
-              const frames = vq && Number(vq.totalVideoFrames);
-              const at = performance.now();
-              if (Number.isFinite(frames)) {
-                if (_fAt && at - _fAt > 400 && frames > _fFrames) {
-                  const d = (frames - _fFrames) / ((at - _fAt) / 1000);
-                  if (d > 1 && d < 240) _fps = Math.round(d);
-                }
-                _fFrames = frames;
-                _fAt = at;
-              }
-            }
-          } catch (_) {}
-          const _parts = [];
-          if (q) _parts.push(q);
-          if (_fps) _parts.push(_fps + "fps");
-          if (_br) _parts.push(_br);
-          _parts.push("t=" + e.currentTime.toFixed(1) + "s");
-          _parts.push("rate=" + e.playbackRate + "x");
-          _parts.push("buf=" + n.toFixed(1) + "s");
-          const r = _parts.join(" - ");
-          return (
-            r !== a &&
-            ((a = r),
-            pa(() => {
-              t.textContent = r;
-            }),
-            !0)
-          );
-        }, 500),
-          Yt["stats-overlay"].push(() => t.remove()));
-      },
-      settings() {},
-    }),
+
     xa.register({
       id: "diag-console",
-      name: "Activity Console",
-      summary: "Live log of what YourTube is applying and why.",
+      name: "Integration Debug Console",
+      summary: "Local integration status, failures and observed YouTube client changes.",
       cat: "tools",
       masterKey: "diagConsole",
       keys: ["diagConsole"],
-      apply(e) {
+      apply(ctx) {
         if (!S.diagConsole) return;
-        const t = document.createElement("pre");
-        ((t.id = "ytb-diag"), document.body && document.body.appendChild(t));
-        let a = 0,
-          n = "";
-        (e.addInterval(() => {
-          const e = y();
-          if (e.length === a) return !1;
-          a = e.length;
-          const r = e
-            .slice(-25)
-            .map((e) => "[" + e.level + "] " + e.msg)
-            .join("\n");
-          return (
-            r !== n &&
-            ((n = r),
-            pa(() => {
-              t.textContent = r;
-            }),
-            !0)
-          );
-        }, 1e3),
-          Yt["diag-console"].push(() => t.remove()));
+        const host = document.createElement("pre");
+        host.id = "ytb-diag";
+        host.setAttribute("aria-label", "Integration debug console");
+        document.body?.appendChild(host);
+        const render = () => {
+          host.textContent = IntegrationDiagnostics.entries().map(item =>
+            new Date(item.at).toLocaleTimeString() + " [" + item.integration + "] " + item.state + (item.detail ? " — " + item.detail : "")
+          ).join("\n") || "No integration events yet.";
+        };
+        ctx.addListener(document, "visibilitychange", render);
+        const offStatus = g.on("integration.status", render), offClear = g.on("integration.cleared", render);
+        render();
+        Yt["diag-console"].push(() => { offStatus(); offClear(); host.remove(); });
       },
-      settings() {},
-    }),
-    xa.register({
-      id: "perf-profiler",
-      name: "Feature Profiler",
-      summary: "Measures per-feature CPU cost.",
-      cat: "tools",
-      masterKey: "perfProfilerOn",
-      keys: ["perfProfilerOn"],
-      apply(e) {
-        S.perfProfilerOn || ta.clear();
-      },
-      settings(e) {
-        const t = To("div", "ytb-perf-panel");
-        (e.appendChild(t), Nn(t));
-        const a = setInterval(() => {
-          t.isConnected && S.perfProfilerOn && Nn(t);
-        }, 2e3);
-        Co.push(() => clearInterval(a));
+      settings(panel) {
+        panel.appendChild(To("div", "ytb-hist-note", "Reports integration status and observed YouTube client versions in this browser. Version changes are not proof that an API changed."));
+        panel.appendChild(Oo("Clear session log", () => IntegrationDiagnostics.clear()));
       },
     }),
-    xa.register({
-      id: "fps-counter",
-      name: "FPS Counter",
-      summary: "Corner overlay reporting live rendering frame rate.",
-      cat: "playback",
-      masterKey: "fpsCounterOn",
-      keys: ["fpsCounterOn", "fpsCounterPos"],
-      apply(e) {
-        let t = null;
-        let a = null;
-        let r = 0;
-        let o = performance.now();
-        let unsub = null;
-        const i = () => {
-          if (!S.fpsCounterOn) return;
-          const s = S.fpsCounterPos || "tl";
-          if (t) {
-            if (t.dataset.pos !== s) {
-              (t.className = "ytb-fps-box ytb-fps-" + s),
-                (t.dataset.pos = s),
-                (t.style.top = "tl" === s || "tr" === s ? "8px" : ""),
-                (t.style.bottom = "bl" === s || "br" === s ? "48px" : ""),
-                (t.style.left = "tl" === s || "bl" === s ? "8px" : ""),
-                (t.style.right = "tr" === s || "br" === s ? "8px" : "");
-            }
-          } else {
-            t = document.createElement("div");
-            t.id = "ytb-fps-box";
-            t.className = "ytb-fps-box ytb-fps-" + s;
-            t.dataset.pos = s;
-            t.style.cssText =
-              "position:fixed;z-index:2147483635;padding:3px 7px;background:rgba(20,22,28,.78);color:#9ff;border:1px solid rgba(159,255,255,.28);border-radius:6px;font:11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:54px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.35)";
-            ("tl" === s || "tr" === s) && (t.style.top = "8px"),
-              ("bl" === s || "br" === s) && (t.style.bottom = "48px"),
-              ("tl" === s || "bl" === s) && (t.style.left = "8px"),
-              ("tr" === s || "br" === s) && (t.style.right = "8px"),
-              document.body && document.body.appendChild(t);
-          }
-        };
-        const d = () => {
-          if (!Xt.visible) {
-            a = setTimeout(d, 250);
-            return;
-          }
-          const n = performance.now();
-          r++;
-          if (n - o < 500) {
-            a = requestAnimationFrame(d);
-            return;
-          }
-          const c = Math.round((1e3 * r) / (n - o));
-          (r = 0), (o = n);
-          const s = (ie.el && ie.el()) ? (ie.el().paused ? "paused" : ie.el().ended ? "ended" : "playing") : "—";
-          const l = c < 24 ? "#ff5252" : c < 50 ? "#ffd166" : "#4caf50";
-          (i(),
-            t && (t.textContent = c + " fps (" + s + ")"),
-            t && (t.style.color = l),
-            (a = requestAnimationFrame(d)));
-        };
-        const c = (n) => {
-          a && "number" == typeof a
-            ? cancelAnimationFrame(a)
-            : a && clearTimeout(a),
-            (a = null),
-            n &&
-              ((r = 0), (o = performance.now()), (a = requestAnimationFrame(d)));
-        };
-        S.fpsCounterOn &&
-          ((r = 0), (o = performance.now()), (a = requestAnimationFrame(d))),
-          e.onNav(() => {
-            c(0), e.addTimeout(() => c(1), 1200);
-          }),
-          (unsub = g.on("cfg.changed", ({ key: n }) => {
-            "fpsCounterOn" === n
-              ? S.fpsCounterOn
-                ? c(1)
-                : (c(0),
-                  t && (function () { try { t.remove(); } catch (e) {} })(),
-                  (t = null))
-              : "fpsCounterPos" === n && t && i();
-          })),
-          Yt["fps-counter"].push(() => {
-            if (unsub) { unsub(); unsub = null; }
-            c(0);
-            if (t) {
-              try {
-                t.remove();
-              } catch (e) {}
-              t = null;
-            }
-          });
-      },
-      settings(e) {
-        e.appendChild(Io("Show live FPS overlay", "fpsCounterOn"));
-        e.appendChild(
-          Ro("Position", "fpsCounterPos", {
-            tl: "Top-left",
-            tr: "Top-right",
-            bl: "Bottom-left",
-            br: "Bottom-right",
-          }),
-        );
-      },
-    }),
-    xa.register({
-      id: "buffer-health",
-      name: "Buffer Monitor",
-      summary: "Buffer depth and rebuffer counters while playing.",
-      cat: "playback",
-      masterKey: "bufferHealthOn",
-      keys: ["bufferHealthOn"],
-      apply(e) {
-        let t = null;
-        let n = null;
-        let r = 0;
-        let o = 0;
-        let unsub = null;
-        const i = () => {
-          if (!S.bufferHealthOn) return;
-          const v = ie.el && ie.el();
-          if (t) {
-            v || (t.style.display = "none");
-            return;
-          }
-          if (!v || !document.body) return;
-          t = document.createElement("div");
-          t.id = "ytb-buf-box";
-          t.style.cssText =
-            "position:fixed;z-index:2147483635;left:8px;bottom:48px;padding:6px 10px;background:rgba(20,22,28,.78);color:#ddd;border:1px solid rgba(255,255,255,.14);border-radius:8px;font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);min-width:160px;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.4)";
-          const d = document.createElement("div");
-          (d.className = "ytb-buf-text"),
-            (d.style.cssText = "white-space:nowrap"),
-            t.appendChild(d);
-          const a = document.createElement("div");
-          (a.className = "ytb-buf-bar"),
-            (a.style.cssText =
-              "height:4px;background:rgba(255,255,255,.12);border-radius:3px;margin-top:4px;overflow:hidden");
-          const l = document.createElement("div");
-          (l.className = "ytb-buf-fill"),
-            (l.style.cssText =
-              "height:100%;width:0;background:#4caf50;border-radius:3px;transition:width .3s,background .3s");
-          a.appendChild(l);
-          t.appendChild(a);
-          document.body.appendChild(t);
-        };
-        const d = () => {
-          if (!S.bufferHealthOn) return;
-          if (!Xt.visible) {
-            n = setTimeout(d, 500);
-            return;
-          }
-          i();
-          if (!t) {
-            n = setTimeout(d, 1000);
-            return;
-          }
-          const v = ie.el();
-          if (!v) {
-            (t.style.display = "none"), (n = setTimeout(d, 1000));
-            return;
-          }
-          t.style.display = "";
-          let a = 0;
-          try {
-            const u = v.buffered;
-            if (u && u.length) {
-              const m = v.currentTime;
-              for (let p = 0; p < u.length; p++) {
-                if (u.end(p) >= m) {
-                  a = u.end(p) - m;
-                  break;
-                }
-              }
-            }
-          } catch (e) {}
-          const l = v.paused
-            ? "paused"
-            : v.ended
-              ? "ended"
-              : v.seeking
-                ? "seeking"
-                : v.readyState < 3
-                  ? "loading"
-                  : "playing";
-          const c = a < 2 ? "#ff5252" : a < 6 ? "#ffd166" : "#4caf50";
-          const s = t.querySelector(".ytb-buf-fill");
-          s && ((s.style.width = Math.min(100, a * 5) + "%"), (s.style.background = c));
-          const h = t.querySelector(".ytb-buf-text");
-          h &&
-            (h.textContent =
-              "Buffer: " +
-              a.toFixed(1) +
-              "s | Rebuffers: " +
-              o +
-              " | " +
-              l);
-          n = setTimeout(d, 750);
-        };
-        const a = () => {
-          const v = ie.el();
-          v && !v.paused && !v.ended && ((o += 1), r < 4 && (pe("Rebuffer #" + o, 1200, "info"), (r += 1)));
-        };
-        const l = () => {
-          r = 0;
-        };
-        const startInterval = () => {
-          n && clearTimeout(n);
-          n = setTimeout(d, 250);
-        };
-        const stopInterval = () => {
-          n && clearTimeout(n), (n = null);
-        };
-        S.bufferHealthOn && startInterval();
-        const boundEls = new WeakSet();
-        const bindVideo = () => {
-          const v = ie.el();
-          if (!v || boundEls.has(v)) return;
-          boundEls.add(v);
-          e.addListener(v, "waiting", a);
-          e.addListener(v, "stalled", a);
-          e.addListener(v, "playing", l);
-        };
-        bindVideo();
-        e.onNav(() => {
-          o = 0;
-          e.addTimeout(startInterval, 1500);
-          e.addTimeout(bindVideo, 1200);
-        });
-        (unsub = g.on("cfg.changed", ({ key: k }) => {
-          "bufferHealthOn" === k &&
-            (S.bufferHealthOn
-              ? (startInterval(), i())
-              : (stopInterval(),
-                t && (function () { try { t.remove(); } catch (e) {} })(),
-                (t = null),
-                (o = 0)));
-        }));
-        Yt["buffer-health"].push(() => {
-          if (unsub) { unsub(); unsub = null; }
-          stopInterval();
-          if (t) {
-            try {
-              t.remove();
-            } catch (e) {}
-            t = null;
-          }
-        });
-      },
-      settings(e) {
-        e.appendChild(Io("Show buffer health overlay", "bufferHealthOn"));
-      },
-    }),
-    
-    xa.register({
-      id: "dropped-frame-counter",
-      name: "Dropped Frames",
-      summary: "Reports frames dropped by the player to diagnose stutter.",
-      cat: "playback",
-      masterKey: "droppedFrameOn",
-      keys: ["droppedFrameOn", "droppedFramePos", "droppedFrameResetOnNav", "droppedFrameShowRate"],
-      apply(e) {
-        let t = null;
-        let a = 0;
-        let n = 0;
-        let r = 0;
-        let o = performance.now();
-        let running = false;
-        let unsub = null;
-        const i = () => {
-          if (!S.droppedFrameOn) return;
-          const p = S.droppedFramePos || "tr";
-          if (t && t.dataset.pos !== p) {
-            (t.dataset.pos = p),
-              (t.className = "ytb-drop-box ytb-drop-" + p),
-              (t.style.top = "tl" === p || "tr" === p ? "8px" : ""),
-              (t.style.bottom = "bl" === p || "br" === p ? "48px" : ""),
-              (t.style.left = "tl" === p || "bl" === p ? "8px" : ""),
-              (t.style.right = "tr" === p || "br" === p ? "8px" : "");
-            return;
-          }
-          if (!t && document.body) {
-            (t = document.createElement("div")),
-              (t.id = "ytb-drop-box"),
-              (t.className = "ytb-drop-box ytb-drop-" + p),
-              (t.dataset.pos = p),
-              (t.style.cssText =
-                "position:fixed;z-index:2147483635;padding:4px 8px;background:rgba(20,22,28,.78);color:#ff8a96;border:1px solid rgba(255,138,150,.28);border-radius:6px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);pointer-events:none;min-width:80px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.35)"),
-              ("tl" === p || "tr" === p) && (t.style.top = "8px"),
-              ("bl" === p || "br" === p) && (t.style.bottom = "48px"),
-              ("tl" === p || "bl" === p) && (t.style.left = "8px"),
-              ("tr" === p || "br" === p) && (t.style.right = "8px"),
-              document.body.appendChild(t);
-          }
-          if (!t) return;
-          const v = ie.el && ie.el();
-          if (!v || typeof v.getVideoPlaybackQuality !== "function") {
-            t.textContent = "dropped: —";
-            return;
-          }
-          let q = 0;
-          try {
-            q = v.getVideoPlaybackQuality().droppedVideoFrames || 0;
-          } catch (e) {}
-          const m = q - a;
-          a = q;
-          if (m > 0) {
-            n += m;
-            r += m;
-          }
-          const now = performance.now();
-          const dt = (now - o) / 1e3;
-          const rate = dt > 0 ? r / dt : 0;
-          const showRate = !!S.droppedFrameShowRate;
-          const color = n > 60 ? "#ff5252" : n > 15 ? "#ffd166" : "#9ff";
-          t.style.color = color;
-          t.textContent = showRate
-            ? "dropped: " + rate.toFixed(1) + "/s (total " + n + ")"
-            : "dropped: " + n;
-          (r = 0), (o = now);
-        };
-        const d = () => {
-          if (!running) return;
-          if (!Xt.visible) return void setTimeout(d, 500);
-          i();
-          setTimeout(d, 1000);
-        };
-        const c = () => {
-          (n = 0), (r = 0), (o = performance.now());
-        };
-        const start = () => {
-          if (running) return;
-          running = true;
-          c();
-          d();
-        };
-        const stop = () => {
-          running = false;
-          if (t) {
-            try {
-              t.remove();
-            } catch (e) {}
-            t = null;
-          }
-        };
-        S.droppedFrameOn && start();
-        e.onNav(() => {
-          S.droppedFrameResetOnNav && c();
-        });
-        (unsub = g.on("cfg.changed", ({ key: k }) => {
-          if ("droppedFrameOn" === k) {
-            S.droppedFrameOn ? start() : stop();
-          } else if ("droppedFramePos" === k && t) {
-            const p = S.droppedFramePos || "tr";
-            (t.dataset.pos = ""),
-              (t.className = "ytb-drop-box ytb-drop-" + p),
-              (t.dataset.pos = p),
-              (t.style.top = "tl" === p || "tr" === p ? "8px" : ""),
-              (t.style.bottom = "bl" === p || "br" === p ? "48px" : ""),
-              (t.style.left = "tl" === p || "bl" === p ? "8px" : ""),
-              (t.style.right = "tr" === p || "br" === p ? "8px" : "");
-          }
-        }));
-        Yt["dropped-frame-counter"].push(() => {
-          if (unsub) { unsub(); unsub = null; }
-          stop();
-        });
-      },
-      settings(e) {
-        (e.appendChild(Io("Show dropped-frame counter", "droppedFrameOn")),
-          e.appendChild(
-            Ro("Position", "droppedFramePos", {
-              tl: "Top-left",
-              tr: "Top-right",
-              bl: "Bottom-left",
-              br: "Bottom-right",
-            }),
-          ),
-          e.appendChild(Io("Show rate (frames/sec) instead of total", "droppedFrameShowRate")),
-          e.appendChild(
-            Io("Reset counter when the video changes", "droppedFrameResetOnNav"),
-          ));
-      },
-    }),
-    xa.register({
-      id: "default-audio-track",
-      name: "Original Audio Track",
-      summary: "Picks the original-language audio over auto-dubbed tracks.",
-      cat: "playback",
-      masterKey: "defaultOriginalAudioOn",
-      keys: ["defaultOriginalAudioOn"],
-      apply(e) {
-        if (!S.defaultOriginalAudioOn) return;
-        const t = () => {
-          const a = ie.api && ie.api();
-          if (!a) return;
-          if (typeof a.getAvailableAudioTracks !== "function") return;
-          try {
-            const r = a.getAvailableAudioTracks();
-            if (!r || !r.length) return;
-            const eligible = r.filter((t) => t && t.id && !t.isAutoDubbed);
-            const o = eligible.find((t) => t.audioIsOriginal === true) ||
-              eligible.find((t) => /original/i.test(String(t.id) + " " + String(t.label || ""))) ||
-              eligible.find((t) => t.isDefault === true);
-            if (!o || !o.id) return;
-            let cur = null;
-            try { cur = typeof a.getAudioTrack === "function" ? a.getAudioTrack() : null; } catch (_) {}
-            if (cur && cur.id === o.id) return;
-            if (a.setAudioTrack) {
-              a.setAudioTrack(o, true);
-              pe("Audio: " + (o.label || "original"), 1500, "info");
-            }
-          } catch (e) {}
-        };
-        (t(),
-          e.onNav(() => e.addTimeout(t, 1500)),
-          Yt["default-audio-track"].push(() => {}));
-      },
-      settings(e) {
-        e.appendChild(Io("Default to original audio track", "defaultOriginalAudioOn"));
-      },
-    }),
-    xa.register({
-      id: "restore-fullscreen-scrolling",
-      name: "Fullscreen Scrolling",
-      summary: "Restores page scrolling while fullscreen is active.",
-      cat: "playback",
-      masterKey: "restoreFsScrollOn",
-      keys: ["restoreFsScrollOn"],
-      apply(e) {
-        if (!S.restoreFsScrollOn) return;
-        const t = document.createElement("style");
-        (t.id = "ytb-restore-fs-scroll"),
-          (t.textContent =
-            ".html5-video-player:-webkit-full-screen{overflow:auto!important}.html5-video-player:fullscreen{overflow:auto!important}"),
-          (document.head || document.documentElement).appendChild(t);
-        Yt["restore-fullscreen-scrolling"].push(() => {
-          try {
-            t.remove();
-          } catch (e) {}
-        });
-      },
-      settings(e) {
-        e.appendChild(Io("Allow scrolling when the player is in fullscreen", "restoreFsScrollOn"));
-      },
-    }),
+
+
     xa.register({
       id: "remove-redirect-urls",
       name: "Redirect Bypass",
@@ -2312,64 +1701,37 @@
         e.appendChild(Io("Auto-click 'Continue watching' in the paused-video dialog", "skipPausedContinueOn"));
       },
     }),
-    xa.register({
-      id: "click-logo-to-subs",
-      name: "Logo → Subscriptions",
-      summary: "Routes the YouTube logo to Subscriptions instead of Home.",
-      cat: "channels",
-      masterKey: "logoToSubsOn",
-      keys: ["logoToSubsOn"],
-      apply(e) {
-        if (!S.logoToSubsOn) return;
-        const t = (n) => {
-          const a = n.target && n.target.closest && n.target.closest("#logo, ytd-topbar-logo-renderer, ytd-logo");
-          if (!a) return;
-          n.preventDefault();
-          n.stopPropagation();
-          try {
-            location.href = "/feed/subscriptions";
-          } catch (e) {}
-        };
-        e.addListener(document, "click", t, !0);
-        Yt["click-logo-to-subs"].push(() => {});
-      },
-      settings(e) {
-        e.appendChild(Io("Clicking the YouTube logo goes to Subscriptions", "logoToSubsOn"));
-      },
-    }),
+
     xa.register({
       id: "default-channel-tab",
       name: "Channel Default Tab",
-      summary: "Opens channel pages on your preferred tab.",
+      summary: "Opens channel root pages on your chosen tab; deep links stay unchanged.",
       cat: "channels",
-      masterKey: "defaultChannelTab",
-      keys: ["defaultChannelTab"],
-      apply(e) {
-        const route = () => {
-          const want = S.defaultChannelTab || "featured";
-          if (!["videos", "shorts", "live", "playlists", "community", "about"].includes(want)) return;
-          // The more specific landing-tab feature owns navigation if configured.
-          if (S.channelLandingTab && S.channelLandingTab !== "home") return;
-          const r = location.pathname.match(/^\/(@[^\/]+)\/?$/);
-          if (!r) return;
+      masterKey: "channelLandingTab",
+      settingsAlways: true,
+      isOn: () => String(S.channelLandingTab || "home") !== "home",
+      keys: ["channelLandingTab"],
+      apply(ctx) {
+        const tabs = { videos: "/videos", shorts: "/shorts", live: "/streams", playlists: "/playlists", community: "/community", about: "/about" };
+        const run = () => {
           try {
-            location.replace(r[1] + "/" + (want === "live" ? "streams" : want));
-          } catch (e) {}
+            const tab = tabs[String(S.channelLandingTab || "home")];
+            if (!tab) return;
+            const path = location.pathname;
+            if (!/^\/(?:@[^/]+|channel\/[^/]+|c\/[^/]+|user\/[^/]+)(?:\/featured)?\/?$/.test(path)) return;
+            const base = path.replace(/\/featured\/?$/, "").replace(/\/$/, "");
+            location.replace(base + tab);
+          } catch (_) {}
         };
-        route();
-        e.onNav(route);
+        run();
+        ctx.onNav(() => { run(); ctx.addTimeout(run, 300); });
       },
-      settings(e) {
-        const tabs = {
-          featured: "Featured (default)",
-          videos: "Videos",
-          shorts: "Shorts",
-          live: "Live",
-          playlists: "Playlists",
-          community: "Community",
-          about: "About",
-        };
-        e.appendChild(Ro("Default channel tab", "defaultChannelTab", tabs));
+      settings(panel) {
+        panel.appendChild(Ro("Open channels on", "channelLandingTab", {
+          home: "Home (default)", videos: "Videos", shorts: "Shorts", live: "Live",
+          playlists: "Playlists", community: "Community", about: "About",
+        }));
+        panel.appendChild(To("div", "ytb-hist-note", "Applies to channel root links, not deep links. Redirecting to a different tab navigates the page."));
       },
     }),
 
@@ -2380,63 +1742,32 @@
       cat: "feed",
       masterKey: "hideTopLiveGamesOn",
       keys: ["hideTopLiveGamesOn"],
-      apply(e) {
+      apply(ctx) {
         if (!S.hideTopLiveGamesOn) return;
-        const t = () => {
-          const a = document.querySelectorAll("ytd-shelf-renderer");
-          for (const n of a) {
-            if (n.dataset && n.dataset.ytbTLGHidden) continue;
-            const r = n.querySelector("h2");
-            if (r && /top live games/i.test(r.textContent || "")) {
-              (n.style.display = "none"), (n.dataset.ytbTLGHidden = "1");
+        const owned = new Map();
+        const scan = () => {
+          for (const node of document.querySelectorAll("ytd-shelf-renderer")) {
+            if (owned.has(node)) continue;
+            const title = node.querySelector("h2");
+            if (title && /top live games/i.test(title.textContent || "")) {
+              owned.set(node, node.style.display);
+              node.style.display = "none";
             }
           }
+          for (const node of owned.keys()) if (!node.isConnected) owned.delete(node);
         };
-        t();
-
-        const a = new MutationObserver(ee(t, 300));
-        a.observe(document.body || document.documentElement, { childList: !0, subtree: !0 });
+        scan();
+        if (document.body) ctx.addObserver(document.body, ctx.debounce(scan, 300), {childList:true, subtree:true});
         Yt["hide-top-live-games"].push(() => {
-          try {
-            a.disconnect();
-          } catch (e) {}
-          document.querySelectorAll("ytd-shelf-renderer[data-ytb-t-l-g-hidden]").forEach((e) => {
-            e.style.display = "";
-            delete e.dataset.ytbTLGHidden;
-          });
+          for (const [node, previous] of owned) if (node.style.display === "none") node.style.display = previous;
+          owned.clear();
         });
       },
       settings(e) {
         e.appendChild(Io("Hide the 'Top live games' shelf on Home", "hideTopLiveGamesOn"));
       },
     }),
-    xa.register({
-      id: "hfr-allow",
-      name: "High Frame Rate Report",
-      summary: "Reports the frame rates the player offers (YouTube picks formats server-side).",
-      cat: "playback",
-      masterKey: "hfrAllowOn",
-      keys: ["hfrAllowOn"],
-      apply(e) {
-        if (!S.hfrAllowOn) return;
-        const report = () => {
-          try {
-            const api = ie.api && ie.api();
-            const levels = api && typeof api.getAvailableQualityLevels === "function" ? api.getAvailableQualityLevels() : [];
-            pe(
-              "Available qualities: " + (levels.length ? levels.filter((l) => l !== "auto").join(", ") : "unknown") + ". HFR is offered by the player when the video and your connection support it.",
-              3600,
-              "info",
-            );
-          } catch (_) {}
-        };
-        report();
-        e.onNav(() => e.addTimeout(report, 1500));
-      },
-      settings(e) {
-        e.appendChild(Io("Show available qualities (HFR info)", "hfrAllowOn"));
-      },
-    }),
+
     xa.register({
       id: "update-check",
       name: "Update Check",
@@ -2599,253 +1930,10 @@
           ));
       },
     }),
-    xa.register({
-      id: "reverse-playlist",
-      name: "Reverse Playlist",
-      summary: "Plays a playlist from last item to first.",
-      cat: "playback",
-      masterKey: "reversePlaylistOn",
-      keys: ["reversePlaylistOn"],
-      apply(e) {
-        if (!S.reversePlaylistOn) return;
-        const t = () => {
-          if (!location.pathname.includes("/playlist")) return;
-          const a = document.querySelector("ytd-playlist-header-renderer");
-          if (!a || a.querySelector("#ytb-reverse-pl-btn")) return;
-          const n = document.createElement("button");
-          (n.id = "ytb-reverse-pl-btn"),
-            (n.type = "button"),
-            (n.className = "ytb-btn"),
-            (n.textContent = "↕ Reverse"),
-            (n.title = "Reverse the playlist order"),
-            n.style.cssText = "margin-left:8px";
-          n.addEventListener("click", () => {
-            try {
-              const a = document.querySelectorAll("ytd-playlist-video-renderer");
-              if (a.length < 2) {
-                pe("Not enough videos to reverse", 1500, "info");
-                return;
-              }
-              const r = a[0] && a[0].parentNode;
-              if (r) {
-                const o = Array.from(a).reverse();
-                o.forEach((e) => r.appendChild(e));
-                pe("Playlist reversed (" + a.length + " videos)", 1500, "success");
-              }
-            } catch (e) {
-              pe("Couldn't reverse", 1500, "error");
-            }
-          });
-          const r =
-            a.querySelector("#top-level-buttons, #buttons, .metadata-actions, #meta") || a;
-          r.appendChild(n);
-        };
-        t();
-        Mr("reverse-playlist", t);
-        e.onNav(() => e.addTimeout(t, 800));
-        Yt["reverse-playlist"].push(() => {
-          const a = document.getElementById("ytb-reverse-pl-btn");
-          a && a.remove();
-        });
-      },
-      settings(e) {
-        e.appendChild(Io("Show a 'Reverse' button on playlist pages", "reversePlaylistOn"));
-      },
-    }),
-    xa.register({
-      id: "flip-video",
-      name: "Flip Video",
-      summary: "Mirrors or flips the video frame horizontally/vertically.",
-      cat: "playback",
-      masterKey: "flipVideoOn",
-      keys: ["flipVideoOn", "flipVideoH", "flipVideoV", "videoFiltersOn"],
-      apply(e) {
-        if (!S.flipVideoOn) return;
-        if (!S.videoFiltersOn) {
-          e.addStyle("video.html5-main-video,#movie_player video{transform:scaleX(var(--ytb-flip-h,1)) scaleY(var(--ytb-flip-v,1))!important}");
-        }
-        const t = () => {
-          const n = ie.el && ie.el();
-          if (!n) return;
-          try {
-            if (S.flipVideoOn) {
-              n.style.setProperty("--ytb-flip-h", S.flipVideoH ? "-1" : "1");
-              n.style.setProperty("--ytb-flip-v", S.flipVideoV ? "-1" : "1");
-            } else {
-              n.style.removeProperty("--ytb-flip-h");
-              n.style.removeProperty("--ytb-flip-v");
-            }
-          } catch (e) {}
-        };
-        const mount = () => {
-          const r = document.querySelector("#movie_player .ytp-right-controls");
-          if (!r || r.querySelector(".ytb-flip-btn")) return;
-          const o = ie.el && ie.el();
-          if (!o) return;
-          const i = document.createElement("button");
-          (i.type = "button"),
-            (i.className = "ytp-button ytb-extra-btn ytb-flip-btn"),
-            (i.title = "Flip horizontally"),
-            i.setAttribute("aria-label", "Flip horizontally"),
-            a(
-              i,
-              wr('<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 21h2v-2h-2v2zm4-12h-2v2h2V9zm0 4h-2v2h2v-2zm-4-4h-2v6h2V9zm-4 6h2V9H7v6zm12-10V3l-4 4 4 4V7zM5 7v4l4-4-4-4v3H3v2h2z"/></svg>'),
-            ),
-            i.addEventListener(
-              "click",
-              (ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                Ta("flipVideoH", !S.flipVideoH);
-                t();
-              },
-              !0,
-            );
-          const l = document.createElement("button");
-          (l.type = "button"),
-            (l.className = "ytp-button ytb-extra-btn ytb-flip-btn ytp-flip-v"),
-            (l.title = "Flip vertically"),
-            l.setAttribute("aria-label", "Flip vertically"),
-            a(
-              l,
-              wr('<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 15v2h2v-2H3zm4 0v2h2v-2H7zm4 0v2h2v-2h-2zm4 0v2h2v-2h-2zm4-2v2H4v-2h15zm0-4H4V7h15v2z"/></svg>'),
-            ),
-          l.addEventListener(
-            "click",
-            (ev) => {
-              ev.preventDefault();
-              ev.stopPropagation();
-              Ta("flipVideoV", !S.flipVideoV);
-              t();
-            },
-            !0,
-          );
-          const c = r.querySelector(".ytp-fullscreen-button");
-          const d = c && c.parentNode === r ? c : null;
-          d && d.parentNode === r ? r.insertBefore(i, d) : r.appendChild(i),
-            d && d.parentNode === r ? r.insertBefore(l, d) : r.appendChild(l);
-        };
-        S.flipVideoOn && (mount(), t());
-        Mr("flip-video", () => S.flipVideoOn && mount());
-        e.onNav(() => e.addTimeout(() => S.flipVideoOn && (mount(), t()), 1200));
-        const cfgSub = g.on("cfg.changed", ({ key: n }) => {
-          if ("flipVideoOn" === n) {
-            if (S.flipVideoOn) mount(), t();
-            else {
-              const r = ie.el && ie.el();
-              r && (r.style.transform = "");
-              document.querySelectorAll(".ytb-flip-btn").forEach((e) => e.remove());
-            }
-          } else if (n === "flipVideoH" || n === "flipVideoV") t();
-        });
-        Yt["flip-video"].push(() => {
-          try { cfgSub(); } catch (e) {}
-          const n = ie.el && ie.el();
-          n && (n.style.transform = "");
-          document.querySelectorAll(".ytb-flip-btn").forEach((e) => e.remove());
-        });
-      },
-      settings(e) {
-        e.appendChild(Io("Show flip buttons in the player", "flipVideoOn"));
-        e.appendChild(Io("Flip horizontally by default", "flipVideoH"));
-        e.appendChild(Io("Flip vertically by default", "flipVideoV"));
-      },
-    }));
-  (xa.register({
-      id: "session-replay",
-      name: "Session Recorder",
-      summary: "Logs clicks and navigation locally (never uploaded).",
-      cat: "tools",
-      masterKey: "sessionReplay",
-      keys: ["sessionReplay"],
-      apply(e) {
-        if (!S.sessionReplay) return;
 
-        let _replayWrites = 0;
-        const _pruneReplay = () => {
-          try {
-            b().then((db2) => {
-              if (!db2) return;
-              try {
-                const tx = db2.transaction("replay", "readwrite");
-                const store = tx.objectStore("replay");
-                let kept = 0;
-                const cursorReq = store.openCursor(null, "prev");
-                cursorReq.onsuccess = () => {
-                  const cursor = cursorReq.result;
-                  if (!cursor) return;
-                  kept++;
-
-                  if (kept <= 500) { cursor.continue(); return; }
-                  cursor.delete();
-                  cursor.continue();
-                };
-              } catch (_pe) {}
-            });
-          } catch (_oe) {}
-        };
-        e.addListener(
-          document,
-          "click",
-          (ev) => {
-            k("replay", {
-              t: Date.now(),
-              kind: "click",
-              tag: ev.target && ev.target.tagName,
-              url: location.pathname,
-            });
-            if (++_replayWrites % 400 === 0) _pruneReplay();
-          },
-          !0,
-        ),
-          e.onNav(() => {
-            k("replay", { t: Date.now(), kind: "nav", url: location.href });
-            if (++_replayWrites % 400 === 0) _pruneReplay();
-          });
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "api-explorer",
-      name: "Developer Player API",
-      summary: "Exposes the player object to devtools for debugging.",
-      cat: "tools",
-      masterKey: "apiExplorer",
-      keys: ["apiExplorer", "apiExplorerMutations"],
-      apply(t) {
-        if (S.apiExplorer)
-          ((e.YourTube._api = {
-            get player() {
-              return ie.api();
-            },
-            call(e, ...t) {
-              if (!S.apiExplorerMutations)
-                throw new Error("Enable mutations in feature settings");
-              const a = ie.api();
-              if (!a || "function" != typeof a[e])
-                throw new Error("no such method");
-              return a[e](...t);
-            },
-          }),
-            Yt["api-explorer"].push(() => {
-              try {
-                delete e.YourTube._api;
-              } catch (e) {}
-            }));
-        else
-          try {
-            delete e.YourTube._api;
-          } catch (e) {}
-      },
-      settings(e) {
-        e.appendChild(
-          Io(
-            "Allow external tools to modify player settings",
-            "apiExplorerMutations",
-          ),
-        );
-      },
-    }));
+    void 0);
+  (
+    void 0);
   const Dn = 36e5;
   function qn(e) {
     return Math.floor((e ?? Date.now()) / Dn);
@@ -3324,711 +2412,10 @@
       pe("⏹ Stopped", 1200, "info");
     } else pe("No video element", 1200, "error");
   }
-  (xa.register({
-    id: "net-monitor",
-    name: "Bandwidth Monitor",
-    summary: "Graphs transfer volume over time.",
-      cat: "tools",
-    masterKey: "netMonitorOn",
-    keys: [
-      "netMonitorOn",
-      "netMonitorRange",
-      "netMonitorBadge",
-      "netMonitorPatchFetch",
-      "netMonitorPatchXHR",
-      "netMonitorPatchBeacon",
-      "privacyPreset",
-    ],
-    apply(t) {
-      S.netMonitorOn && !S.privacyShieldOn
-        ? ((function () {
-            if (!Yn)
-              try {
-                ((Yn = new PerformanceObserver((e) => {
-                  const t = e.getEntries();
-                  for (let e = 0; e < t.length; e++) {
-                    const a = t[e],
-                      n = Xn(a.name);
-                    if (!Zn(n)) continue;
-                    let r = a.transferSize || 0;
-                    (!r && a.encodedBodySize && (r = a.encodedBodySize),
-                      !r && a.decodedBodySize && (r = a.decodedBodySize),
-                      r > 0 && $n(n, r, 0, a.name));
-                  }
-                })),
-                  Yn.observe({ type: "resource", buffered: !0 }));
-              } catch (e) {}
-          })(),
-          !zn &&
-            S.netMonitorPatchFetch &&
-            ((zn = e.fetch),
-            (e.fetch = _xp.fn(function (e, t) {
+  (
 
-              if (!(S.netMonitorOn && !S.privacyShieldOn && S.netMonitorPatchFetch))
-                return zn.call(this, e, t);
-              let a,
-                n = "";
-              try {
-                ((a = "string" == typeof e ? e : (e && e.url) || ""),
-                  (n = Xn(a)));
-              } catch (e2) {}
-              const r = t && t.body ? Qn(t.body) : e && e.body ? Qn(e.body) : 0,
-                o = zn.call(this, e, t);
-              return (
-                n &&
-                  Zn(n) &&
-                  o
-                    .then((e3) => {
-                      try {
-                        const t2 =
-                            e3.headers &&
-                            e3.headers.get &&
-                            e3.headers.get("content-length"),
-                          o2 = (t2 && parseInt(t2, 10)) || 0;
-                        $n(n, o2, r, a);
-                      } catch (e3) {
-                        $n(n, 0, r, a);
-                      }
-                    })
-                    .catch(() => {
-                      $n(n, 0, r, a);
-                    }),
-                o
-              );
-            }))),
-          !Wn &&
-            S.netMonitorPatchXHR &&
-            ((Wn = XMLHttpRequest.prototype.open),
-            (Un = XMLHttpRequest.prototype.send),
-            (XMLHttpRequest.prototype.open = _xp.fn(function (e2, t) {
-              try {
-                ((this.__ytbNetURL = t), (this.__ytbNetHost = Xn(t)));
-              } catch (e3) {}
-              return Wn.apply(this, arguments);
-            })),
-            (XMLHttpRequest.prototype.send = _xp.fn(function (e2) {
-
-              if (!(S.netMonitorOn && !S.privacyShieldOn && S.netMonitorPatchXHR))
-                return Un.apply(this, arguments);
-              const t = this.__ytbNetHost,
-                a = e2 ? Qn(e2) : 0;
-              if (t && Zn(t)) {
-                const cb = () => {
-                  let n = 0;
-                  try {
-                    const h =
-                      this.getResponseHeader &&
-                      this.getResponseHeader("content-length");
-                    (h && (n = parseInt(h, 10) || 0),
-                      !n &&
-                        this.response &&
-                        ("string" == typeof this.response
-                          ? (n = new Blob([this.response]).size)
-                          : this.response.byteLength
-                            ? (n = this.response.byteLength)
-                            : this.response.size && (n = this.response.size)));
-                  } catch (e3) {}
-                  $n(t, n, a, this.__ytbNetURL);
-                };
-                this.addEventListener("loadend", cb, { once: !0 });
-              }
-              return Un.apply(this, arguments);
-            }))),
-          (function () {
-            if (!Kn && S.netMonitorPatchBeacon && navigator.sendBeacon) {
-              try {
-                Kn = navigator.sendBeacon.bind(navigator);
-              } catch (e) {
-                return;
-              }
-              navigator.sendBeacon = _xp.fn(function (e2, t2) {
-
-                try {
-                  S.netMonitorOn &&
-                    !S.privacyShieldOn &&
-                    S.netMonitorPatchBeacon &&
-                    $n(Xn(e2), 0, Qn(t2), e2);
-                } catch (e3) {}
-                return Kn(e2, t2);
-              });
-            }
-          })(),
-          (Vn.h = qn()),
-          hr(),
-          t.addStyle(
-            "#ytb-net-badge{position:fixed;bottom:8px;left:8px;z-index:2147483636;background:rgba(20,22,28,.5);color:#eef;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:5px 10px;font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:0 6px 20px rgba(0,0,0,.4);pointer-events:none;display:flex;gap:6px;align-items:center}#ytb-net-badge .ytb-net-badge-dn{color:#4dd0e1}#ytb-net-badge .ytb-net-badge-up{color:#ff8a65}#ytb-net-badge .ytb-net-badge-sep{color:var(--yt-spec-text-secondary,#888)}body.ytb-silent #ytb-net-badge{display:none!important}",
-          ),
-          t.addInterval(() => {
-            S.netMonitorBadge && hr();
-          }, 3e3),
-          Yt["net-monitor"].push(mr))
-        : mr();
-    },
-    settings(e) {
-      (e.appendChild(
-        Io("Show a small data badge in the corner", "netMonitorBadge"),
-      ),
-        e.appendChild(
-          Io("Include standard network requests", "netMonitorPatchFetch"),
-        ),
-        e.appendChild(
-          Io("Include legacy network requests", "netMonitorPatchXHR"),
-        ),
-        e.appendChild(
-          Io("Include background activity updates", "netMonitorPatchBeacon"),
-        ),
-        e.appendChild(
-          Ro("Show usage for", "netMonitorRange", {
-            hour: "Last hour",
-            day: "Last 24 hours",
-            week: "Last 7 days",
-            month: "Last 30 days",
-            year: "Last 365 days",
-            all: "All time",
-          }),
-        ),
-        e.appendChild(
-          Io(
-            "Also tell me what quality the data was for",
-            "netQualityAttribOn",
-          ),
-        ),
-        e.appendChild(
-          Io("Set a monthly data budget and alert me when near", "netBudgetOn"),
-        ),
-        e.appendChild(
-          No("Monthly data limit", "netBudgetGB", 1, 500, 1, (e) => e + " GB"),
-        ));
-      const t = To("div", "ytb-net-panel");
-      e.appendChild(t);
-      const a = async () => {
-        t.replaceChildren();
-        const e = S.netMonitorRange || "day",
-          n = await dr(e),
-          r = await pr(e, 48),
-          o = To("div", "ytb-net-cards"),
-          i = (e, t, a) => {
-            const n = To("div", "ytb-net-card");
-            return (
-              n.appendChild(To("div", "ytb-net-card-label", e)),
-              n.appendChild(To("div", "ytb-net-card-value", t)),
-              a && n.appendChild(To("div", "ytb-net-card-sub", a)),
-              n
-            );
-          };
-        (o.appendChild(i("Total", or(n.total), n.reqs + " requests")),
-          o.appendChild(i("dn Downloaded", or(n.down))),
-          o.appendChild(i("up Uploaded", or(n.up))),
-          t.appendChild(o));
-        const d = To("div", "ytb-net-session");
-        if (
-          ((d.textContent =
-            "This session: dn " +
-            or(Gn.sessionDown) +
-            " - up " +
-            or(Gn.sessionUp) +
-            " - " +
-            Gn.sessionReqs +
-            " reqs"),
-          t.appendChild(d),
-          r.length)
-        ) {
-          const e = To("div", "ytb-net-legend"),
-            a = To("span", "ytb-net-legend-item");
-          (a.appendChild(To("span", "ytb-net-swatch ytb-net-swatch-dn")),
-            a.appendChild(To("span", "ytb-net-legend-label", "dn Download")));
-          const n = To("span", "ytb-net-legend-item");
-          (n.appendChild(To("span", "ytb-net-swatch ytb-net-swatch-up")),
-            n.appendChild(To("span", "ytb-net-legend-label", "up Upload")),
-            e.appendChild(a),
-            e.appendChild(n),
-            t.appendChild(e));
-          const o = To("div", "ytb-net-chart"),
-            i = Math.max(1, ...r.map((e) => e.down + e.up));
-          for (const e of r) {
-            const t = To("div", "ytb-net-bar"),
-              a = To("div", "ytb-net-bar-dn");
-            a.style.height = ((e.down / i) * 100).toFixed(2) + "%";
-            const n = To("div", "ytb-net-bar-up");
-            ((n.style.height = ((e.up / i) * 100).toFixed(2) + "%"),
-              t.appendChild(n),
-              t.appendChild(a));
-            const r = new Date(e.from * Dn);
-            ((t.title =
-              r.toLocaleString() + "\ndn " + or(e.down) + "\nup " + or(e.up)),
-              o.appendChild(t));
-          }
-          t.appendChild(o);
-          const d = To("div", "ytb-net-axis"),
-            c = To(
-              "span",
-              null,
-              new Date(r[0].from * Dn).toLocaleString([], {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-              }),
-            ),
-            s = To(
-              "span",
-              null,
-              new Date(r[r.length - 1].to * Dn + Dn).toLocaleString([], {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-              }),
-            );
-          (d.appendChild(c), d.appendChild(s), t.appendChild(d));
-        }
-        if (S.netBudgetOn) {
-          const e = await lr(),
-            a = 1024 * (Number(S.netBudgetGB) || 0) * 1024 * 1024,
-            n = a > 0 ? Math.min(100, (e / a) * 100) : 0,
-            r = To("div", "ytb-net-budget"),
-            o = new Date().toLocaleString([], {
-              month: "long",
-              year: "numeric",
-            });
-          r.appendChild(
-            To("div", "ytb-elem-sec-title", "Monthly budget - " + o),
-          );
-          const i = To("div", "ytb-net-budget-bar"),
-            d = To("div", "ytb-net-budget-fill");
-          ((d.style.width = n.toFixed(1) + "%"),
-            n >= 100
-              ? d.classList.add("over")
-              : n >= 95
-                ? d.classList.add("crit")
-                : n >= 80 && d.classList.add("warn"),
-            i.appendChild(d),
-            r.appendChild(i));
-          const c = To("div", "ytb-net-budget-detail");
-          ((c.textContent =
-            or(e) + " / " + S.netBudgetGB + " GB used (" + n.toFixed(1) + "%)"),
-            r.appendChild(c),
-            t.appendChild(r));
-        }
-        if (S.netQualityAttribOn && n.qualities.length) {
-          const e = To("div", "ytb-net-qualities");
-          e.appendChild(To("div", "ytb-elem-sec-title", "By quality"));
-          const a = n.qualities.reduce((e, [, t]) => e + t, 0),
-            r = {
-              "4K+": "#e91e63",
-              "1440p": "#9c27b0",
-              "1080p": "#3f51b5",
-              "720p": "#4caf50",
-              "480p": "#ffc107",
-              "360p": "#ff9800",
-              "240p-": "#795548",
-              audio: "#00bcd4",
-              other: "#607d8b",
-            };
-          for (const [t, o] of n.qualities) {
-            const n = To("div", "ytb-net-q-row"),
-              i = To("span", "ytb-net-q-lbl", t);
-            i.style.background = r[t] || "#888";
-            const d = To("div", "ytb-net-q-track"),
-              c = To("div", "ytb-net-q-fill");
-            ((c.style.width = a ? ((o / a) * 100).toFixed(1) + "%" : "0%"),
-              (c.style.background = r[t] || "#888"),
-              d.appendChild(c));
-            const s = To(
-              "span",
-              "ytb-net-q-bytes",
-              or(o) + " - " + (a ? ((o / a) * 100).toFixed(0) : 0) + "%",
-            );
-            (n.appendChild(i),
-              n.appendChild(d),
-              n.appendChild(s),
-              e.appendChild(n));
-          }
-          t.appendChild(e);
-        }
-        if (n.hosts.length) {
-          const e = To("div", "ytb-net-hosts");
-          e.appendChild(To("div", "ytb-elem-sec-title", "Top hosts"));
-          for (const [t, a] of n.hosts) {
-            const n = To("div", "ytb-net-host-row");
-            (n.appendChild(To("span", "ytb-net-host-name", t)),
-              n.appendChild(To("span", "ytb-net-host-bytes", or(a))),
-              e.appendChild(n));
-          }
-          t.appendChild(e);
-        }
-        const c = To("div", "ytb-rowb");
-        (c.appendChild(Oo("Refresh", a)),
-          c.appendChild(
-            Oo("Export JSON", async () => {
-              const e = await nr(),
-                t = new Blob(
-                  [
-                    JSON.stringify(
-                      { exported: Date.now(), buckets: e },
-                      null,
-                      2,
-                    ),
-                  ],
-                  { type: "application/json" },
-                ),
-                a = URL.createObjectURL(t),
-                n = document.createElement("a");
-              ((n.href = a),
-                (n.download =
-                  "yourtube-network-" +
-                  new Date().toISOString().slice(0, 10) +
-                  ".json"),
-                document.body.appendChild(n),
-                n.click(),
-                n.remove(),
-                setTimeout(() => URL.revokeObjectURL(a), 6e3),
-                pe("Data usage saved to a file.", 1800, "success"));
-            }),
-          ),
-          c.appendChild(
-            Oo(
-              "Clear all history",
-              async () => {
-                e.confirm(
-                  "Clear all the data usage history? This can’t be undone.",
-                ) &&
-                  (await rr(), pe("Data usage cleared.", 1800, "success"), a());
-              },
-              "ytb-danger",
-            ),
-          ),
-          t.appendChild(c));
-        const s = To(
-          "div",
-          "ytb-hist-note",
-          "Data usage is measured directly from background video loading and network requests on YouTube servers. This information is saved securely on your own computer and stays available until you press Clear all history.",
-        );
-        t.appendChild(s);
-      };
-      (a(),
-        So("net.updated", ee(a, 500)),
-        So("cfg.changed", ee((e) => {
-          if (["netMonitorRange", "netBudgetOn", "netBudgetGB", "netQualityAttribOn"].includes(e.key)) a();
-        }, 200)));
-    },
-  }),
-    xa.register({
-      id: "adaptive-throttle",
-      name: "Adaptive Throttle",
-      summary: "Reduces processing work on battery-saving conditions.",
-      cat: "tools",
-      masterKey: "adaptiveThrottleOn",
-      keys: ["adaptiveThrottleOn"],
-      apply(e) {
-        if (!S.adaptiveThrottleOn) return;
-
-        let _hiddenSince = 0;
-        e.addListener(document, "visibilitychange", () => {
-          _hiddenSince = document.hidden ? Date.now() : 0;
-        });
-        if (document.hidden) _hiddenSince = Date.now();
-        const t = () => {
-
-          if ("hidden" !== document.visibilityState) return;
-          if (!_hiddenSince || Date.now() - _hiddenSince < 60000) return;
-          navigator.getBattery &&
-            navigator
-              .getBattery()
-              .then((e) => {
-                if (!e.charging && e.level < 0.15) {
-                  const vid = ie.el();
-                  if (vid && !vid.paused && !vid.ended && !_isLiveStream()) {
-                    ie.pause();
-                    pe("Battery critically low - paused to save power.", 3e3, "info");
-                  }
-                }
-              })
-              .catch(() => {});
-        };
-        (e.addListener(document, "visibilitychange", t), e.addInterval(t, 3e4, { pauseWhenHidden: !1 }));
-      },
-      settings() {},
-    }),
     (0),
 
-    xa.register({
-      id: "cookie-control",
-      name: "Cookie Control",
-      summary: "Inspect, search and edit cookies visible to this page.",
-      cat: "privacy",
-      masterKey: "cookieControlOn",
-      keys: ["cookieControlOn", "cookieControlLive", "cookieControlNotify"],
-      apply(e) {
-        const prev = Yt["cookie-control"] || [];
-        for (const fn of prev) { try { fn(); } catch (e2) {} }
-        Yt["cookie-control"] = [];
-        if (!S.cookieControlOn) {
-          try { const el = document.getElementById("ytb-cookie-control"); if (el) el.remove(); } catch (e2) {}
-          return;
-        }
-        const DB = {
-          "YSC": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: false, category: "Session", purpose: "Ensures requests within session are made by user, anti-CSRF", confidence: "high" },
-          "VISITOR_INFO1_LIVE": { domain: ".youtube.com", path: "/", expiration: "6 months", sameSite: "None", secure: true, httpOnly: false, category: "Analytics", purpose: "Bandwidth, player version, personalization", confidence: "high" },
-          "VISITOR_PRIVACY_METADATA": { domain: ".youtube.com", path: "/", expiration: "6 months", sameSite: "None", secure: true, httpOnly: false, category: "Preferences", purpose: "Consent state", confidence: "high" },
-          "PREF": { domain: ".youtube.com", path: "/", expiration: "8 months", sameSite: "None", secure: true, httpOnly: false, category: "Preferences", purpose: "Page config, playback prefs", confidence: "high" },
-          "CONSENT": { domain: ".youtube.com", path: "/", expiration: "20 years", sameSite: "None", secure: true, httpOnly: false, category: "Preferences", purpose: "Consent", confidence: "high" },
-          "SOCS": { domain: ".youtube.com", path: "/", expiration: "13 months", sameSite: "Lax", secure: true, httpOnly: false, category: "Preferences", purpose: "Consent state", confidence: "high" },
-          "HSID": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Auth session security", confidence: "high" },
-          "SSID": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Auth session", confidence: "high" },
-          "APISID": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Auth", confidence: "high" },
-          "SAPISID": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Auth", confidence: "high" },
-          "SID": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Auth", confidence: "high" },
-          "__Secure-1PAPISID": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Auth", confidence: "high" },
-          "__Secure-3PAPISID": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Auth", confidence: "high" },
-          "SIDCC": { domain: ".youtube.com", path: "/", expiration: "1 year", sameSite: "None", secure: true, httpOnly: true, category: "Security", purpose: "Security anti-abuse", confidence: "high" },
-          "__Secure-1PSIDCC": { domain: ".youtube.com", path: "/", expiration: "1 year", sameSite: "None", secure: true, httpOnly: true, category: "Security", purpose: "Security", confidence: "high" },
-          "__Secure-3PSIDCC": { domain: ".youtube.com", path: "/", expiration: "1 year", sameSite: "None", secure: true, httpOnly: true, category: "Security", purpose: "Security", confidence: "high" },
-          "__Secure-1PSID": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Auth", confidence: "high" },
-          "__Secure-3PSID": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Auth", confidence: "high" },
-          "LOGIN_INFO": { domain: ".youtube.com", path: "/", expiration: "1.5 years", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Login info", confidence: "high" },
-          "wide": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "Lax", secure: false, httpOnly: false, category: "Player", purpose: "Player size", confidence: "medium" },
-          "yt-remote-device-id": { domain: ".youtube.com", path: "/", expiration: "Persistent", sameSite: "None", secure: true, httpOnly: false, category: "Preferences", purpose: "Remote device ID", confidence: "medium" },
-          "yt-remote-connected-devices": { domain: ".youtube.com", path: "/", expiration: "Persistent", sameSite: "None", secure: true, httpOnly: false, category: "Preferences", purpose: "Connected devices", confidence: "medium" },
-          "yt-remote-cast-available": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: false, httpOnly: false, category: "Player", purpose: "Cast availability", confidence: "medium" },
-          "yt-remote-cast-installed": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: false, httpOnly: false, category: "Player", purpose: "Cast installed", confidence: "medium" },
-          "yt-remote-fast-check-period": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: false, httpOnly: false, category: "Performance", purpose: "Fast check period", confidence: "low" },
-          "yt-remote-session-app": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: false, httpOnly: false, category: "Preferences", purpose: "Remote session app", confidence: "low" },
-          "yt-remote-session-name": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: false, httpOnly: false, category: "Preferences", purpose: "Remote session name", confidence: "low" },
-          "yt.innertube::nextId": { domain: ".youtube.com", path: "/", expiration: "Persistent", sameSite: "Lax", secure: false, httpOnly: false, category: "Performance", purpose: "Innertube next ID", confidence: "medium" },
-          "yt.innertube::requests": { domain: ".youtube.com", path: "/", expiration: "Persistent", sameSite: "Lax", secure: false, httpOnly: false, category: "Performance", purpose: "Innertube requests", confidence: "medium" },
-          "yt-player-headers-readable": { domain: ".youtube.com", path: "/", expiration: "Persistent", sameSite: "Lax", secure: false, httpOnly: false, category: "Player", purpose: "Player headers", confidence: "low" },
-          "ytidb::LAST_RESULT_ENTRY_KEY": { domain: ".youtube.com", path: "/", expiration: "Persistent", sameSite: "Lax", secure: false, httpOnly: false, category: "Search", purpose: "Last search clicked", confidence: "medium" },
-          "test_cookie": { domain: ".doubleclick.net", path: "/", expiration: "15 minutes", sameSite: "None", secure: true, httpOnly: false, category: "Advertising", purpose: "Check if browser supports cookies", confidence: "high" },
-          "__Secure-YEC": { domain: ".youtube.com", path: "/", expiration: "13 months", sameSite: "None", secure: true, httpOnly: false, category: "Security", purpose: "Bot traffic detection", confidence: "high" },
-          "__Secure-YNID": { domain: ".youtube.com", path: "/", expiration: "6 months", sameSite: "Lax", secure: true, httpOnly: false, category: "Analytics", purpose: "Analytics unique ID", confidence: "high" },
-          "__Secure-YENID": { domain: ".youtube.com", path: "/", expiration: "13 months", sameSite: "None", secure: true, httpOnly: false, category: "Security", purpose: "Spam fraud abuse", confidence: "high" },
-          "__Secure-ROLLOUT_TOKEN": { domain: ".youtube.com", path: "/", expiration: "6 months", sameSite: "Lax", secure: true, httpOnly: false, category: "Experimentation", purpose: "Feature rollout", confidence: "high" },
-          "pm_sess": { domain: ".youtube.com", path: "/", expiration: "30 minutes", sameSite: "Lax", secure: true, httpOnly: false, category: "Session", purpose: "Session validation CSRF", confidence: "high" },
-          "AEC": { domain: ".youtube.com", path: "/", expiration: "6 months", sameSite: "Lax", secure: true, httpOnly: true, category: "Security", purpose: "Anti-abuse", confidence: "high" },
-          "NID": { domain: ".google.com", path: "/", expiration: "6 months", sameSite: "None", secure: true, httpOnly: true, category: "Preferences", purpose: "Preferences language SafeSearch", confidence: "high" },
-          "__Secure-ENID": { domain: ".google.com", path: "/", expiration: "13 months", sameSite: "Lax", secure: true, httpOnly: true, category: "Preferences", purpose: "Preferences SafeSearch", confidence: "high" },
-          "1P_JAR": { domain: ".google.com", path: "/", expiration: "30 days", sameSite: "None", secure: true, httpOnly: false, category: "Advertising", purpose: "Ad data", confidence: "high" },
-          "ANID": { domain: ".google.com", path: "/", expiration: "13-24 months", sameSite: "None", secure: true, httpOnly: true, category: "Advertising", purpose: "Ad personalization", confidence: "high" },
-          "IDE": { domain: ".doubleclick.net", path: "/", expiration: "13-24 months", sameSite: "None", secure: true, httpOnly: true, category: "Advertising", purpose: "Ad performance", confidence: "high" },
-          "DSID": { domain: ".doubleclick.net", path: "/", expiration: "2 weeks", sameSite: "None", secure: true, httpOnly: true, category: "Advertising", purpose: "Ad preferences", confidence: "high" },
-          "_gads": { domain: ".youtube.com", path: "/", expiration: "13 months", sameSite: "None", secure: true, httpOnly: false, category: "Advertising", purpose: "Ad display", confidence: "high" },
-          "_gac_": { domain: ".youtube.com", path: "/", expiration: "90 days", sameSite: "None", secure: true, httpOnly: false, category: "Advertising", purpose: "Analytics Ads linking", confidence: "high" },
-          "GPS": { domain: ".youtube.com", path: "/", expiration: "30 minutes", sameSite: "None", secure: true, httpOnly: false, category: "Localization", purpose: "Geolocation", confidence: "medium" },
-          "ST-": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Session token", confidence: "medium" },
-          "S-": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Authentication", purpose: "Session", confidence: "medium" },
-          "yt-player-autoplay": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "Lax", secure: false, httpOnly: false, category: "Playback", purpose: "Autoplay preference", confidence: "medium" },
-          "yt-player-volume": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "Lax", secure: false, httpOnly: false, category: "Playback", purpose: "Volume preference", confidence: "medium" },
-          "recommendations_token": { domain: ".youtube.com", path: "/", expiration: "6 months", sameSite: "None", secure: true, httpOnly: false, category: "Recommendations", purpose: "Recommendations", confidence: "medium" },
-          "watched_video_id_list": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "Lax", secure: false, httpOnly: false, category: "History", purpose: "Watched videos list", confidence: "low" },
-          "watch_progress": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "Lax", secure: false, httpOnly: false, category: "Watch Progress", purpose: "Watch progress", confidence: "medium" },
-          "ui_theme": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "Lax", secure: false, httpOnly: false, category: "UI", purpose: "UI theme", confidence: "low" },
-          "accessibility_pref": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "Lax", secure: false, httpOnly: false, category: "Accessibility", purpose: "Accessibility preferences", confidence: "low" },
-          "personalization_id": { domain: ".youtube.com", path: "/", expiration: "6 months", sameSite: "None", secure: true, httpOnly: false, category: "Personalization", purpose: "Personalization ID", confidence: "medium" },
-          "feature_flag_test": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "Lax", secure: false, httpOnly: false, category: "Feature Flags", purpose: "Feature flag", confidence: "low" },
-          "temp_cookie": { domain: ".youtube.com", path: "/", expiration: "Temporary", sameSite: "Lax", secure: false, httpOnly: false, category: "Temporary", purpose: "Temporary cookie", confidence: "low" },
-          "unknown_test_cookie": { domain: ".youtube.com", path: "/", expiration: "Unknown", sameSite: "Lax", secure: false, httpOnly: false, category: "Unknown", purpose: "Unknown purpose", confidence: "low" },
-          "anti_abuse_token": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "None", secure: true, httpOnly: true, category: "Anti-abuse", purpose: "Anti-abuse token", confidence: "high" },
-          "player_size": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "Lax", secure: false, httpOnly: false, category: "Player", purpose: "Player size", confidence: "medium" },
-          "search_history": { domain: ".youtube.com", path: "/", expiration: "Session", sameSite: "Lax", secure: false, httpOnly: false, category: "Search", purpose: "Search history", confidence: "medium" },
-
-        };
-        const PREF_KEYS = {
-          "f5": { label: "Autoplay", type: "enum", options: {"3.5.2": "Enabled", "30000": "Disabled"} },
-          "f6": { label: "Layout", type: "enum", options: {"4": "Material", "8": "Old"} },
-          "al": { label: "Content Language", type: "text" },
-          "gl": { label: "Country", type: "text" },
-          "hl": { label: "Interface Language", type: "text" }
-        };
-        const Manager = {
-          store: new Map(),
-          history: [],
-          parseRaw() {
-            const raw = document.cookie || "";
-            if (!raw) return [];
-            return raw.split(';').map(s=>s.trim()).filter(Boolean).map(p=>{
-              const eq=p.indexOf('=');
-              if(eq===-1) return {name:p,value:"",raw:p};
-              return {name:p.slice(0,eq),value:p.slice(eq+1),raw:p};
-            });
-          },
-          classify(name) {
-            return DB[name] || {category:"Unknown",purpose:"Unknown",confidence:"low",domain:location.hostname,path:"/",expiration:"Unknown"};
-          },
-          getAll() {
-            const parsed=this.parseRaw();
-            const now=Date.now();
-            const res=[];
-            for(const {name,value} of parsed){
-              let meta=this.store.get(name);
-              if(!meta){
-                const db=this.classify(name);
-                meta={name,value,firstSeen:now,lastModified:now,changeCount:0,size:name.length+value.length,category:db.category,purpose:db.purpose,confidence:db.confidence,domain:db.domain||".youtube.com",path:db.path||"/",expiration:db.expiration||"Unknown",currentState:"active"};
-                this.store.set(name,meta);
-              } else if(meta.value!==value){
-                meta.value=value; meta.lastModified=now; meta.changeCount++;
-              }
-              res.push(meta);
-            }
-            return res;
-          },
-          set(name,value){
-            try{
-
-              if (!/^[A-Za-z0-9_\-]+$/.test(String(name || ""))) return false;
-
-              const _sv = String(value == null ? "" : value);
-              if (/[;\r\n]/.test(_sv) || _sv.length > 4096) return false;
-              document.cookie=`${name}=${_sv}; path=/; SameSite=Lax; Secure`;
-              return true;
-            }catch(e){return false;}
-          },
-          delete(name){
-            try{
-              if (!/^[A-Za-z0-9_\-]+$/.test(String(name || ""))) return false;
-              document.cookie=`${name}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
-              return true;
-            }catch(e){return false;}
-          }
-        };
-        const openUI=()=>{
-          let overlay=document.getElementById("ytb-cookie-control");
-          if(overlay){
-
-            overlay.style.display="flex";
-            try {
-              clearInterval(overlay.__ytbTimer);
-              if (typeof overlay.__ytbRender === "function")
-                overlay.__ytbTimer = setInterval(overlay.__ytbRender, S.cookieControlLive ? 1000 : 5000);
-            } catch (e2) {}
-            return;
-          }
-          overlay=document.createElement("div");
-          overlay.id="ytb-cookie-control";
-          overlay.style.cssText="position:fixed;inset:0;z-index:2147483647;background:rgba(10,12,18,0.92);display:flex;flex-direction:column;color:#eef;font-family:Inter,Roboto,sans-serif;";
-          const header=document.createElement("div");
-          header.style.cssText="display:flex;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.1);";
-          header.innerHTML=Xy('<b>Cookie Control — '+Manager.getAll().length+' cookies</b>');
-          const closeBtn=document.createElement("button");
-          closeBtn.textContent="×";
-          closeBtn.style.cssText="background:rgba(255,255,255,0.1);border:0;color:#fff;width:28px;height:28px;border-radius:50%;cursor:pointer;";
-          closeBtn.onclick=()=>{ overlay.style.display="none"; try { clearInterval(overlay.__ytbTimer); overlay.__ytbTimer = 0; } catch (e2) {} };
-          header.appendChild(closeBtn);
-          overlay.appendChild(header);
-          const search=document.createElement("input");
-          search.placeholder="Search cookies...";
-          search.style.cssText="margin:8px 16px;padding:8px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.1);border-radius:6px;";
-          overlay.appendChild(search);
-          const list=document.createElement("div");
-          list.style.cssText="flex:1;overflow:auto;padding:8px 16px;";
-          overlay.appendChild(list);
-          let lastValues = null;
-          const render=()=>{
-            const q=search.value.toLowerCase();
-            const all=Manager.getAll();
-            const now = new Map(all.map(c => [c.name, c.value]));
-            const changed = lastValues && new Set([...lastValues.keys(), ...now.keys()]);
-            const count = changed ? [...changed].filter(k => lastValues.get(k) !== now.get(k)).length : 0;
-            lastValues = now;
-            header.firstChild.textContent = "Cookie Control — " + all.length + " visible cookies";
-            if (count && S.cookieControlNotify) pe("Cookie Control: " + count + " changed.", 2000, "info");
-            let filtered=all.filter(c=>!q||c.name.toLowerCase().includes(q)||c.value.toLowerCase().includes(q));
-            list.replaceChildren();
-            for(const c of filtered){
-              const row=document.createElement("div");
-              row.style.cssText="display:flex;gap:8px;padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);";
-              const nameEl=document.createElement("div");
-              nameEl.style.cssText="flex:1;";
-              const nameStrong = document.createElement("b");
-              nameStrong.textContent = c.name;
-              const metaSmall = document.createElement("small");
-              metaSmall.style.color = "#8b93a3";
-              metaSmall.textContent = " " + c.category + " — " + c.purpose;
-              const valueBreak = document.createElement("br");
-              const valueSmall = document.createElement("small");
-              valueSmall.style.color = "#6b7280";
-              valueSmall.textContent = String(c.value || "").slice(0, 80);
-              nameEl.append(nameStrong, metaSmall, valueBreak, valueSmall);
-              const editBtn=document.createElement("button");
-              editBtn.textContent="Edit";
-              editBtn.style.cssText="padding:4px 8px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.1);border-radius:4px;cursor:pointer;";
-              editBtn.onclick=()=>{ const nv=prompt("Edit "+c.name,c.value); if(nv!==null){ Manager.set(c.name,nv); render(); } };
-              const delBtn=document.createElement("button");
-              delBtn.textContent="Delete";
-              delBtn.style.cssText="padding:4px 8px;background:rgba(200,0,0,0.2);color:#ff7777;border:1px solid rgba(200,0,0,0.3);border-radius:4px;cursor:pointer;";
-              delBtn.onclick=()=>{ if(confirm("Delete "+c.name+"?")){ Manager.delete(c.name); render(); } };
-              row.appendChild(nameEl); row.appendChild(editBtn); row.appendChild(delBtn);
-
-              if(c.name==="PREF"){
-                try{
-                  const params=new URLSearchParams(c.value);
-                  const subDiv=document.createElement("div");
-                  subDiv.style.cssText="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;";
-                  for(const [k,v] of params){
-                    const meta=PREF_KEYS[k]||{label:k,type:"text"};
-                    const wrap=document.createElement("div");
-                    wrap.style.cssText="display:flex;align-items:center;gap:4px;background:rgba(255,255,255,0.05);padding:4px 6px;border-radius:4px;font-size:11px;";
-                    const lab=document.createElement("span");
-                    lab.textContent=meta.label+" ("+k+"): ";
-                    const inp=document.createElement("input");
-                    inp.value=v;
-                    inp.style.cssText="width:80px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:2px 4px;";
-                    inp.onchange=()=>{
-                      const newParams=new URLSearchParams(c.value);
-                      newParams.set(k,inp.value);
-                      Manager.set("PREF",newParams.toString());
-                      render();
-                    };
-                    wrap.appendChild(lab); wrap.appendChild(inp);
-                    subDiv.appendChild(wrap);
-                  }
-                  row.appendChild(subDiv);
-                }catch(e){}
-              }
-              list.appendChild(row);
-            }
-          };
-          search.addEventListener("input",render);
-          render();
-
-          overlay.__ytbRender = render;
-          try { clearInterval(overlay.__ytbTimer); } catch (e2) {}
-          overlay.__ytbTimer = setInterval(render, S.cookieControlLive ? 1000 : 5000);
-          Yt["cookie-control"].push(() => { try { clearInterval(overlay.__ytbTimer); overlay.__ytbTimer = 0; } catch (e2) {} });
-          document.body.appendChild(overlay);
-        };
-
-        try{
-
-          const _pg = ("undefined"!=typeof unsafeWindow?unsafeWindow:window);
-          _pg.__ytbCookieOpen = openUI;
-          ti.cookieControl = {open:openUI, manager:Manager};
-          Yt["cookie-control"].push(() => {
-            const ov = document.getElementById("ytb-cookie-control");
-            if (ov) { clearInterval(ov.__ytbTimer); ov.remove(); }
-            if (_pg.__ytbCookieOpen === openUI) delete _pg.__ytbCookieOpen;
-            if (ti.cookieControl && ti.cookieControl.open === openUI) delete ti.cookieControl;
-          });
-        }catch(e2){}
-      },
-      settings(e) {
-        e.appendChild(Io("Enable Cookie Control", "cookieControlOn"));
-        e.appendChild(Io("Live monitoring", "cookieControlLive"));
-        e.appendChild(Io("Notify on changes", "cookieControlNotify"));
-        e.appendChild(To("div", "ytb-hist-note", "Shows cookies readable by this page, not HttpOnly cookies or other browser storage. Search, edit, delete, and inspect individual PREF fields. Live mode refreshes every second while open; change notices never include cookie values."));
-
-        if (!e.querySelector("#ytb-cc-open-dashboard")) {
-          const openBtn=document.createElement("button");
-          openBtn.id="ytb-cc-open-dashboard";
-          openBtn.textContent="Open Cookie Control Dashboard";
-          openBtn.style.cssText="padding:8px 14px;background:linear-gradient(135deg,#ff0033,#ff3d7f);color:#fff;border:0;border-radius:8px;font:600 12px system-ui;cursor:pointer;margin-top:8px;";
-          openBtn.onclick=()=>{ try{
-
-            if (!S.cookieControlOn) { pe("Enable Cookie Control first.", 1500, "info"); return; }
-            if (ti.cookieControl && ti.cookieControl.open) ti.cookieControl.open();
-          }catch(e2){} };
-          e.appendChild(openBtn);
-        }
-      },
-    }),
 
     xa.register({
       id: "player-dashboard-button",
@@ -4143,8 +2530,35 @@
       summary: "Re-binds featured-video artwork on channel pages when YouTube's preview fails.",
       cat: "appearance",
       masterKey: "heroHealOn",
-      keys: ["heroHealOn"],
+      settingsAlways: true,
+      isOn: () => !!S.heroHealOn || String(S.channelBannerMode || "default") !== "default",
+      keys: ["heroHealOn", "channelBannerMode"],
       apply(ctx) {
+      const mode = String(S.channelBannerMode || "default");
+      const page = 'ytd-browse[page-subtype="channels"] ';
+      if ("scroll" === mode) {
+        ctx.addStyle(
+          page + "app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "tp-yt-app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
+          page + "ytd-tabbed-page-header #page-header-banner," +
+          page + "yt-page-header-renderer #page-header-banner," +
+          page + "yt-image-banner-view-model{" +
+          "transform:none!important;position:absolute;left:0!important;top:0;margin-top:0}",
+        );
+      } else if ("hide" === mode) {
+        ctx.addStyle(
+          page + "div#contentContainer.style-scope.app-header-layout{padding-top:148px!important}" +
+          page + "div#contentContainer.style-scope.app-header{height:148px!important}" +
+          page + "div.banner-visible-area.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "div.page-header-banner.style-scope.ytd-c4-tabbed-header-renderer," +
+          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
+          page + "ytd-tabbed-page-header #page-header-banner," +
+          page + "yt-page-header-renderer #page-header-banner," +
+          page + "yt-image-banner-view-model{display:none!important}" +
+          page + "tp-yt-app-header#header.ytd-tabbed-page-header{transform:none!important;position:absolute!important;left:0!important;margin-top:0!important}",
+        );
+      }
         if (!S.heroHealOn) return;
 
         const QUAL = ["maxresdefault", "sddefault", "hqdefault"];
@@ -4240,6 +2654,7 @@
       },
       settings(en) {
         en.appendChild(Io("Self-heal broken channel hero artwork", "heroHealOn"));
+        en.appendChild(Ro("Banner behaviour", "channelBannerMode", { default: "Default", scroll: "Scroll it away", hide: "Hide it entirely" }));
       },
     }),
     xa.register({
@@ -4260,7 +2675,7 @@
       },
       settings() {},
     }),
-    
+
     Ha(
       "always-progress-bar",
       "Persistent Seek Bar",
@@ -4290,32 +2705,7 @@
       },
       settings() {},
     }),
-    xa.register({
-      id: "auto-expand-desc",
-      name: "Expand Description",
-      summary: "Expands the video description on watch pages.",
-      cat: "playback",
-      masterKey: "autoExpandDescOn",
-      keys: ["autoExpandDescOn"],
-      apply(e) {
-        if (!S.autoExpandDescOn) return;
-        const t = () => {
-          if ("/watch" !== location.pathname) return;
-          const e = document.querySelector(
-            "ytd-text-inline-expander tp-yt-paper-button#expand, ytd-text-inline-expander #expand, tp-yt-paper-button#expand",
-          );
-          if (e && !e.hidden && null !== e.offsetParent)
-            try {
-              e.click();
-            } catch (e) {}
-        };
-        e.onNav(() => {
-          for (const a of [800, 1800, 3500]) e.addTimeout(t, a);
-        });
-        for (const a of [800, 1800, 3500]) e.addTimeout(t, a);
-      },
-      settings() {},
-    }),
+
     xa.register({
       id: "disable-autoplay",
       name: "Disable Autoplay",
@@ -4591,13 +2981,12 @@
     _feedWatched = { at: 0, ids: null };
   async function Ir() {
     if (Pr || !Xt.visible) return;
-    const e = !!S.numberSearchResultsOn,
-      t = !!S.highlightLongVideosOn,
+    const t = !!S.highlightLongVideosOn,
       a = !!S.highlightShortVideosOn,
       n = !!S.hideLiveContentOn,
       r = !!S.hidePremieresOn,
       o = S.feedDimWatchedOn || S.feedHideWatchedOn;
-    if (e || t || a || n || r || o)
+    if (t || a || n || r || o)
       if (!liveApplyDepth && performance.now() - Zt < 250) ae(Ir, 400);
       else {
         Pr = !0;
@@ -4631,12 +3020,6 @@
           for (let l = 0; l < i.length; l++) {
             const p = i[l],
               u = fr(p);
-            if (e && S.numberSearchResultsOn && !p.querySelector(".ytb-extra-num")) {
-              const e = document.createElement("span");
-              ((e.className = "ytb-extra-num"),
-                (e.textContent = String(l + 1)),
-                (p.querySelector("#thumbnail") || p).prepend(e));
-            }
             const h = t || a ? br(p) : 0;
             p.classList.toggle("ytb-extra-long", S.highlightLongVideosOn && h >= c);
             p.classList.toggle("ytb-extra-short", S.highlightShortVideosOn && h > 0 && h <= s);
@@ -4788,95 +3171,9 @@
       settings() {},
     }),
     (0),
-    
-    xa.register({
-      id: "copy-timestamp-button",
-      name: "Copy Timestamp Link",
-      summary: "Player button: copies a link to the current playhead position.",
-      cat: "playback",
-      masterKey: "copyTimestampButtonOn",
-      keys: ["copyTimestampButtonOn"],
-      apply(e) {
-        if (!S.copyTimestampButtonOn) return void Lr(".ytb-extra-copy-time");
-        const t = () =>
-          Cr(
-            "ytb-extra-copy-time",
-            "Copy link to this moment",
-            '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/></svg>',
-            async () => {
-              try {
-                (await navigator.clipboard.writeText(Ar()),
-                  pe("Timestamp copied to clipboard.", 1200, "success"));
-              } catch (e) {
-                pe("Couldn’t copy.", 1200, "error");
-              }
-            },
-          );
-        (t(), Mr("copy-timestamp-button", t));
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "copy-video-info-button",
-      name: "Copy Video Info",
-      summary: "Player button: copies title, channel and canonical link.",
-      cat: "playback",
-      masterKey: "copyVideoInfoButtonOn",
-      keys: ["copyVideoInfoButtonOn"],
-      apply(e) {
-        if (!S.copyVideoInfoButtonOn) return void Lr(".ytb-extra-copy-info");
-        const t = () =>
-          Cr(
-            "ytb-extra-copy-info",
-            "Copy video title, channel, and link",
-            '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>',
-            async () => {
-              const e = ie.title() + "\n" + ie.channel() + "\n" + Ar();
-              try {
-                (await navigator.clipboard.writeText(e),
-                  pe("Video details copied to clipboard.", 1200, "success"));
-              } catch (e) {
-                pe("Copy failed", 1200, "error");
-              }
-            },
-          );
-        (t(), Mr("copy-video-info-button", t));
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "open-transcript-button",
-      name: "Transcript Shortcut",
-      summary: "Player button that opens the transcript panel directly.",
-      cat: "playback",
-      masterKey: "openTranscriptButtonOn",
-      keys: ["openTranscriptButtonOn"],
-      apply(e) {
-        if (!S.openTranscriptButtonOn) return void Lr(".ytb-extra-transcript");
-        const t = () => {
-            const e = Array.from(
-              document.querySelectorAll(
-                "button,yt-button-shape button,tp-yt-paper-item,ytd-menu-service-item-renderer",
-              ),
-            ).find((e) =>
-              !e.closest(".ytb-extra-transcript, #ytb-backdrop") && e.getClientRects().length &&
-              /transcript/i.test((e.textContent || "") + " " + (e.getAttribute("aria-label") || "")),
-            );
-            e
-              ? e.click()
-              : pe("No transcript available for this video.", 1500, "info");
-          },
-          a = () =>
-            Cr(
-              "ytb-extra-transcript",
-              "Show the transcript",
-              '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h5v7h7v9H6zm2-7h8v1.5H8V13zm0 3h5v1.5H8V16z"/></svg>',
-              t,
-            );
-        (a(), Mr("open-transcript-button", a));
-      },
-      settings() {},
-    }),
+
+
+
     xa.register({
       id: "video-notes",
       name: "Video Notes",
@@ -4898,27 +3195,7 @@
       },
       settings() {},
     }),
-    xa.register({
-      id: "channel-notes",
-      name: "Channel Notes",
-      summary: "Local per-channel notes shown on their pages.",
-      cat: "channels",
-      masterKey: "channelNotesOn",
-      keys: ["channelNotesOn"],
-      apply(e) {
-        if (!S.channelNotesOn)
-          return void Lr(".ytb-extra-cnote,#ytb-extra-notes");
-        const t = () =>
-          Cr(
-            "ytb-extra-cnote",
-            "Notes for this channel",
-            '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>',
-            () => Br("channel"),
-          );
-        (t(), Mr("channel-notes", t));
-      },
-      settings() {},
-    }),
+
     xa.register({
       id: "chapter-hotkeys",
       name: "Chapter Hotkeys",
@@ -4957,21 +3234,7 @@
       },
       settings() {},
     }),
-    
-    xa.register({
-      id: "number-search-results",
-      name: "Number Results",
-      summary: "Indexes feed and search cards for quick reference.",
-      cat: "feed",
-      masterKey: "numberSearchResultsOn",
-      keys: ["numberSearchResultsOn"],
-      apply(e) {
-        S.numberSearchResultsOn
-          ? (Rr(), e.addInterval(Rr, 2500))
-          : Lr(".ytb-extra-num");
-      },
-      settings() {},
-    }),
+
     xa.register({
       id: "dense-video-grid",
       name: "Dense Grid",
@@ -5007,61 +3270,7 @@ ytd-video-renderer{margin:2px 0!important}
       },
       settings() {},
     }),
-    xa.register({
-      id: "highlight-video-length",
-      name: "Length Highlights",
-      summary: "Color-codes duration badges for long/short videos.",
-      cat: "feed",
-      masterKey: "highlightVideoLengthMode",
-      keys: [
-        "highlightVideoLengthMode",
-        "longVideoMinSec",
-        "shortVideoMaxSec",
-        "highlightLongVideosOn",
-        "highlightShortVideosOn",
-      ],
-      isOn: () =>
-        S.highlightVideoLengthMode && "off" !== S.highlightVideoLengthMode,
-      apply(e) {
-        if (!S.highlightVideoLengthMode || S.highlightVideoLengthMode === "off") {
-          document.querySelectorAll(".ytb-extra-long,.ytb-extra-short").forEach(el => el.classList.remove("ytb-extra-long", "ytb-extra-short"));
-          return;
-        }
-        S.highlightVideoLengthMode &&
-          "off" !== S.highlightVideoLengthMode &&
-          (Rr(), e.addInterval(Rr, 2500));
-      },
-      settings(e) {
-        (e.appendChild(
-          Ro("Mode", "highlightVideoLengthMode", {
-            off: "Off",
-            long: "Long only",
-            short: "Short only",
-            both: "Long + Short",
-          }),
-        ),
-          e.appendChild(
-            No(
-              "Long video threshold (seconds)",
-              "longVideoMinSec",
-              300,
-              14400,
-              60,
-              (e) => ce(e),
-            ),
-          ),
-          e.appendChild(
-            No(
-              "Short video threshold (seconds)",
-              "shortVideoMaxSec",
-              5,
-              300,
-              5,
-              (e) => ce(e),
-            ),
-          ));
-      },
-    }),
+
     xa.register({
       id: "hide-live-content",
       name: "Hide Live Streams",
@@ -5100,72 +3309,9 @@ ytd-video-renderer{margin:2px 0!important}
       },
       settings() {},
     }),
-    xa.register({
-      id: "playlist-autoscroll",
-      name: "Playlist Autoscroll",
-      summary: "Keeps the playing entry visible in the playlist panel.",
-      cat: "playback",
-      masterKey: "playlistAutoscrollOn",
-      keys: ["playlistAutoscrollOn"],
-      apply(e) {
-        if (!S.playlistAutoscrollOn) return;
-        const t = () => {
-          const e = document.querySelector(
-            "ytd-playlist-panel-video-renderer[selected],ytd-playlist-panel-video-renderer[watch-color-update]",
-          );
-          e && e.scrollIntoView({ block: "center" });
-        };
-        (t(), e.addInterval(t, 3e3), e.onNav(() => e.addTimeout(t, 1500)));
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "compact-playlist",
-      name: "Compact Playlist",
-      summary: "Denser rows in the playlist drawer.",
-      cat: "playback",
-      masterKey: "compactPlaylistOn",
-      keys: ["compactPlaylistOn"],
-      apply(e) {
-        S.compactPlaylistOn &&
-          e.addStyle(
-            "ytd-playlist-panel-video-renderer{min-height:48px!important}ytd-playlist-panel-video-renderer #thumbnail{transform:scale(.82);transform-origin:left center}ytd-playlist-panel-video-renderer #video-title{font-size:12px!important;line-height:1.25!important}",
-          );
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "shorts-auto-mute",
-      name: "Shorts Auto-Mute",
-      summary: "Shorts start muted until unmuted.",
-      cat: "audio",
-      masterKey: "shortsAutoMuteOn",
-      keys: ["shortsAutoMuteOn"],
-      apply(e) {
-        if (!S.shortsAutoMuteOn) return;
-        let lastVid = "", owner = null, previous = false;
-        const release = () => { if (owner && owner.muted) owner.muted = previous; owner = null; };
-        Yt["shorts-auto-mute"].push(release);
-        const t = () => {
-          if (!location.pathname.startsWith("/shorts/")) { release(); return; }
-          const vid = (ie.videoId && ie.videoId()) || "";
-          const v = ie.el();
-          if (!v || !vid || (vid === lastVid && owner === v)) return;
-          release(); lastVid = vid; owner = v; previous = v.muted; v.muted = true;
-        };
-        (t(),
-          e.onNav(() => {
-            lastVid = "";
-            (e.addTimeout(t, 300), e.addTimeout(t, 1e3));
-          }),
-          document.body &&
-            e.addObserver(document.body, e.debounce(t, 250), {
-              childList: !0,
-              subtree: !0,
-            }));
-      },
-      settings() {},
-    }),
+
+
+
     xa.register({
       id: "feed-watched",
       name: "Watched Feed Treatment",
@@ -5199,163 +3345,11 @@ ytd-video-renderer{margin:2px 0!important}
         );
       },
     }),
-    xa.register({
-      id: "shorts-hide-comments",
-      name: "Hide Shorts Comments",
-      summary: "Removes the comments drawer on Shorts.",
-      cat: "comments",
-      masterKey: "shortsHideCommentsOn",
-      keys: ["shortsHideCommentsOn"],
-      apply(e) {
-        S.shortsHideCommentsOn &&
-          e.addStyle(
-            "ytd-engagement-panel-section-list-renderer[target-id='shorts-engagement-panel-comments-section']{display:none!important}",
-          );
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "collapse-long-comments",
-      name: "Collapse Long Comments",
-      summary: "Clamps comments past a character limit behind an expand control.",
-      cat: "comments",
-      masterKey: "collapseLongCommentsOn",
-      keys: ["collapseLongCommentsOn", "collapseLongCommentChars"],
-      apply(e) {
-        const clean = () => {
-          Lr(".ytb-extra-expand-comment");
-          document.querySelectorAll("[data-ytb-clamped]").forEach(el => { delete el.dataset.ytbClamped; el.classList.remove("ytb-extra-comment-clamp"); });
-        };
-        clean();
-        if (!S.collapseLongCommentsOn) return;
-        Yt["collapse-long-comments"].push(clean);
-        const t = () =>
-          document
-            .querySelectorAll("ytd-comment-view-model #content-text, ytd-comment-thread-renderer #content-text, ytd-comment-renderer #content-text")
-            .forEach((e) => {
-              if (
-                e.dataset.ytbClamped ||
-                e.textContent.length <
-                  (Number(S.collapseLongCommentChars) || 1200)
-              )
-                return;
-              ((e.dataset.ytbClamped = "1"),
-                e.classList.add("ytb-extra-comment-clamp"));
-              const t = document.createElement("button");
-              ((t.type = "button"),
-                (t.className = "ytb-extra-expand-comment"),
-                (t.textContent = "Expand comment"),
-                (t.onclick = () => {
-                  (e.classList.toggle("ytb-extra-comment-clamp"),
-                    (t.textContent = e.classList.contains(
-                      "ytb-extra-comment-clamp",
-                    )
-                      ? "Expand comment"
-                      : "Collapse comment"));
-                }),
-                e.insertAdjacentElement("afterend", t));
-            });
-        (t(), e.addInterval(t, 2500));
-      },
-      settings(e) {
-        e.appendChild(
-          No(
-            "Clamp after",
-            "collapseLongCommentChars",
-            400,
-            5e3,
-            100,
-            (e) => e + " chars",
-          ),
-        );
-      },
-    }),
-    xa.register({
-      id: "highlight-creator-comments",
-      name: "Creator Highlight",
-      summary: "Highlights replies authored by the video's channel.",
-      cat: "comments",
-      masterKey: "highlightCreatorCommentsOn",
-      keys: ["highlightCreatorCommentsOn"],
-      apply(e) {
-        S.highlightCreatorCommentsOn &&
-          e.addStyle(
-            "ytd-comment-view-model:has(ytd-author-comment-badge-renderer),ytd-comment-view-model:has(#author-comment-badge),ytd-comment-renderer:has(ytd-author-comment-badge-renderer),ytd-comment-renderer:has(#author-comment-badge){box-shadow:inset 3px 0 0 #3ea6ff!important;background:rgba(62,166,255,.08)!important}",
-          );
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "highlight-timestamp-links",
-      name: "Timestamp Highlight",
-      summary: "Makes timestamp links in comments stand out.",
-      cat: "comments",
-      masterKey: "highlightTimestampLinksOn",
-      keys: ["highlightTimestampLinksOn"],
-      apply(e) {
-        S.highlightTimestampLinksOn &&
-          e.addStyle(
-            "a[href*='t='],a[href*='start=']{background:rgba(62,166,255,.14)!important;border-radius:4px!important;padding:0 3px!important;font-weight:700!important}",
-          );
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "end-soon-warning",
-      name: "End-of-Video Warning",
-      summary: "Shows a notice N seconds before the video ends.",
-      cat: "playback",
-      masterKey: "endSoonWarningOn",
-      keys: ["endSoonWarningOn", "endSoonSec"],
-      apply(e) {
-        if (!S.endSoonWarningOn) return void Lr("#ytb-extra-endwarn");
-        const t = document.createElement("div");
-        ((t.id = "ytb-extra-endwarn"), document.body.appendChild(t));
-        let a = !1,
-          n = -1;
-        const r = () => {
-            const e = ie.el();
-            if (!e || !e.duration)
-              return void (a && (t.classList.remove("show"), (a = !1)));
-            const r = Math.floor(e.duration - e.currentTime),
-              o = Number(S.endSoonSec) || 20,
-              i = r > 0 && r <= o;
-            (i &&
-              r !== n &&
-              ((n = r),
-              pa(() => {
-                t.textContent = "Ending in " + ce(r);
-              })),
-              i !== a &&
-                ((a = i),
-                pa(() => {
-                  t.classList.toggle("show", i);
-                })));
-          },
-          boundEls = new WeakSet(),
-          o = ie.el();
-        (o &&
-          (boundEls.add(o),
-          e.addListener(o, "timeupdate", r),
-          e.addListener(o, "loadedmetadata", r)),
-          e.onNav(() =>
-            e.addTimeout(() => {
-              const t = ie.el();
 
-              if (t && !boundEls.has(t)) {
-                boundEls.add(t);
-                e.addListener(t, "timeupdate", r);
-              }
-            }, 1200),
-          ),
-          Yt["end-soon-warning"].push(() => t.remove()));
-      },
-      settings(e) {
-        e.appendChild(
-          No("Warn with", "endSoonSec", 5, 120, 5, (e) => e + "s left"),
-        );
-      },
-    }));
+
+
+
+    void 0);
 const _THEME_VARS = ["base-background","raised-background","menu-background","general-background-a","general-background-b","general-background-c","text-primary","text-secondary","text-disabled","badge-chip-background","outline","call-to-action","call-to-action-inverse","icon-active-other","icon-inactive","10-percent-layer","shadow"];
   const Nr = ([
     ["none", "Default (YouTube)", "auto", null],

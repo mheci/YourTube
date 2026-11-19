@@ -439,213 +439,16 @@
     return [0, 144, 240, 360, 480, 720].includes(height) ? height : 0;
   };
 
-  xa.register({
-    id: "fixed-player-size",
-    name: "Player Size",
-    summary: "Sets a fixed player height in normal and theater mode and aligns it in its column.",
-    cat: "playback",
-    masterKey: "playerSizeOn",
-    keys: ["playerSizeOn", "playerHeightNormal", "playerHeightTheater", "playerAlign"],
-    apply(ctx) {
-      if (!S.playerSizeOn) return;
-      const normal = _ytPlayerHeight(S.playerHeightNormal);
-      const theater = _ytPlayerHeight(S.playerHeightTheater);
-      const align = String(S.playerAlign || "0");
-      let css = "";
-      if (normal) {
-        css +=
-          "ytd-watch-flexy:not([fullscreen]):not([simple-fullscreen]):not([theater]){" +
-          `--ytd-watch-flexy-min-player-height:${normal}px!important;` +
-          `--ytd-watch-flexy-max-player-height:${normal}px!important;` +
-          "--ytd-watch-flexy-max-player-width:var(--ytd-watch-flexy-min-player-width)!important}" +
-          "ytd-watch-flexy:not([fullscreen]):not([simple-fullscreen]):not([theater])[is-vertical-video_]{" +
-          `--ytd-watch-flexy-min-player-width:calc(${normal}px*16/9)!important}` +
-          "ytd-watch-flexy:not([fullscreen]):not([simple-fullscreen]):not([theater]):not([is-vertical-video_]){" +
-          `--ytd-watch-flexy-min-player-width:calc(${normal}px*var(--ytd-watch-flexy-width-ratio)/var(--ytd-watch-flexy-height-ratio))!important}` +
-          "ytd-watch-flexy:not([fullscreen]):not([simple-fullscreen]):not([theater]) div#player.ytd-watch-flexy{" +
-          "min-width:var(--ytd-watch-flexy-min-player-width);max-width:var(--ytd-watch-flexy-max-player-width);" +
-          "left:50%;transform:translate(-50%,0)}" +
-          "ytd-watch-flexy:not([fullscreen]):not([simple-fullscreen]):not([theater]) div#player-container-outer.ytd-watch-flexy{" +
-          `height:var(--ytd-watch-flexy-max-player-height);min-width:calc(${normal}px*var(--ytd-watch-flexy-width-ratio)/var(--ytd-watch-flexy-height-ratio))!important}`;
-      }
-      if (theater) {
-        css +=
-          "ytd-watch-flexy:not([fullscreen]):not([simple-fullscreen])[theater] #player-theater-container," +
-          "ytd-watch-flexy:not([fullscreen]):not([simple-fullscreen])[theater] #player-wide-container," +
-          "ytd-watch-flexy:not([fullscreen]):not([simple-fullscreen])[theater] #player-full-bleed-container{" +
-          `min-width:calc(${theater}px*var(--ytd-watch-flexy-width-ratio)/var(--ytd-watch-flexy-height-ratio))!important;` +
-          `max-width:calc(${theater}px*var(--ytd-watch-flexy-width-ratio)/var(--ytd-watch-flexy-height-ratio))!important;` +
-          `min-height:${theater}px!important;max-height:${theater}px!important;height:${theater}px!important}` +
-          `ytd-watch-flexy:not([fullscreen]):not([simple-fullscreen])[theater] div#movie_player{height:${theater}px;width:calc(${theater}px*var(--ytd-watch-flexy-width-ratio)/var(--ytd-watch-flexy-height-ratio))}`;
-      }
-      if ("1" === align) css += "#player-container-outer{margin-left:0!important}";
-      if ("2" === align) css += "#player-container-outer{margin-right:0!important}#player-theater-container,#player-wide-container,#player-full-bleed-container{margin-left:auto!important}";
-      if (css) ctx.addStyle(css);
 
-      if (normal || theater) {
-        const resize = () => {
-          try {
-            const player = document.getElementById("movie_player");
-            if (!player || typeof player.setInternalSize !== "function") return;
-            if (typeof player.isFullscreen === "function" && player.isFullscreen()) return;
-            const flexy = document.querySelector("ytd-watch-flexy");
-            const target = flexy && flexy.hasAttribute("theater") ? theater : normal;
-            if (!target) return;
-            const size = typeof player.getPlayerSize === "function" ? player.getPlayerSize() : null;
-            if (!size || size.height !== target) player.setInternalSize();
-          } catch (_) {}
-        };
-        ctx.addInterval(resize, 1500);
-      }
-    },
-    settings(en) {
-      en.appendChild(Io("Use a fixed player size", "playerSizeOn"));
-      en.appendChild(Ro("Normal mode height", "playerHeightNormal", {
-        0: "Default", 144: "144px", 240: "240px", 360: "360px", 480: "480px", 720: "720px",
-      }));
-      en.appendChild(Ro("Theater mode height", "playerHeightTheater", {
-        0: "Default", 144: "144px", 240: "240px", 360: "360px", 480: "480px", 720: "720px",
-      }));
-      en.appendChild(Ro("Alignment", "playerAlign", {
-        0: "Center (default)", 1: "Left", 2: "Right",
-      }));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Fixed heights are ignored in fullscreen. Width follows the video's aspect ratio."));
-    },
-  });
 
-  xa.register({
-    id: "description-width",
-    name: "Description Width",
-    summary: "Sets the width of the watch page columns, including the suggested videos sidebar.",
-    cat: "appearance",
-    masterKey: "descriptionWidthOn",
-    keys: ["descriptionWidthOn", "descriptionWidthPreset"],
-    apply(ctx) {
-      if (!S.descriptionWidthOn) return;
-      const widths = {
-        0: 0, stretch: "100vw", 1200: "1200px", 1280: "1280px", 1360: "1360px",
-        1440: "1440px", 1520: "1520px", 1600: "1600px", 1680: "1680px",
-        1760: "1760px", 1840: "1840px", 1920: "1920px",
-      };
-      const width = widths[String(S.descriptionWidthPreset || "0")] || 0;
-      if (!width) return;
-      ctx.addStyle(
-        `ytd-app:not([mini-guide-visible_]) ytd-page-manager{--ytf-width:calc(${width} - 20px);min-width:100%}` +
-        `ytd-app[mini-guide-visible_] ytd-page-manager{--ytf-width:calc(${width} - 92px);min-width:calc(100% - 92px)}` +
-        "ytd-watch-flexy[flexy][fullscreen]{min-width:100%!important}" +
-        "ytd-watch-flexy[flexy] #columns{" +
-        "--ytd-watch-flexy-min-player-width:calc(var(--ytf-width) - var(--ytd-watch-flexy-sidebar-width) - 3*var(--ytd-margin-6x));" +
-        "min-width:var(--ytf-width)!important;max-width:var(--ytf-width)!important}" +
-        "ytd-watch-flexy[flexy][is-two-columns_]:not([is-four-three-to-sixteen-nine-video_]):not([is-extra-wide-video_]) div#primary.ytd-watch-flexy{" +
-        "max-width:var(--ytd-watch-flexy-max-player-width);min-width:var(--ytd-watch-flexy-min-player-width)}" +
-        "ytd-watch-flexy[flexy][is-vertical-video_] div#player-container-inner.ytd-watch-flexy{" +
-        "width:calc(var(--ytd-watch-flexy-min-player-height)*1.7777777778);position:relative;transform:translate(-50%,0);margin-left:50%}",
-      );
-    },
-    settings(en) {
-      en.appendChild(Io("Set a custom watch page width", "descriptionWidthOn"));
-      en.appendChild(Ro("Width", "descriptionWidthPreset", {
-        0: "Default", stretch: "Full window", 1200: "1200px", 1280: "1280px", 1360: "1360px",
-        1440: "1440px", 1520: "1520px", 1600: "1600px", 1680: "1680px",
-        1760: "1760px", 1840: "1840px", 1920: "1920px",
-      }));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Conflicts with Wide Player, which already stretches the columns. Pick one."));
-    },
-  });
 
-  xa.register({
-    id: "channel-banner-mode",
-    name: "Channel Banner",
-    summary: "Scrolls the channel banner away or hides it entirely.",
-    cat: "channels",
-    masterKey: "channelBannerMode",
-    isOn: () => String(S.channelBannerMode || "default") !== "default",
-    keys: ["channelBannerMode"],
-    apply(ctx) {
-      const mode = String(S.channelBannerMode || "default");
-      const page = 'ytd-browse[page-subtype="channels"] ';
-      if ("scroll" === mode) {
-        ctx.addStyle(
-          page + "app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "tp-yt-app-header#header.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
-          page + "ytd-tabbed-page-header #page-header-banner," +
-          page + "yt-page-header-renderer #page-header-banner," +
-          page + "yt-image-banner-view-model{" +
-          "transform:none!important;position:absolute;left:0!important;top:0;margin-top:0}",
-        );
-      } else if ("hide" === mode) {
-        ctx.addStyle(
-          page + "div#contentContainer.style-scope.app-header-layout{padding-top:148px!important}" +
-          page + "div#contentContainer.style-scope.app-header{height:148px!important}" +
-          page + "div.banner-visible-area.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "div.page-header-banner.style-scope.ytd-c4-tabbed-header-renderer," +
-          page + "#page-header-banner.style-scope.ytd-tabbed-page-header," +
-          page + "ytd-tabbed-page-header #page-header-banner," +
-          page + "yt-page-header-renderer #page-header-banner," +
-          page + "yt-image-banner-view-model{display:none!important}" +
-          page + "tp-yt-app-header#header.ytd-tabbed-page-header{transform:none!important;position:absolute!important;left:0!important;margin-top:0!important}",
-        );
-      }
-    },
-    settings(en) {
-      en.appendChild(Ro("Banner behaviour", "channelBannerMode", {
-        default: "Default", scroll: "Scroll it away", hide: "Hide it entirely",
-      }));
-    },
-  });
 
-  xa.register({
-    id: "channel-landing-tab",
-    name: "Channel Landing Tab",
-    summary: "Opens a channel on the tab you use most instead of its home page.",
-    cat: "channels",
-    masterKey: "channelLandingTab",
-    isOn: () => String(S.channelLandingTab || "home") !== "home",
-    keys: ["channelLandingTab"],
-    apply(ctx) {
-      const tabs = {
-        videos: "/videos", shorts: "/shorts", live: "/streams", playlists: "/playlists",
-        community: "/community", about: "/about",
-      };
-      const run = () => {
-        try {
-          const tab = tabs[String(S.channelLandingTab || "home")];
-          if (!tab) return;
-          const path = location.pathname;
-          if (!/^\/(?:@[^/]+|channel\/[^/]+|c\/[^/]+|user\/[^/]+)(?:\/featured)?\/?$/.test(path)) return;
-          const base = path.replace(/\/featured\/?$/, "").replace(/\/$/, "");
-          location.replace(base + tab);
-        } catch (_) {}
-      };
-      run();
-      ctx.onNav(() => {
-        run();
-        ctx.addTimeout(run, 300);
-      });
-    },
-    settings(en) {
-      en.appendChild(Ro("Open channels on", "channelLandingTab", {
-        home: "Home (default)", videos: "Videos", shorts: "Shorts", live: "Live",
-        playlists: "Playlists", community: "Community", about: "About",
-      }));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Only applies when you land on a channel's root URL. Deep links are left alone."));
-    },
-  });
 
-  xa.register({
-    id: "resume-timestamps",
-    name: "Resume Timestamps",
-    summary: "Strips YouTube's resume timestamps from links and can restyle the red resume bar.",
-    cat: "privacy",
-    masterKey: "resumeBarStyle",
-    settingsAlways: true,
-    isOn: () => !!S.stripResumeTimesOn || String(S.resumeBarStyle || "default") !== "default",
-    keys: ["stripResumeTimesOn", "resumeBarStyle"],
-    apply(ctx) {
+
+
+
+  // Shared implementation for the consolidated Session History controls.
+  function applyResumeLinkSettings(ctx) {
       const bar = String(S.resumeBarStyle || "default");
       if ("full" === bar) {
         ctx.addStyle(
@@ -660,30 +463,55 @@
       }
       if (!S.stripResumeTimesOn) return;
 
+      const changed = new Map();
       const clean = (anchor) => {
         if (!anchor || anchor.tagName !== "A") return;
         const href = anchor.getAttribute("href") || "";
         if (!/\/watch\?/.test(href) || !/[?&]t=/.test(href)) return;
         try {
           const url = new URL(href, location.origin);
+          if (url.origin !== location.origin || url.pathname !== "/watch") return;
           url.searchParams.delete("t");
-          anchor.setAttribute("href", url.pathname + url.search + url.hash);
-        } catch (_) {}
-        // Polymer keeps its own copy of the endpoint, so the DOM href alone is
-        // not enough on soft navigation. Both shapes are guarded.
-        try {
+          const cleanHref = url.pathname + url.search + url.hash;
           const data = anchor.data || (anchor.__data && anchor.__data.data);
           const web = data && data.commandMetadata && data.commandMetadata.webCommandMetadata;
-          if (web && typeof web.url === "string") {
-            web.url = web.url.replace(/([?&])t=\d+s?&?/, "$1").replace(/[?&]$/, "");
-          }
           const endpoint = data && data.watchEndpoint;
-          if (endpoint && endpoint.startTimeSeconds) delete endpoint.startTimeSeconds;
+          const priorWeb = typeof web?.url === "string" ? web.url : null;
+          const hadEndpoint = !!endpoint && Object.prototype.hasOwnProperty.call(endpoint, "startTimeSeconds");
+          const priorStart = hadEndpoint ? endpoint.startTimeSeconds : undefined;
+          let cleanWeb = priorWeb;
+          if (priorWeb !== null) {
+            try {
+              const webUrl = new URL(priorWeb, location.origin);
+              if (webUrl.origin === location.origin && webUrl.pathname === "/watch") {
+                webUrl.searchParams.delete("t");
+                cleanWeb = /^https?:/i.test(priorWeb) ? webUrl.href : webUrl.pathname + webUrl.search + webUrl.hash;
+                web.url = cleanWeb;
+              }
+            } catch (_) {}
+          }
+          if (hadEndpoint) delete endpoint.startTimeSeconds;
+          changed.set(anchor, {href, cleanHref, web, priorWeb, cleanWeb, endpoint, hadEndpoint, priorStart});
+          anchor.setAttribute("href", cleanHref);
         } catch (_) {}
       };
+      Yt["session-restore"].push(() => {
+        for (const [anchor, rec] of changed) {
+          try {
+            // Do not overwrite links YouTube or another extension has changed.
+            if (anchor.getAttribute("href") !== rec.cleanHref) continue;
+            anchor.setAttribute("href", rec.href);
+            if (rec.web && rec.priorWeb !== null && rec.web.url === rec.cleanWeb) rec.web.url = rec.priorWeb;
+            if (rec.hadEndpoint && rec.endpoint && !Object.prototype.hasOwnProperty.call(rec.endpoint,"startTimeSeconds"))
+              rec.endpoint.startTimeSeconds = rec.priorStart;
+          } catch (_) {}
+        }
+        changed.clear();
+      });
 
       const scan = () => {
         document.querySelectorAll('a[href*="/watch?"][href*="t="]').forEach(clean);
+        for (const anchor of changed.keys()) if (!anchor.isConnected) changed.delete(anchor);
       };
       scan();
       ctx.addObserver(document.body, ctx.debounce(scan, 400), {
@@ -694,16 +522,8 @@
       });
       ctx.addInterval(scan, 4000);
       ctx.onNav(() => ctx.addTimeout(scan, 700));
-    },
-    settings(en) {
-      en.appendChild(Io("Remove resume timestamps from video links", "stripResumeTimesOn"));
-      en.appendChild(Ro("Resume bar", "resumeBarStyle", {
-        default: "Default", full: "Full thumbnail width", hide: "Hide it",
-      }));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Timestamps in the address bar and shared links are untouched; only link targets on the page are rewritten."));
-    },
-  });
+  }
+
 
   xa.register({
     id: "thumbnail-sizes",

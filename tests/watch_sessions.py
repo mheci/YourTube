@@ -201,6 +201,8 @@ def main():
 if(location.pathname==='/watch' && location.search.includes('db=slow')){const open=indexedDB.open.bind(indexedDB);indexedDB.open=(...a)=>{const facade={};setTimeout(()=>{const req=open(...a);for(const k of ['result','error','transaction'])Object.defineProperty(facade,k,{get:()=>req[k]});for(const k of ['success','error','blocked','upgradeneeded'])req['on'+k]=ev=>facade['on'+k]?.(ev)},1250);return facade;}}
 if(location.pathname==='/watch' && location.search.includes('db=blocked')){indexedDB.open=()=>{throw new DOMException('Controlled DB denial','SecurityError')}}
 if(location.pathname==='/watch' && location.search.includes('write=fault')){const orig=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...a){if(this.name==='history')throw new DOMException('Controlled commit fault','QuotaExceededError');return orig.apply(this,a)}}
+if(location.pathname==='/watch' && location.search.includes('read=playlist-fault')){window.__playlistReadFault=true;const orig=IDBObjectStore.prototype.get;IDBObjectStore.prototype.get=function(key,...args){if(this.name==='kv'&&key==='__yourtube_pl_resume__'&&window.__playlistReadFault)throw new DOMException('Controlled playlist read denial','SecurityError');return orig.call(this,key,...args)}}
+if(location.pathname==='/watch' && location.search.includes('backup=fault')){const orig=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,...rest){if(this.name==='kv'&&v?.k==='yourtube/migration-backup/v1')throw new DOMException('Controlled backup fault','QuotaExceededError');return orig.call(this,v,...rest)}}
 if(location.pathname==='/watch' && location.search.includes('play=denied')){window.fieldDeny=true;HTMLMediaElement.prototype.play=function(){return window.fieldDeny?Promise.reject(new DOMException('Controlled user activation denial','NotAllowedError')):window.fieldNative.apply(this,arguments)}}"""
         )
         p = c.new_page()
@@ -1079,7 +1081,7 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                     record(C, 19, title="Returned film"),
                     record(A, 4, lastWatched=1, title="Stale import"),
                 ]
-                panel.locator("input[type=file]").set_input_files(
+                panel.locator("input[type=file]").first.set_input_files(
                     {
                         "name": "local-backup.json",
                         "mimeType": "application/json",
@@ -1106,6 +1108,471 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 }
 
             case("library-search-filter-pin-safe-remove", controls)
+
+            def history_trash():
+                init([record(C, 24, title="Recoverable film", pinned=0)])
+                watch()
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel = p.locator(".ytb-watch-journal")
+                panel.get_by_text("Recoverable film", exact=True).wait_for()
+                panel.get_by_text("Remove", exact=True).click()
+                panel.get_by_text("Confirm removal", exact=True).click()
+                waitrow("!r", C)
+                panel.get_by_text("History trash", exact=True).click()
+                line = panel.locator(".row").filter(has_text="Recoverable film")
+                line.get_by_text("Restore", exact=True).click()
+                waitrow("r?.retentionExempt===true&&r.lastPosition===24", C)
+                assert data(C)["notes"] == "keep this note"
+                # A conflicting newly recorded row must not be overwritten.
+                panel.get_by_text("History trash", exact=True).click()
+                panel.get_by_text("Remove", exact=True).click()
+                panel.get_by_text("Confirm removal", exact=True).click()
+                waitrow("!r", C)
+                p.evaluate("async row=>YourTube.history.put(row)", record(C, 9, title="New recording", pinned=0))
+                panel.get_by_text("History trash", exact=True).click()
+                line = panel.locator(".row").filter(has_text="Recoverable film")
+                line.get_by_text("Restore", exact=True).click()
+                panel.get_by_text("An active entry exists for this video. It was not overwritten.").wait_for()
+                assert data(C)["lastPosition"] == 9
+                return {"restorePreservedNotes": True, "restoredExempt": True, "conflictPreserved": True}
+
+            case("history-trash-restore-and-conflict", history_trash)
+
+            def history_trash_import():
+                init([])
+                watch()
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel = p.locator(".ytb-watch-journal")
+                now = int(time.time() * 1000)
+                valid = {"kind":"history", "deletedAt":now-3600000, "expiresAt":now+6*86400000, "row":record(B, 17, title="Imported from trash")}
+                expired = {"kind":"history", "deletedAt":now-9*86400000, "expiresAt":now-2*86400000, "row":record(C, 13, title="Expired trash")}
+                backup = {"format":"yourtube-history-trash-v1", "entries":[valid, expired]}
+                panel.locator("input[type=file]").nth(1).set_input_files({"name":"trash.json", "mimeType":"application/json", "buffer":json.dumps(backup).encode()})
+                panel.get_by_text("Imported 1 history trash items; skipped 1.").wait_for()
+                assert data(B) is None and data(C) is None
+                saved = p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});return await new Promise((ok,no)=>{const r=db.transaction('kv').objectStore('kv').getAll();r.onsuccess=()=>ok(r.result.filter(x=>x.k.startsWith('yourtube/trash/history/')&&x.v?.row?.title==='Imported from trash'));r.onerror=()=>no(r.error)})}""")
+                assert len(saved)==1 and saved[0]["v"]["deletedAt"]==valid["deletedAt"] and saved[0]["v"]["expiresAt"]==valid["expiresAt"]
+                panel.get_by_text("History trash", exact=True).click()
+                line = panel.locator(".row").filter(has_text="Imported from trash")
+                line.get_by_text("Restore", exact=True).click()
+                waitrow("r?.retentionExempt===true&&r.lastPosition===17", B)
+                assert not panel.get_by_text("Expired trash", exact=True).count()
+                return {"validRestored": True, "expiredDiscarded": True, "originalWindowPreserved": True}
+
+            case("history-trash-import-retains-window", history_trash_import)
+
+            def history_session_retention():
+                init([])
+                watch()
+                row=p.evaluate("""id=>{const now=Date.now(),d=new Date(now);d.setUTCMonth(d.getUTCMonth()-3);const boundary=d.getTime();return {videoId:id,title:'Session retention film',channel:'Archive',firstWatched:boundary-10*86400000,lastWatched:now-3600000,lastPosition:29,duration:120,progress:24,watchCount:3,totalWatchTime:60,sessions:[{sid:'discard',start:boundary-10*86400000,end:boundary-10*86400000,played:10},{sid:'recover',start:boundary-2*86400000,end:boundary-2*86400000,played:20},{sid:'recent',start:now-3600000,end:now-3600000,played:30}],notes:'keep metadata',tags:[],pinned:0}}""",C)
+                p.evaluate("async row=>YourTube.history.put(row)",row)
+                sweep=p.evaluate('async()=>YourTube.history.retentionSweep()')
+                assert sweep=={'moved':1,'discarded':1,'changed':1},sweep
+                left=data(C)
+                assert [s['sid'] for s in left['sessions']]==['recent'] and left['totalWatchTime']==30 and left['lastPosition']==29
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');panel.get_by_text('History trash',exact=True).click()
+                item=panel.locator('.row').filter(has_text='Session retention film')
+                item.get_by_text('Watch session',exact=False).wait_for()
+                item.get_by_text('Restore',exact=True).click()
+                waitrow("r?.sessions?.length===2&&r.sessions.some(s=>s.sid==='recover'&&s.retentionExempt===true)",C)
+                restored=data(C);assert restored['totalWatchTime']==50 and restored['watchCount']==2 and restored['lastPosition']==29 and restored['notes']=='keep metadata'
+                assert p.evaluate('async()=>YourTube.history.retentionSweep()')['changed']==0
+                return {'expiredSessionTrashed':True,'pastWindowDiscarded':True,'recentVisitRetained':True,'sessionRestoredWithoutOverwriting':True,'onlyRestoredSessionExempt':True}
+
+            case("history-session-retention-and-restore", history_session_retention)
+
+            def history_session_retention_failure():
+                init([])
+                watch()
+                row=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const old=d.getTime()-86400000;return {videoId:id,title:'Atomic retention',lastWatched:old,firstWatched:old,lastPosition:19,duration:120,watchCount:1,totalWatchTime:10,sessions:[{sid:'old',start:old,end:old,played:10}]}}""",C)
+                p.evaluate("async row=>YourTube.history.put(row)",row)
+                outcome=p.evaluate("""async()=>{const orig=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,...args){if(this.name==='kv'&&v?.k?.startsWith('yourtube/trash/history/'))throw new DOMException('Injected quota failure','QuotaExceededError');return orig.call(this,v,...args)};try{await YourTube.history.retentionSweep();return 'unexpected-success'}catch(e){return 'rejected'}finally{IDBObjectStore.prototype.put=orig}}""")
+                assert outcome=='rejected' and data(C)==row
+                result=p.evaluate('async()=>YourTube.history.retentionSweep()')
+                assert result['moved']==1 and data(C) is None
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');panel.get_by_text('History trash',exact=True).click()
+                panel.locator('.row').filter(has_text='Atomic retention').get_by_text('Restore',exact=True).click()
+                waitrow("r?.sessions?.[0]?.retentionExempt===true&&r.lastPosition===19",C)
+                p.evaluate('async id=>YourTube.history.forceWatched(id)',C)
+                after=data(C)
+                assert after['retentionExempt'] is False and after['sessions'][0]['retentionExempt'] is True
+                assert after['sessions'][-1]['kind']=='forced' and not after['sessions'][-1].get('retentionExempt',False)
+                return {'failedArchiveDidNotRemoveHistory':True,'fullRowRestored':True,'newForcedVisitNotExempt':True}
+
+            case("history-session-retention-is-atomic", history_session_retention_failure)
+
+            def history_retention_background():
+                init([])
+                row=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const old=d.getTime()-86400000;return {videoId:id,title:'Background expiry',lastWatched:old,firstWatched:old,lastPosition:19,duration:120,watchCount:1,totalWatchTime:10,sessions:[{sid:'old',start:old,end:old,played:10}]}}""",C)
+                p.evaluate("async row=>YourTube.history.put(row)",row)
+                assert data(C) is not None
+                watch()
+                p.wait_for_timeout(16000)
+                assert data(C) is None, 'Automatic session sweep did not run'
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');panel.get_by_text('History trash',exact=True).click()
+                line=panel.locator('.row').filter(has_text='Background expiry')
+                line.get_by_text('Watch session',exact=False).wait_for()
+                line.get_by_text('Restore',exact=True).wait_for()
+                return {'automaticExpiry':True,'recoverableSessionTrash':True}
+
+            case("history-session-retention-runs-automatically", history_retention_background)
+
+            def history_no_legacy_prune():
+                init([])
+                p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('history','readwrite'),store=tx.objectStore('history'),then=Date.now()-65*86400000;for(let i=0;i<501;i++){const id='Old'+String(i).padStart(8,'0');store.put({videoId:id,title:'65 days old',lastWatched:then,firstWatched:then,watchCount:1,totalWatchTime:1,sessions:[{sid:'visit-'+i,start:then,end:then,played:1}]})}tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close()}""")
+                watch()
+                await_count=p.evaluate("async()=>{await YourTube.history.prune();return (await YourTube.history.all()).filter(r=>r.title==='65 days old').length}")
+                assert await_count==501,await_count
+                r=record(C,10,title='Many visits',sessions=[{'sid':'visit-'+str(i),'start':int(time.time()*1000)-i*1000,'played':1} for i in range(100)])
+                p.evaluate('async row=>YourTube.history.put(row)',r)
+                p.evaluate('async id=>YourTube.history.forceWatched(id)',C)
+                assert len(data(C)['sessions'])==101
+                return {'historyRowsKept':501,'forceWatchedKeptExistingSessions':100}
+
+            case("history-no-old-cap-or-60-day-prune", history_no_legacy_prune)
+
+            def history_retention_requires_backup():
+                init([])
+                row=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const old=d.getTime()-86400000;return {videoId:id,title:'Backup gate',lastWatched:old,watchCount:1,totalWatchTime:2,sessions:[{start:old,end:old,played:2}]}}""",C)
+                p.evaluate("async row=>YourTube.history.put(row)",row)
+                watch()
+                result=p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').delete('yourtube/migration-backup/v1');tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close();const orig=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,...args){if(v?.k==='yourtube/migration-backup/v1')throw new DOMException('Backup denied','QuotaExceededError');return orig.call(this,v,...args)};try{await YourTube.history.retentionSweep();return 'bad'}catch(e){return 'rejected'}finally{IDBObjectStore.prototype.put=orig}}""")
+                assert result=='rejected' and data(C)==row
+                return {'backupFailurePreventedExpiry':True}
+
+            case("history-retention-requires-durable-backup", history_retention_requires_backup)
+
+            def history_retention_corrupt_backup():
+                init([])
+                row=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const old=d.getTime()-86400000;return {videoId:id,title:'Corrupt backup gate',lastWatched:old,watchCount:1,totalWatchTime:2,sessions:[{start:old,end:old,played:2}]}}""",C)
+                p.evaluate('async row=>YourTube.history.put(row)',row)
+                watch()
+                original=p.evaluate("async()=>await YourTube.storage.get('yourtube/migration-backup/v1')")
+                try:
+                    p.evaluate("async()=>YourTube.storage.set('yourtube/migration-backup/v1',{format:'broken'})")
+                    result=p.evaluate("async()=>{try{await YourTube.history.retentionSweep();return 'bad'}catch(e){return 'rejected'}}")
+                    assert result=='rejected' and data(C)==row
+                    assert p.evaluate("async()=>await YourTube.storage.get('yourtube/migration-backup/v1')")=={'format':'broken'}
+                finally:
+                    p.evaluate("async backup=>YourTube.storage.set('yourtube/migration-backup/v1',backup)",original)
+                return {'invalidBackupDoesNotAuthorizeDeletion':True,'corruptBackupNotOverwritten':True}
+
+            case("history-retention-rejects-invalid-backup", history_retention_corrupt_backup)
+
+            def import_session_trash():
+                init([])
+                watch()
+                now=int(time.time()*1000)
+                active=record(C,29,title='Active during import',sessions=[{'sid':'recent','start':now-3600000,'end':now-3600000,'played':30}],watchCount=1,totalWatchTime=30)
+                p.evaluate('async row=>YourTube.history.put(row)',active)
+                expired=row=record(C,0,title='Imported old session',sessions=[{'sid':'old-import','start':now-100*86400000,'end':now-100*86400000,'played':10}],watchCount=1,totalWatchTime=10)
+                payload={'format':'yourtube-history-trash-v1','entries':[{'kind':'history','scope':'sessions','deletedAt':now-86400000,'expiresAt':now+6*86400000,'row':expired}]}
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal')
+                panel.locator('input[type=file]').nth(1).set_input_files({'name':'trash.json','mimeType':'application/json','buffer':json.dumps(payload).encode()})
+                panel.get_by_text('Imported 1 history trash items; skipped 0.').wait_for()
+                panel.get_by_text('History trash',exact=True).click()
+                line=panel.locator('.row').filter(has_text='Imported old session')
+                line.get_by_text('Watch session',exact=False).wait_for()
+                line.get_by_text('Restore',exact=True).click()
+                p.wait_for_timeout(250)
+                saved=data(C)
+                assert saved['title']=='Active during import' and saved['lastPosition']==29 and saved['totalWatchTime']==40
+                assert any(s.get('sid')=='old-import' and s.get('retentionExempt') for s in saved['sessions'])
+                return {'importPreservedScopeAndDeadline':True,'restoredAlongsideActiveVideo':True}
+
+            case("history-imported-session-trash-restores-into-active-row", import_session_trash)
+
+            def import_retention_exemptions():
+                init([])
+                watch()
+                now=int(time.time()*1000)
+                imported=record(C,12,title='Imported exemptions',sessions=[{'sid':'protected-visit','start':now-100*86400000,'end':now-100*86400000,'played':10,'retentionExempt':True},{'sid':'ordinary-visit','start':now-3600000,'end':now-3600000,'played':20}],watchCount=2,totalWatchTime=30)
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal')
+                panel.locator('input[type=file]').nth(0).set_input_files({'name':'history.json','mimeType':'application/json','buffer':json.dumps({'history':[imported]}).encode()})
+                panel.get_by_text('Imported 1 entries. Newer local saves were kept.').wait_for()
+                saved=data(C)
+                assert saved['sessions'][0]['sid']=='protected-visit' and saved['sessions'][0]['retentionExempt'] is True
+                assert saved['sessions'][1]['sid']=='ordinary-visit' and not saved['sessions'][1].get('retentionExempt',False)
+                assert p.evaluate('async()=>YourTube.history.retentionSweep()')['changed']==0
+                return {'restoredExemptionsSurviveImport':True,'visitIdsPreserved':True}
+
+            case("history-import-preserves-session-exemptions", import_retention_exemptions)
+
+            def import_expired_sessions():
+                init([])
+                watch()
+                old=p.evaluate("""id=>{const now=Date.now(),d=new Date(now);d.setUTCMonth(d.getUTCMonth()-3);const b=d.getTime(),a=b-2*86400000,z=b-10*86400000;return {videoId:id,title:'Imported expired sessions',lastWatched:a,firstWatched:z,lastPosition:11,duration:120,watchCount:2,totalWatchTime:30,sessions:[{sid:'trash-import',start:a,end:a,played:20},{sid:'discard-import',start:z,end:z,played:10}]}}""",C)
+                recent=record(C,29,title='Newer local',sessions=[{'sid':'recent','start':int(time.time()*1000)-3600000,'played':5}],watchCount=1,totalWatchTime=5)
+                p.evaluate('async row=>YourTube.history.put(row)',recent)
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');input=panel.locator('input[type=file]').nth(0)
+                buf=json.dumps({'history':[old]}).encode()
+                input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('Expired history items: 1 moved to trash, 1 past recovery, 0 already in trash.',exact=False).wait_for()
+                assert data(C)['title']=='Newer local' and data(C)['lastPosition']==29
+                input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('Expired history items: 0 moved to trash, 1 past recovery, 1 already in trash.',exact=False).wait_for()
+                panel.get_by_text('History trash',exact=True).click()
+                line=panel.locator('.row').filter(has_text='Imported expired sessions')
+                line.get_by_text('Restore',exact=True).wait_for()
+                assert line.count()==1
+                line.get_by_text('Restore',exact=True).click()
+                p.wait_for_timeout(250)
+                saved=data(C)
+                assert saved['title']=='Newer local' and saved['lastPosition']==29
+                assert any(v.get('sid')=='trash-import' and v.get('retentionExempt') for v in saved['sessions'])
+                assert not any(v.get('sid')=='discard-import' for v in saved['sessions'])
+                return {'expiredImportedToOriginalWindow':True,'pastWindowDiscarded':True,'duplicateSkipped':True,'newerLocalPreserved':True}
+
+            case("history-import-routes-expired-sessions-atomically", import_expired_sessions)
+
+            def import_expired_write_failure():
+                init([])
+                watch()
+                old=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const a=d.getTime()-86400000;return {videoId:id,title:'Failing import',lastWatched:a,watchCount:1,totalWatchTime:10,sessions:[{sid:'failed-import',start:a,end:a,played:10}]}}""",C)
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');input=panel.locator('input[type=file]').nth(0)
+                p.evaluate("""()=>{window._origImportPut=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,...args){if(v?.k?.startsWith('yourtube/trash/history/'))throw new DOMException('quota','QuotaExceededError');return window._origImportPut.call(this,v,...args)}}""")
+                buf=json.dumps({'history':[old]}).encode()
+                input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('Import stopped. Earlier entries may already be saved; check the file and local storage before retrying.').wait_for()
+                assert data(C) is None
+                p.evaluate('()=>{IDBObjectStore.prototype.put=window._origImportPut}')
+                input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('Expired history items: 1 moved to trash',exact=False).wait_for()
+                return {'failedImportDidNotPartiallyActivate':True,'retryArchivedOnce':True}
+
+            case("history-expired-import-rolls-back-on-write-failure", import_expired_write_failure)
+
+            def legacy_resume_retention():
+                init([])
+                watch()
+                old=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const a=d.getTime()-86400000;return {videoId:id,title:'Legacy resume',lastWatched:a,lastPosition:31,duration:120,watchCount:1,totalWatchTime:10,sessions:[]}}""",C)
+                undated={'videoId':B,'title':'Undated legacy resume','lastWatched':0,'lastPosition':22,'sessions':[]}
+                p.evaluate('async rows=>{for(const row of rows)await YourTube.history.put(row)}',[old,undated])
+                result=p.evaluate('async()=>YourTube.history.retentionSweep()')
+                assert result['moved']==1 and data(C) is None and data(B)==undated
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');panel.get_by_text('History trash',exact=True).click()
+                panel.locator('.row').filter(has_text='Legacy resume').get_by_text('Restore',exact=True).click()
+                p.wait_for_timeout(200)
+                assert data(C)['lastPosition']==31 and data(C)['retentionExempt'] is True
+                return {'datedLegacyResumeRecoverable':True,'undatedLegacyKept':True}
+
+            case("legacy-resume-expiry-uses-last-watched", legacy_resume_retention)
+
+            def legacy_resume_import():
+                init([])
+                watch()
+                old=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const a=d.getTime()-86400000;return {videoId:id,title:'Imported legacy resume',lastWatched:a,lastPosition:31,duration:120,watchCount:1,totalWatchTime:10,sessions:[]}}""",C)
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');inp=panel.locator('input[type=file]').nth(0)
+                buf=json.dumps({'history':[old]}).encode()
+                inp.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('Expired history items: 1 moved to trash',exact=False).wait_for()
+                assert data(C) is None
+                inp.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('1 already in trash',exact=False).wait_for()
+                panel.get_by_text('History trash',exact=True).click()
+                panel.locator('.row').filter(has_text='Imported legacy resume').get_by_text('Restore',exact=True).click()
+                p.wait_for_timeout(200)
+                assert data(C)['lastPosition']==31 and data(C)['retentionExempt'] is True
+                return {'expiredLegacyResumeImportedToTrash':True,'duplicateSkipped':True,'restoredPosition':31}
+
+            case("legacy-resume-import-respects-expiry", legacy_resume_import)
+
+            def quality_migration():
+                init([], {"autoHD":False,"stickyQualityOn":True,"qualityLockMigrated":False,"videoCodecPref":"vp9"})
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.qualityLockMigrated===true&&YourTube.cfg.autoHD===true")
+                assert p.evaluate("YourTube.cfg.videoCodecPref") == "vp9"
+                p.evaluate("YourTube.setCfg('autoHD',false)")
+                p.wait_for_timeout(1500)
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.autoHD===false", timeout=5000)
+                assert p.evaluate("YourTube.cfg.videoCodecPref") == "vp9"
+                return {"liveLockMigrated": True, "explicitOffPersists": True, "codecSettingPreserved": True}
+
+            def playlist_resume_no_clobber():
+                init([], {"playlistResumeOn":True,"sessionRestoreOn":False})
+                p.evaluate("""async()=>{const data={};for(let i=0;i<200;i++)data['PL-old-'+i]={v:'FieldFilm02',i:0,t:22,at:Date.now()};data.PLfixture={v:'FieldFilm02',i:1,t:37,at:Date.now()};await YourTube.storage.set('__yourtube_pl_resume__',data)}""")
+                watch(extra='&list=PLfixture')
+                p.locator('#ytb-plresume').wait_for(timeout=7000)
+                p.evaluate("()=>{v().currentTime=24;v().dispatchEvent(new Event('timeupdate'))}")
+                p.wait_for_timeout(700)
+                before=p.evaluate("async()=>await YourTube.storage.get('__yourtube_pl_resume__')")
+                assert before['PLfixture']['v']==B and before['PLfixture']['t']==37 and len(before)==201
+                p.locator('#ytb-plresume-dismiss').click()
+                p.evaluate("()=>{v().currentTime=25;v().dispatchEvent(new Event('timeupdate'))}")
+                p.wait_for_timeout(1000)
+                after=p.evaluate("async()=>await YourTube.storage.get('__yourtube_pl_resume__')")
+                assert after['PLfixture']['v']==A and after['PLfixture']['t']>=24 and len(after)==201, after.get('PLfixture')
+                return {'existingResumeNotClobberedBeforeChoice':True,'explicitContinueWritesCurrent':True,'playlistsPreserved':201}
+
+            case("playlist-resume-waits-for-choice-without-truncation", playlist_resume_no_clobber)
+
+            def playlist_resume_read_retry():
+                init([], {"playlistResumeOn":True,"sessionRestoreOn":False})
+                p.evaluate("async()=>YourTube.storage.set('__yourtube_pl_resume__',{PLblocked:{v:'FieldFilm02',i:1,t:41,at:Date.now()}})")
+                watch(extra='&list=PLblocked&read=playlist-fault')
+                p.evaluate("()=>{v().currentTime=20;v().dispatchEvent(new Event('timeupdate'))}")
+                p.wait_for_timeout(500)
+                assert p.locator('#ytb-plresume').count()==0
+                p.evaluate('window.__playlistReadFault=false')
+                p.locator('#ytb-plresume').wait_for(timeout=8500)
+                saved=p.evaluate("async()=>await YourTube.storage.get('__yourtube_pl_resume__')")
+                assert saved['PLblocked']['v']==B and saved['PLblocked']['t']==41
+                return {'readFailureDidNotClobberResume':True,'recoveredWithoutReload':True}
+
+            case("playlist-resume-retries-failed-initial-read", playlist_resume_read_retry)
+
+            def playlist_resume_write_retry():
+                init([], {"playlistResumeOn":True,"sessionRestoreOn":False})
+                p.evaluate("async()=>YourTube.storage.set('__yourtube_pl_resume__',{PLfailure:{v:'FieldFilm02',i:1,t:41,at:Date.now()}})")
+                watch(extra='&list=PLfailure')
+                p.locator('#ytb-plresume-dismiss').wait_for(timeout=7000)
+                p.locator('#ytb-plresume-dismiss').click()
+                p.evaluate("""()=>{window.__playlistPut=IDBObjectStore.prototype.put;window.__playlistFail=true;IDBObjectStore.prototype.put=function(value,...args){if(value?.k==='__yourtube_pl_resume__'&&window.__playlistFail)throw new DOMException('Controlled write failure','QuotaExceededError');return window.__playlistPut.call(this,value,...args)}}""")
+                p.evaluate("()=>{v().currentTime=25;v().dispatchEvent(new Event('timeupdate'))}")
+                p.wait_for_timeout(500)
+                old=p.evaluate("async()=>await YourTube.storage.get('__yourtube_pl_resume__')")
+                assert old['PLfailure']['v']==B and old['PLfailure']['t']==41
+                p.evaluate('window.__playlistFail=false')
+                p.wait_for_timeout(5200)
+                saved=p.evaluate("async()=>await YourTube.storage.get('__yourtube_pl_resume__')")
+                assert saved['PLfailure']['v']==A and saved['PLfailure']['t']>=24
+                p.evaluate('()=>{IDBObjectStore.prototype.put=window.__playlistPut}')
+                return {'oldDurableResumeSurvivedFailure':True,'pendingChangeRetried':True}
+
+            case("playlist-resume-retries-failed-write", playlist_resume_write_retry)
+
+            case("quality-live-lock-migration", quality_migration)
+
+            def collection_migration():
+                init([], {"collectionsOn":False,"quickCollectionSendOn":True,"collectionSendMigrated":False})
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.collectionSendMigrated===true&&YourTube.cfg.collectionsOn===true")
+                p.evaluate("()=>{const n=document.createElement('div');n.id='below';document.body.appendChild(n)}")
+                p.locator("#ytb-collections").wait_for()
+                assert not p.evaluate("!!YourTube.features.get('quick-collection-send')")
+                p.evaluate("YourTube.setCfg('collectionsOn',false)")
+                p.wait_for_timeout(1300)
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.collectionsOn===false",timeout=5000)
+                assert p.evaluate("YourTube.cfg.quickCollectionSendOn") is True
+                return {"migrated":True,"explicitOffPersists":True,"legacySettingPreserved":True}
+
+            case("collection-control-migration", collection_migration)
+
+            def local_data_no_silent_truncation():
+                init([], {"collectionsOn":True,"videoBookmarksOn":True,"timestampNotesOn":True})
+                p.evaluate("""async id=>{
+                  const now=Date.now();
+                  const collections=Array.from({length:101},(_,i)=>({id:'collection-'+i,name:'Folder '+i,createdAt:now,videos:i===0?Array.from({length:500},(_,j)=>({videoId:'existing-'+j,title:'Existing'})):[]}));
+                  const books={},notes={};
+                  for(let i=0;i<200;i++){books['legacy-'+i]=[{t:0,at:now}];notes['legacy-'+i]=[{t:0,text:'legacy',at:now}];}
+                  books[id]=Array.from({length:100},(_,i)=>({t:i,note:'',at:now}));
+                  notes[id]=Array.from({length:100},(_,i)=>({t:i,text:'note '+i,at:now}));
+                  await YourTube.storage.set('__yourtube_collections__',collections);
+                  await YourTube.storage.set('__yourtube_bookmarks__',books);
+                  await YourTube.storage.set('__yourtube_notes__',notes);
+                }""", A)
+                watch()
+                p.evaluate("()=>{const n=document.createElement('div');n.id='below';document.body.appendChild(n)}")
+                p.locator('#ytb-collections [data-col="collection-0"]').wait_for()
+                p.locator('#ytb-collections [data-col="collection-0"]').click()
+                p.keyboard.press('Alt+b')
+                p.keyboard.press('Alt+n')
+                p.locator('#ytb-notes').fill('newly saved note')
+                p.locator('#ytb-notes').press('Control+Enter')
+                p.wait_for_function("""async id=>{
+                  const c=await YourTube.storage.get('__yourtube_collections__');
+                  const b=await YourTube.storage.get('__yourtube_bookmarks__');
+                  const n=await YourTube.storage.get('__yourtube_notes__');
+                  return c?.length===101&&c[0]?.videos.length===501&&Object.keys(b||{}).length===201&&b[id]?.length===101&&Object.keys(n||{}).length===201&&n[id]?.length===101;
+                }""",arg=A,timeout=12000)
+                return {"collections":101,"videosInFirst":501,"bookmarkVideos":201,"bookmarksInVideo":101,"noteVideos":201,"notesInVideo":101}
+
+            case("local-data-does-not-silently-truncate", local_data_no_silent_truncation)
+
+            def note_write_recovery():
+                init([], {"timestampNotesOn":True})
+                p.evaluate("async()=>YourTube.storage.set('__yourtube_notes__',{})")
+                watch()
+                p.evaluate("""()=>{window._normalPut=IDBObjectStore.prototype.put;window._failNotes=true;IDBObjectStore.prototype.put=function(v,...rest){if(this.name==='kv'&&v?.k==='__yourtube_notes__'&&window._failNotes)throw new DOMException('Controlled write failure','QuotaExceededError');return window._normalPut.call(this,v,...rest)}}""")
+                p.keyboard.press('Alt+n')
+                box=p.locator('#ytb-notes');box.fill('keep on failed write');box.press('Control+Enter')
+                p.wait_for_timeout(300)
+                assert box.input_value()=='keep on failed write'
+                assert not (p.evaluate("async()=>await YourTube.storage.get('__yourtube_notes__')") or {}).get(A)
+                p.evaluate('window._failNotes=false')
+                box.press('Control+Enter')
+                p.wait_for_function("""async id=>{const n=await YourTube.storage.get('__yourtube_notes__');return n?.[id]?.length===1&&n[id][0].text==='keep on failed write'}""",arg=A,timeout=6000)
+                assert box.input_value()==''
+                return {"textPreservedOnFailure":True,"retrySavedOnce":True}
+
+            case("note-write-failure-recovery", note_write_recovery)
+
+            def channel_tab_migration():
+                init([], {"channelLandingTab":"home", "defaultChannelTab":"videos", "channelTabMigrated":False})
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.channelTabMigrated===true&&YourTube.cfg.channelLandingTab==='videos'")
+                assert p.evaluate("YourTube.cfg.defaultChannelTab") == 'videos'
+                p.evaluate("YourTube.setCfg('channelLandingTab','home')")
+                p.wait_for_timeout(1400)
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.channelLandingTab==='home'",timeout=5000)
+                return {"legacyPreferenceMigrated":True,"explicitHomePersists":True,"legacyValuePreserved":True}
+
+            case("channel-tab-migration", channel_tab_migration)
+
+            def migration_backup():
+                init([record(C,24,title='Backup original')], {"speedDefault":1.75})
+                p.evaluate("""async()=>{await YourTube.storage.set('note:video:FieldFilm03','saved note');await YourTube.storage.set('__yourtube_collections__',[{id:'backup-col',name:'Saved',videos:[],createdAt:42}]);const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').delete('yourtube/migration-backup/v1');tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close()}""")
+                watch()
+                p.wait_for_function("""async()=>{const x=await YourTube.storage.get('yourtube/migration-backup/v1');return x?.history?.some(r=>r.title==='Backup original')}""",timeout=8000)
+                snap=p.evaluate("async()=>YourTube.storage.get('yourtube/migration-backup/v1')")
+                assert snap['format']=='yourtube-migration-backup-v1' and snap['settings']['speedDefault']==1.75
+                assert any(r['k']=='note:video:FieldFilm03' and r['v']=='saved note' for r in snap['records'])
+                assert any(r['k']=='__yourtube_collections__' and r['v'][0]['name']=='Saved' for r in snap['records'])
+                p.evaluate("async()=>{await YourTube.history.del('FieldFilm03');await YourTube.storage.set('note:video:FieldFilm03','changed')}")
+                watch()
+                snap2=p.evaluate("async()=>YourTube.storage.get('yourtube/migration-backup/v1')")
+                assert snap2==snap
+                return {"historyAndNotesSaved":True,"settingsSaved":True,"unchangedAfterEdits":True}
+
+            case("migration-backup-is-atomic-and-preserved", migration_backup)
+
+            def migration_backup_newest_settings():
+                init([record(C,24,title='Newer IDB configuration')], {"speedDefault":1.25})
+                p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('kv','readwrite'),store=tx.objectStore('kv');store.delete('yourtube/migration-backup/v1');store.put({k:'__cfg__',v:{speedDefault:1.875,sessionRestoreOn:true},ver:987654321,updatedAt:Date.now()+1000});tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close()}""")
+                watch()
+                p.wait_for_function("async()=>!!(await YourTube.storage.get('yourtube/migration-backup/v1'))")
+                snap=p.evaluate("async()=>YourTube.storage.get('yourtube/migration-backup/v1')")
+                assert snap['settings']['speedDefault']==1.875, snap['settings'].get('speedDefault')
+                assert any(x['src']=='idb' and x['data']['speedDefault']==1.875 for x in snap['settingsSources'])
+                return {"newestIdbConfigPreserved":True,"sourceSnapshotsSaved":True}
+
+            case("migration-backup-selects-newest-settings", migration_backup_newest_settings)
+
+            def migration_backup_failure():
+                init([record(C,24,title='Never remove on failure')])
+                p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').delete('yourtube/migration-backup/v1');tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close()}""")
+                watch(extra='&backup=fault')
+                p.wait_for_timeout(500)
+                assert data(C)['title']=='Never remove on failure'
+                assert p.evaluate("async()=>await YourTube.storage.get('yourtube/migration-backup/v1')") is None
+                watch()
+                p.wait_for_function("async()=>!!(await YourTube.storage.get('yourtube/migration-backup/v1'))")
+                assert data(C)['title']=='Never remove on failure'
+                return {"noFalseBackup":True,"dataPreserved":True,"retryCreatedBackup":True}
+
+            case("migration-backup-failure-keeps-data", migration_backup_failure)
         c.close()
         if not args.profile:
             b.close()

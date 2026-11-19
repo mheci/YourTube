@@ -52,7 +52,7 @@ async def main():
         "/audit/media.webm": ("video/webm", (A / "media.webm").read_bytes()),
         "/audit/bundle.js": ("application/javascript", bundle),
     }
-    selected = set(args.select.split(",")) if args.select else set(S)
+    selected = set(args.select.split(",")) if args.select else set(S) & set(IDS)
     ids = [r["id"] for r in REG if r["id"] in selected and r["id"] in S]
     assert not (selected - set(IDS)), selected - set(IDS)
     sem = asyncio.Semaphore(1 if args.tm_profile else args.workers)

@@ -158,27 +158,6 @@ def run(args):
 
         ok("normal selected URL copy with an initially empty clipboard", copy)
 
-        def sort():
-            p.evaluate("history.replaceState({},'', '/results?search_query=fixture')")
-            fixture(
-                '<ytd-search><div id="primary"><ytd-item-section-renderer><div id="contents"><ytd-video-renderer id="a"><span id="metadata-line">2K • 2d ago</span></ytd-video-renderer><aside id="shelf"></aside><ytd-video-renderer id="b"><span id="metadata-line">15K 1y ago</span></ytd-video-renderer><div id="continuation"></div></div></ytd-item-section-renderer></div></ytd-search>'
-            )
-            cfg(sortSearchOn=True, sortSearchBy="views")
-            order = "Array.from(document.querySelector('#contents').children,n=>n.id).join('/')"
-            until(order + "==='b/shelf/a/continuation'")
-            p.get_by_role("button", name="Newest").click()
-            until(order + "==='a/shelf/b/continuation'")
-            p.get_by_role("button", name="YouTube order").click()
-            until(order + "==='a/shelf/b/continuation'")
-            p.get_by_role("button", name="Most viewed").click()
-            until(
-                "document.querySelector('button[data-order=views]').getAttribute('aria-pressed')==='true'"
-            )
-            cfg(sortSearchOn=False)
-            until(order + "==='a/shelf/b/continuation'")
-
-        ok("sort default, manual selection, native slots and teardown", sort)
-
         def cookiegeo():
             fixture("")
             p.evaluate(
@@ -230,47 +209,11 @@ def run(args):
 
         ok("keymap master actually gates saved bindings", keymap)
 
-        def sleep():
-            cfg(sleepTimerOn=True, sleepTimerMin=15)
-            p.keyboard.press("Alt+o")
-            until(
-                "document.querySelector('#ytb-toast')?.textContent.includes('15 min')"
-            )
-            cfg(sleepTimerOn=False)
+        def retired():
+            ids = ["sort-search", "sleep-timer", "default-audio-track", "perf-mode"]
+            assert p.evaluate("ids=>ids.every(id=>!YourTube.features.get(id))", ids)
 
-        ok("first sleep timer uses configured duration", sleep)
-
-        def aud():
-            fixture('<div id="movie_player"></div>')
-            p.evaluate(
-                "()=>{const m=document.querySelector('#movie_player');m.getAvailableAudioTracks=()=>[{id:'dub',isDefault:true},{id:'original',audioIsOriginal:true}];m.getAudioTrack=()=>({id:'dub'});m.setAudioTrack=t=>m.dataset.active=t.id}"
-            )
-            cfg(defaultOriginalAudioOn=True)
-            until("document.querySelector('#movie_player').dataset.active==='original'")
-            cfg(defaultOriginalAudioOn=False)
-
-        ok("explicit original audio wins over default dub", aud)
-
-        def granular():
-            fixture(
-                '<ytd-video-renderer id="result"><ytd-thumbnail><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA=="></ytd-thumbnail></ytd-video-renderer>'
-            )
-            cfg(perfModeOn=True, perfModeLevel="light", perfModeAuto=False)
-            until(
-                "['content','layout style paint'].includes(getComputedStyle(result).contain)"
-            )
-            cfg(perfContainment=False)
-            until("getComputedStyle(result).contain==='none'")
-            cfg(perfContainment=True)
-            until(
-                "['content','layout style paint'].includes(getComputedStyle(result).contain)"
-            )
-            cfg(perfModeOn=False)
-            until(
-                "getComputedStyle(result).contain==='none' && !result.querySelector('[data-ytb-perf-observed]') && !result.querySelector('img').hasAttribute('loading')"
-            )
-
-        ok("a preset can be overridden; lazy-thumbnail attributes restored", granular)
+        ok("removed search sorting, sleep timer, audio-track and performance cards stay retired", retired)
 
         def dates():
             p.evaluate("history.replaceState({},'', '/watch?v=LabVideo001')")

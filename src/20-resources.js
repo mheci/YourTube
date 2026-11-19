@@ -213,8 +213,11 @@
                 }
               }
             }
-          } catch (_) {
-            try { console.error("[StateStore:" + this._key + "] load failed; starting from defaults"); } catch (_) {}
+          } catch (error) {
+            // A failed read is not an empty store. Permit a later retry and
+            // never let a flush overwrite unseen persisted data with defaults.
+            this._loadPromise = null;
+            throw error;
           }
           this._loaded = true;
           return this._data;
@@ -277,14 +280,11 @@
 
         // A write that lands before load() has merged the stored record would
         // persist defaults over real data, so wait for the initial read first.
-        if (this._loadPromise && !this._loaded) {
-          try { await this._loadPromise; } catch (_) {}
-        }
-
-        const snapshot = this._data;
-        const rev = this._rev;
-        this._flushes++;
         try {
+          if (!this._loaded) await this.load();
+          const snapshot = this._data;
+          const rev = this._rev;
+          this._flushes++;
           await this._storage.set(this._key, snapshot);
           if (this._rev === rev) {
             this._dirty = false;

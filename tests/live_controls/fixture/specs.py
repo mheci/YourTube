@@ -307,7 +307,7 @@ test(
     "location.pathname",
     "x==='/@FieldLab/videos'",
     path="/@FieldLab",
-    cfg={"defaultChannelTab": "videos"},
+    cfg={"channelLandingTab": "videos"},
 )
 hide(
     "hide-top-live-games",
@@ -844,8 +844,8 @@ for id, doc, measure, expect, cfg in [
     (
         "aio-player-tools",
         player,
-        "qa('.ytb-extra-copy-time,.ytb-extra-copy-info,.ytb-extra-next-ch').length",
-        "x===3",
+        "qa('.ytb-extra-next-ch').length",
+        "x===1",
         {},
     ),
     (
@@ -1213,12 +1213,12 @@ test(
 test(
     "force-watched",
     player,
-    "(await dbop('history','get','LabVideo001'))?.progress||0",
-    "x===100",
+    "[(await dbop('history','get','LabVideo001'))?.progress||0,v().currentTime,v().duration]",
+    "x[0]===100&&x[2]>0&&x[1]>=x[2]-0.05",
     setup="await dbop('history','clear')",
     cfg={"forceWatchedAccountHistory": False, "forceWatchedLocalHistory": True},
     key="Shift+w",
-    note="Local-only marking: account history explicitly off, network blocked.",
+    note="Local-only marking and ending the decoded fixture video: account history explicitly off, network blocked.",
 )
 test(
     "update-check",
@@ -1335,21 +1335,11 @@ test(
 )
 test(
     "algo-intelligence",
-    player,
-    "(await YourTube.storage.get('__algo_signals__'))?.watchHistory||null",
-    "!!x&&Object.keys(x).length>0",
-    setup="v().currentTime=35",
-    action="await v().play()",
-    cfg={
-        "algoAutoTrain": False,
-        "algoBoostOn": False,
-        "algoDiversityOn": False,
-        "algoAutoLikeOn": False,
-        "algoAutoDislikeOn": False,
-        "algoShortsOn": False,
-    },
-    limit=17000,
-    note="Local watch-signal collection only. No recommendation feedback, likes, dislikes or boosts sent.",
+    res,
+    "sty('ytd-video-renderer[data-n=\"2\"]','display')",
+    "x==='none'",
+    cfg={"algoBlockKeywords": "night", "algoAutoTrain": False},
+    note="A native-shaped card matching a title keyword is hidden locally.",
 )
 test(
     "perf-mode",
@@ -1433,7 +1423,7 @@ S["resume-timestamps"]["cfg"] = {
     "resumeBarStyle": "default",
 }
 S["hide-low-views"]["action"] = NAV
-S["default-channel-tab"].setdefault("cfg", {}).update(channelLandingTab="home")
+S["default-channel-tab"].setdefault("cfg", {}).update(channelLandingTab="videos")
 S["geo-override"]["reset"] = True
 
 # Chromium serializes the CSS combination `layout style paint` as its `content` shorthand.
@@ -1480,3 +1470,8 @@ S["reader-mode"]["html"] = '<svg hidden><g id="description"></g></svg>' + S["rea
 S["wheel-controls"][
     "setup"
 ] += ";const host=mp(),normal=host.addEventListener;host.addEventListener=function(type,...args){if(type!=='wheel')return normal.call(this,type,...args)}"
+
+# Statistics require dated sessions: an undated legacy lifetime total must not
+# be attributed to the latest watch day.
+for _id in ("watch-stats", "weekly-report"):
+    S[_id]["setup"] = historyrow + ";const r=await dbop('history','get','LabVideo001');r.sessions=[{start:Date.now()-60000,end:Date.now(),played:120}];await dbop('history','put',r)"

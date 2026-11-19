@@ -146,7 +146,7 @@ function mountWatchLibrary(parent) {
         box.remove();
         pendingDelete = null;
         await refresh();
-        msg.textContent = 'Removed from this browser.';
+        msg.textContent = 'Moved to history trash for seven days.';
       },
       'danger',
     );
@@ -181,7 +181,7 @@ function mountWatchLibrary(parent) {
       const obj = JSON.parse(await file.text()),
         entries = Array.isArray(obj) ? obj : obj.history;
       if (!Array.isArray(entries) || entries.length > 5000) throw Error();
-      let count = 0;
+      let count = 0, moved = 0, discarded = 0, duplicates = 0;
       for (const item of entries) {
         if (!CheckpointStore.validId(item?.videoId)) continue;
         // Accept portable fields, never restore another profile's write fences.
@@ -201,6 +201,7 @@ function mountWatchLibrary(parent) {
         row.firstWatched = num(item.firstWatched, Date.now());
         row.lastWatched = num(item.lastWatched, Date.now());
         row.completed = item.completed === true;
+        row.retentionExempt = item.retentionExempt === true;
         row.pinned = item.pinned === true || item.pinned === 1 ? 1 : 0;
         row.progress = row.completed ? 100 : num(item.progress, 99);
         if (
@@ -225,33 +226,74 @@ function mountWatchLibrary(parent) {
           : [];
         if (Array.isArray(item.sessions))
           row.sessions = item.sessions
-            .slice(-50)
             .filter((v) => v && typeof v === 'object')
             .map((v) => {
               const session = { start: num(v.start) };
               for (const k of ['end', 'played']) if (k in v) session[k] = num(v[k]);
               if (typeof v.kind === 'string') session.kind = v.kind.slice(0, 60);
+              if (typeof v.sid === 'string' && v.sid.length <= 80) session.sid = v.sid;
+              if (v.retentionExempt === true) session.retentionExempt = true;
               return session;
             });
-        const merged = await CheckpointStore.edit(row.videoId, (prev) => {
-          if (prev && (prev.lastWatched || 0) >= row.lastWatched) return null;
-          // Delayed flushes from a tab opened before this import must not win.
-          return {
-            ...prev,
-            ...row,
-            _checkpointLife: CheckpointStore.nonce(),
-            _checkpoint: { start: Date.now(), sid: CheckpointStore.nonce(), seq: 0 },
-          };
-        });
-        if (merged) count++;
+        const result = await CheckpointStore.importActive(row);
+        count += result.imported; moved += result.moved; discarded += result.discarded; duplicates += result.duplicates;
       }
       await refresh();
-      msg.textContent = 'Imported ' + count + ' entries. Newer local saves were kept.';
+      msg.textContent = 'Imported ' + count + ' entries. Newer local saves were kept.' +
+        (moved || discarded || duplicates ? ' Expired history items: ' + moved + ' moved to trash, ' + discarded + ' past recovery, ' + duplicates + ' already in trash.' : '');
     } catch (_) {
-      msg.textContent = 'Import stopped. Use a history JSON file under 8 MB.';
+      msg.textContent = 'Import stopped. Earlier entries may already be saved; check the file and local storage before retrying.';
     } finally {
       input.value = '';
     }
+  };
+  const trashPanel = add(book, 'div', 'list');
+  trashPanel.hidden = true;
+  async function showTrash() {
+    trashPanel.hidden = false;
+    trashPanel.replaceChildren();
+    const entries = await CheckpointStore.trash();
+    add(trashPanel, 'div', 'cap', 'History trash  /  Recoverable for seven days');
+    if (!entries.length) add(trashPanel, 'p', 'meta', 'No recoverable history.');
+    for (const entry of entries) {
+      const line = add(trashPanel, 'div', 'row');
+      const detail = add(line, 'div', 'details');
+      add(detail, 'div', 'name', entry.row.title || entry.row.videoId);
+      add(detail, 'div', 'meta', (entry.scope === 'sessions' ? 'Watch session · ' : '') + 'Expires ' + new Date(entry.expiresAt).toLocaleString());
+      button(line, 'Restore', async () => {
+        const result = await CheckpointStore.restoreTrash(entry.key);
+        await refresh();
+        await showTrash();
+        msg.textContent = result === 'restored'
+          ? 'Restored. This item is exempt from automatic expiry.'
+          : result === 'conflict'
+            ? 'An active entry exists for this video. It was not overwritten.'
+            : 'This item is no longer recoverable.';
+      });
+    }
+  }
+  button(tools, 'History trash', async () => {
+    if (!trashPanel.hidden) { trashPanel.hidden = true; return; }
+    await showTrash();
+  });
+  const trashInput = add(tools, 'input', '');
+  trashInput.type = 'file';
+  trashInput.accept = '.json,application/json';
+  trashInput.hidden = true;
+  button(tools, 'Import history trash', () => trashInput.click());
+  trashInput.onchange = async () => {
+    try {
+      const file = trashInput.files?.[0];
+      if (!file) return;
+      if (file.size > 8 * 1024 * 1024) throw Error('File too large');
+      const backup = JSON.parse(await file.text());
+      if (backup?.format !== 'yourtube-history-trash-v1') throw Error('Wrong format');
+      const result = await CheckpointStore.importTrash(backup.entries);
+      if (!trashPanel.hidden) await showTrash();
+      msg.textContent = 'Imported ' + result.imported + ' history trash items; skipped ' + result.discarded + '.';
+    } catch (_) {
+      msg.textContent = 'Could not import this history trash file.';
+    } finally { trashInput.value = ''; }
   };
   button(tools, 'Clear history', () => confirmDelete(null, 'all local watch history'), 'danger');
   So('history.updated', refresh);

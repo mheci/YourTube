@@ -937,9 +937,11 @@ algoBlockChannels: "",
         autoHD: !1,
         qualityPref: "hd1080",
         qualityLockStrict: !0,
+        qualityLockMigrated: !1,
         videoCodecPref: "auto",
         audioCodecPref: "auto",
         forceCC: !1,
+        ccAutoEnable: !0,
         forceCCLang: "",
         ccNativePrefs: !1,
         ccFontSize: 28,
@@ -973,6 +975,7 @@ algoBlockChannels: "",
         sessionRestoreOn: !1,
         sessionResumeMode: "ask",
         sessionResumeDesign: "folio",
+        sessionGapMinutes: 60,
         sessionResumePromptMigrated: !1,
         fpsCounterOn: !1,
         fpsCounterPos: "tl",
@@ -991,6 +994,7 @@ algoBlockChannels: "",
         skipPausedContinueOn: !1,
         logoToSubsOn: !1,
         defaultChannelTab: "featured",
+        channelTabMigrated: !1,
         hideTopLiveGamesOn: !1,
         hfrAllowOn: !1,
         autoRecoverOn: !1,
@@ -1132,11 +1136,16 @@ algoBlockChannels: "",
         stopButtonOn: !1,
 
         discoverOn: !1,
+        discoverExcludeWatched: !0,
+        discoverExcludeShown: !0,
+        discoverExcludeChannels: !1,
+        discoverShownDays: 30,
         screenWakeOn: !1,
                 themeGenColor: "#ff3d7f",
         credLayerOn: !1,
         deadLinkOn: !1,
         collectionsOn: !1,
+        collectionSendMigrated: !1,
         watchBudgetOn: !1,
         watchBudgetMinutes: 90,
         shortsScheduleOn: !1,
@@ -1226,7 +1235,7 @@ algoBlockChannels: "",
         commentFilterOn: !1, commentBlockWords: "",
         historyLocalHideOn: !1,
         copyLinkCleanerOn: !1,
-        nightSchedulerOn: !1, nightStart: "21:00", nightEnd: "07:00",
+        nightSchedulerOn: !1, nightStart: "21:00", nightEnd: "07:00", nightSchedulerMode: "clock", nightOverridePolicy: "until-change",
         textScaleOn: !1, textScalePct: 115, textScaleScope: "site", storageDashboardOn: !1,
         healthCheckOn: !1,
                 frameStepperOn: !1, frameFps: 30,
@@ -1641,6 +1650,16 @@ algoBlockChannels: "",
         (S.sessionResumeDesign==='compact'||e.sessionResumeMode==='card')?'dock':'folio';
     }
     S.sessionResumePromptMigrated = true;
+    // The former live-only lock is subsumed by the quality lock. Migrate its
+    // opt-in once while keeping all legacy codec and strictness settings.
+    if (!a.qualityLockMigrated && a.stickyQualityOn && !a.autoHD) S.autoHD = true;
+    S.qualityLockMigrated = true;
+    if (!a.collectionSendMigrated && a.quickCollectionSendOn && !a.collectionsOn) S.collectionsOn = true;
+    S.collectionSendMigrated = true;
+    if (!a.channelTabMigrated && (!a.channelLandingTab || a.channelLandingTab === "home") &&
+        ["videos", "shorts", "live", "playlists", "community", "about"].includes(a.defaultChannelTab))
+      S.channelLandingTab = a.defaultChannelTab;
+    S.channelTabMigrated = true;
     if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
     else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
     else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";
@@ -1922,7 +1941,7 @@ algoBlockChannels: "",
   }
   function Y() {
     _cfgDirty = !0;
-    const delay = (typeof Xt !== "undefined" && Xt.perfMode) || (typeof S !== "undefined" && S.perfModeOn) ? 1200 : 600;
+    const delay = 600;
     T && (clearTimeout(O), (O = setTimeout(U, delay)));
   }
   function G() {

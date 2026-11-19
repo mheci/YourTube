@@ -874,16 +874,6 @@
   "summary": "Reopens playlists at the position you stopped."
  },
  {
-  "id": "quick-collection-send",
-  "name": "Save to Collection",
-  "cat": "channels",
-  "master": "quickCollectionSendOn",
-  "keys": [
-   "quickCollectionSendOn"
-  ],
-  "summary": "One-click save of the current video into a collection."
- },
- {
   "id": "aio-player-tools",
   "name": "Bundle: Player Tools",
   "cat": "bundles",

@@ -1139,6 +1139,7 @@ algoBlockChannels: "",
         credLayerOn: !1,
         deadLinkOn: !1,
         collectionsOn: !1,
+        collectionSendMigrated: !1,
         watchBudgetOn: !1,
         watchBudgetMinutes: 90,
         shortsScheduleOn: !1,
@@ -1647,6 +1648,8 @@ algoBlockChannels: "",
     // opt-in once while keeping all legacy codec and strictness settings.
     if (!a.qualityLockMigrated && a.stickyQualityOn && !a.autoHD) S.autoHD = true;
     S.qualityLockMigrated = true;
+    if (!a.collectionSendMigrated && a.quickCollectionSendOn && !a.collectionsOn) S.collectionsOn = true;
+    S.collectionSendMigrated = true;
     if ("0" === S.resumeBarStyle) S.resumeBarStyle = "default";
     else if ("1" === S.resumeBarStyle) S.resumeBarStyle = "full";
     else if ("2" === S.resumeBarStyle) S.resumeBarStyle = "hide";

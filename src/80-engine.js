@@ -820,11 +820,13 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     };
     const collections = {
       list() { return collectionsStore.get().slice(); },
+      ready() { return collectionsStore.load(); },
+      onChange(fn) { return collectionsStore.onChange(fn); },
+      offChange(fn) { return collectionsStore.offChange(fn); },
       create(name, desc) {
-        const col = { id: "col_" + Date.now(), name, desc: desc || "", videos: [], createdAt: Date.now() };
+        const col = { id: "col_" + CheckpointStore.nonce(), name, desc: desc || "", videos: [], createdAt: Date.now() };
         collectionsStore.update(d => {
           d.push(col);
-          if (d.length > 100) d.splice(0, d.length - 100);
         });
         return col;
       },
@@ -833,7 +835,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           const col = d.find(c => c.id === colId);
           if (col && !col.videos.find(v => v.videoId === video.videoId)) {
             col.videos.push(Object.assign({ addedAt: Date.now() }, video));
-            if (col.videos.length > 500) col.videos.splice(0, col.videos.length - 500);
           }
         });
       },
@@ -2018,9 +2019,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     apply(ctx) {
       if (!S.collectionsOn) return;
       YourTubeEngine.injectCSS();
-      const vid = ie.videoId();
-      if (!vid) return;
       const panel = document.createElement("div");
+      let alive = true;
       panel.id = "ytb-collections";
       panel.className = "ytb-ui-card";
       panel.style.cssText = "margin:8px 0";
@@ -2034,17 +2034,24 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         panel.innerHTML = Xy(html);
       };
       rebuild();
+      const onChange = YourTubeSession.collections.onChange(() => { if (alive) rebuild(); });
+      YourTubeSession.collections.ready().then(() => { if (alive) rebuild(); }).catch(() => {});
       const insert = () => {
-        if (panel.parentNode) return true;
+        if (!ie.videoId()) { panel.remove(); return false; }
         const below = document.querySelector("#below") || document.querySelector("#description");
         if (!below) return false;
-        below.appendChild(panel);
+        if (panel.parentNode !== below) below.appendChild(panel);
         return true;
       };
       YourTubeEngine.scheduleOnReady(ctx, insert, { attempts: 8, delayMs: 500 });
-      panel.addEventListener("click", (ev) => {
+      ctx.onNav(() => YourTubeEngine.scheduleOnReady(ctx, insert, { attempts: 8, delayMs: 500 }));
+      panel.addEventListener("click", async (ev) => {
+        await YourTubeSession.collections.ready();
+        if (!alive) return;
         const btn = ev.target.closest("[data-col]");
         if (btn) {
+          const vid = ie.videoId();
+          if (!vid) return;
           YourTubeSession.collections.addVideo(btn.dataset.col, { videoId: vid, title: ie.title() || vid });
           pe("Added to collection.", 1500, "success");
           rebuild();
@@ -2058,6 +2065,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         }
       });
       Yt["curated-collections"].push(() => {
+        alive = false;
+        YourTubeSession.collections.offChange(onChange);
         if (panel.parentNode) panel.remove();
         document.querySelectorAll(".ytb-ui-inline-prompt").forEach((el) => el.remove());
       });
@@ -2304,22 +2313,13 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       YourTubeEngine.injectCSS();
       const marks = YourTubeEngine.createStore("__yourtube_bookmarks__", {});
       const cur = () => ie.videoId() || "";
-      const pruneBookmarks = (d) => {
-        const keys = Object.keys(d);
-        if (keys.length <= 200) return;
-        keys.sort((a, b) => {
-          const la = d[a][d[a].length - 1], lb = d[b][d[b].length - 1];
-          return ((lb && lb.at) || 0) - ((la && la.at) || 0);
-        }).slice(200).forEach((k) => { delete d[k]; });
-      };
       const add = async () => {
         const vid = cur(), el = ie.el(); if (!vid || !el) return;
         const row = { t: el.currentTime, note: "", at: Date.now() };
+        await marks.load();
         marks.update(d => {
           const list = (d[vid] = d[vid] || []);
           list.push(row);
-          if (list.length > 100) list.splice(0, list.length - 100);
-          pruneBookmarks(d);
         });
         pe("Bookmark at " + YourTubePack.fmtTs(row.t), 1400, "success");
       };
@@ -2348,7 +2348,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         });
         panel.style.display = list.length ? "block" : "none";
       };
-      marks.onChange(render);
+      const markListener = marks.onChange(render);
+      marks.load().then(render).catch(() => {});
       YourTubeEngine.scheduleOnReady(ctx, () => {
         const below = document.querySelector("#below") || document.querySelector("#description");
         if (!below) return false;
@@ -2356,7 +2357,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         render(); return true;
       }, { attempts: 8, delayMs: 500 });
       ctx.onNav(render);
-      Yt["video-bookmarks"].push(() => { if (panel.parentNode) panel.remove(); });
+      Yt["video-bookmarks"].push(() => { marks.offChange(markListener); if (panel.parentNode) panel.remove(); });
     },
     settings(en) { en.appendChild(Io("Enable timestamp bookmarks (Alt+B)", "videoBookmarksOn")); },
   });
@@ -2372,27 +2373,17 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const notesStore = YourTubeEngine.createStore("__yourtube_notes__", {});
       let box = null;
       const cur = () => ie.videoId() || "";
-      const pruneNotes = (d) => {
-        const keys = Object.keys(d);
-        if (keys.length <= 200) return;
-        keys.sort((a, b) => {
-          const la = d[a][d[a].length - 1], lb = d[b][d[b].length - 1];
-          return ((lb && lb.at) || 0) - ((la && la.at) || 0);
-        }).slice(200).forEach((k) => { delete d[k]; });
-      };
-      const capture = () => {
-        const text = box && box.value.trim();
-        if (!text) return;
-        if (!cur()) return;
+      const capture = async () => {
+        const text = box && box.value.trim(), videoId = cur();
+        if (!text || !videoId) return;
         const el = ie.el();
         const row = { t: el ? el.currentTime : 0, text, at: Date.now() };
+        await notesStore.load();
         notesStore.update(d => {
-          const list = (d[cur()] = d[cur()] || []);
+          const list = (d[videoId] = d[videoId] || []);
           list.push(row);
-          if (list.length > 100) list.splice(0, list.length - 100);
-          pruneNotes(d);
         });
-        if (box) box.value = "";
+        if (box && box.value.trim() === text) box.value = "";
         pe("Note captured at " + YourTubePack.fmtTs(row.t), 1200, "success");
       };
       const build = () => {
@@ -2908,48 +2899,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
 
 
 
-  xa.register({
-    id: "quick-collection-send", name: "Save to Collection",
-    summary: "One-click save of the current video into a collection.",
-      cat: "channels",
-    masterKey: "quickCollectionSendOn", keys: ["quickCollectionSendOn"],
-    apply(ctx) {
-      if (!S.quickCollectionSendOn) return;
-      YourTubeEngine.injectCSS();
-      const mount = () => {
-        const below = document.querySelector("#below #owner, #below ytd-watch-metadata #actions");
-        if (!below || below.querySelector(".ytb-ui-qsend")) return !!below;
-        const wrap = document.createElement("div");
-        wrap.className = "ytb-ui-qsend";
-        wrap.style.cssText = "margin:8px 0;display:inline-flex;gap:6px;align-items:center";
-        const btn = document.createElement("button");
-        btn.className = "ytb-ui-btn"; btn.textContent = "▤ Save to…";
-        const sel = document.createElement("select");
-        sel.style.cssText = "display:none;background:#16181f;color:#eee;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:4px 8px;font-size:12px";
-        const fill = () => {
-          sel.replaceChildren();
-          const cols = YourTubeSession.collections.list();
-          if (!cols.length) { const o = document.createElement("option"); o.textContent = "(no collections yet)"; sel.appendChild(o); return; }
-          cols.forEach((c) => { const o = document.createElement("option"); o.value = c.id; o.textContent = c.name + " (" + c.videos.length + ")"; sel.appendChild(o); });
-        };
-        btn.addEventListener("click", () => { fill(); sel.style.display = sel.style.display === "none" ? "inline-block" : "none"; });
-        sel.addEventListener("change", () => {
-          const vid = ie.videoId(); if (!vid || !sel.value) return;
-          YourTubeSession.collections.addVideo(sel.value, { videoId: vid, title: ie.title() || vid });
-          pe("Saved to collection.", 1500, "success");
-          sel.style.display = "none";
-        });
-        wrap.append(btn, sel);
-        below.appendChild(wrap);
-        return true;
-      };
-      YourTubeEngine.scheduleOnReady(ctx, mount, { attempts: 10, delayMs: 500 });
-      Yt["quick-collection-send"].push(() => {
-        document.querySelectorAll(".ytb-ui-qsend").forEach((w) => w.remove());
-      });
-    },
-    settings(en) { en.appendChild(Io("Show quick-save under the player", "quickCollectionSendOn")); },
-  });
+
 
 
 

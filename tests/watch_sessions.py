@@ -1172,6 +1172,53 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 return {"liveLockMigrated": True, "explicitOffPersists": True, "codecSettingPreserved": True}
 
             case("quality-live-lock-migration", quality_migration)
+
+            def collection_migration():
+                init([], {"collectionsOn":False,"quickCollectionSendOn":True,"collectionSendMigrated":False})
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.collectionSendMigrated===true&&YourTube.cfg.collectionsOn===true")
+                p.evaluate("()=>{const n=document.createElement('div');n.id='below';document.body.appendChild(n)}")
+                p.locator("#ytb-collections").wait_for()
+                assert not p.evaluate("!!YourTube.features.get('quick-collection-send')")
+                p.evaluate("YourTube.setCfg('collectionsOn',false)")
+                p.wait_for_timeout(1300)
+                watch()
+                p.wait_for_function("()=>YourTube.cfg.collectionsOn===false",timeout=5000)
+                assert p.evaluate("YourTube.cfg.quickCollectionSendOn") is True
+                return {"migrated":True,"explicitOffPersists":True,"legacySettingPreserved":True}
+
+            case("collection-control-migration", collection_migration)
+
+            def local_data_no_silent_truncation():
+                init([], {"collectionsOn":True,"videoBookmarksOn":True,"timestampNotesOn":True})
+                p.evaluate("""async id=>{
+                  const now=Date.now();
+                  const collections=Array.from({length:101},(_,i)=>({id:'collection-'+i,name:'Folder '+i,createdAt:now,videos:i===0?Array.from({length:500},(_,j)=>({videoId:'existing-'+j,title:'Existing'})):[]}));
+                  const books={},notes={};
+                  for(let i=0;i<200;i++){books['legacy-'+i]=[{t:0,at:now}];notes['legacy-'+i]=[{t:0,text:'legacy',at:now}];}
+                  books[id]=Array.from({length:100},(_,i)=>({t:i,note:'',at:now}));
+                  notes[id]=Array.from({length:100},(_,i)=>({t:i,text:'note '+i,at:now}));
+                  await YourTube.storage.set('__yourtube_collections__',collections);
+                  await YourTube.storage.set('__yourtube_bookmarks__',books);
+                  await YourTube.storage.set('__yourtube_notes__',notes);
+                }""", A)
+                watch()
+                p.evaluate("()=>{const n=document.createElement('div');n.id='below';document.body.appendChild(n)}")
+                p.locator('#ytb-collections [data-col="collection-0"]').wait_for()
+                p.locator('#ytb-collections [data-col="collection-0"]').click()
+                p.keyboard.press('Alt+b')
+                p.keyboard.press('Alt+n')
+                p.locator('#ytb-notes').fill('newly saved note')
+                p.locator('#ytb-notes').press('Control+Enter')
+                p.wait_for_function("""async id=>{
+                  const c=await YourTube.storage.get('__yourtube_collections__');
+                  const b=await YourTube.storage.get('__yourtube_bookmarks__');
+                  const n=await YourTube.storage.get('__yourtube_notes__');
+                  return c?.length===101&&c[0]?.videos.length===501&&Object.keys(b||{}).length===201&&b[id]?.length===101&&Object.keys(n||{}).length===201&&n[id]?.length===101;
+                }""",arg=A,timeout=12000)
+                return {"collections":101,"videosInFirst":501,"bookmarkVideos":201,"bookmarksInVideo":101,"noteVideos":201,"notesInVideo":101}
+
+            case("local-data-does-not-silently-truncate", local_data_no_silent_truncation)
         c.close()
         if not args.profile:
             b.close()

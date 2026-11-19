@@ -128,7 +128,7 @@ const CheckpointStore = (() => {
       if (old?._checkpoint && compare(s, old._checkpoint) <= 0) return false;
       if (!old?._checkpoint && old && (old.lastWatched || 0) > s.at) return false;
       const row = old || blank(s.id, s.start),
-        visits = Array.isArray(row.sessions) ? row.sessions.slice(-50) : [];
+        visits = Array.isArray(row.sessions) ? row.sessions.slice() : [];
       const previous = visits.find((v) => v?.sid === s.sid);
       row.totalWatchTime =
         (Number(row.totalWatchTime) || 0) + Math.max(0, s.played - (previous?.played || 0));
@@ -137,7 +137,7 @@ const CheckpointStore = (() => {
         row.watchCount = (Number(row.watchCount) || 0) + 1;
       }
       Object.assign(previous || visits[visits.length - 1], { end: s.at, played: s.played });
-      row.sessions = visits.slice(-50);
+      row.sessions = visits;
       row.lastWatched = s.at;
       row.lastPosition = s.done ? 0 : s.pos;
       row.duration = s.dur;

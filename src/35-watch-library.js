@@ -225,7 +225,6 @@ function mountWatchLibrary(parent) {
           : [];
         if (Array.isArray(item.sessions))
           row.sessions = item.sessions
-            .slice(-50)
             .filter((v) => v && typeof v === 'object')
             .map((v) => {
               const session = { start: num(v.start) };

@@ -3922,13 +3922,37 @@ algoBlockChannels: "",
     }
     return _ttp && _ttp.createHTML ? _ttp.createHTML(html) : html;
   }
+  const playerContainers = '#movie_player,#shorts-player,.html5-video-player';
+  const previewContainers = '[hidden],ytd-miniplayer,ytd-video-preview,ytd-moving-thumbnail-renderer';
+  function playerVideo(host) {
+    // During player swaps the outgoing video can still be the first main-video.
+    const videos = host.querySelectorAll('video');
+    if (videos.length === 1) return videos[0].closest(previewContainers) ? null : videos[0];
+    const visible = Array.from(videos).filter(v => !v.closest(previewContainers) &&
+      v.getClientRects().length && getComputedStyle(v).visibility !== 'hidden');
+    return visible.find(v => v.matches('.html5-main-video')) || visible[0] || null;
+  }
+  function mainMedia() {
+    if (location.pathname.startsWith('/shorts/')) {
+      const reel = document.querySelector('ytd-reel-video-renderer[is-active],ytd-reel-video-renderer[active]');
+      if (reel) return playerVideo(reel);
+    }
+    const players = document.querySelectorAll(playerContainers);
+    for (const host of players) {
+      if (host.closest(previewContainers) || (players.length > 1 && !host.getClientRects().length)) continue;
+      const video = playerVideo(host);
+      if (video) return video;
+    }
+    if (players.length) return null;
+    return Array.from(document.querySelectorAll('video')).find(v=>!v.closest(previewContainers)) || null;
+  }
+  function visibleLiveBadge(host) {
+    return !!host && Array.from(host.querySelectorAll('.ytp-live-badge')).some(badge =>
+      badge.getClientRects().length && !badge.closest('[hidden]') && getComputedStyle(badge).visibility === 'visible');
+  }
   const ie = {
-      el: () =>
-        (location.pathname.startsWith("/shorts/") && document.querySelector("ytd-reel-video-renderer[is-active] video,ytd-reel-video-renderer[active] video")) ||
-        document.querySelector("video.html5-main-video") ||
-        document.querySelector("#movie_player video") ||
-        document.querySelector("video"),
-      api: () => (location.pathname.startsWith("/shorts/") && ie.el()?.closest(".html5-video-player,#movie_player")) || document.querySelector("#movie_player"),
+      el: mainMedia,
+      api: () => mainMedia()?.closest(playerContainers) || document.querySelector('#movie_player:not([hidden])'),
       isReady: () => !(!ie.el() || !ie.api()),
       videoId() {
         if (void 0 !== oe.vid && oe.vidHref === location.href) return oe.vid;
@@ -4365,8 +4389,7 @@ algoBlockChannels: "",
     } catch (e) {}
     try {
 
-      const b = document.querySelector(".ytp-live-badge");
-      if (b && b.getClientRects().length > 0) return true;
+      if (visibleLiveBadge(ie.api())) return true;
     } catch (e) {}
     return false;
   }
@@ -5373,7 +5396,7 @@ const WatchSessions = (() => {
   const finite = Number.isFinite,
     noop = () => {},
     tick = () => performance.now();
-  const mainSelector = '#movie_player, #shorts-player, .html5-video-player';
+  const mainSelector = playerContainers;
   function route() {
     const u = new URL(location.href),
       part = u.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]{11})(?:\/|$)/);
@@ -5421,9 +5444,9 @@ const WatchSessions = (() => {
   }
   function candidate(s) {
     for (const p of document.querySelectorAll(mainSelector)) {
-      if (p.closest('[hidden], ytd-miniplayer, ytd-video-preview, ytd-moving-thumbnail-renderer'))
+      if (p.closest(previewContainers))
         continue;
-      const video = p.querySelector('video.html5-main-video') || p.querySelector('video');
+      const video = playerVideo(p);
       if (!video || !p.getClientRects().length) continue;
       const data = provider(p),
         owner = p.closest('ytd-watch-flexy,ytd-watch-grid,ytm-watch,ytd-reel-video-renderer');
@@ -5441,7 +5464,7 @@ const WatchSessions = (() => {
       const live =
         video.duration === Infinity ||
         data.isLive === true ||
-        !!Array.from(p.querySelectorAll('.ytp-live-badge')).find((n) => n.getClientRects().length);
+        visibleLiveBadge(p);
       if (
         live ||
         p.matches('.ad-showing,.ad-interrupting,.ytp-error') ||
@@ -5528,22 +5551,20 @@ const WatchSessions = (() => {
   }
   function metadata(s) {
     const data = provider(s.p);
-    let details;
+    // The boot response can belong to the previous SPA route. Prefer a matching
+    // response on the bound player and never consume unqualified page metadata.
+    let pd = {};
     try {
-      details = e.ytInitialPlayerResponse?.videoDetails;
+      const current = s.p?.getPlayerResponse?.()?.videoDetails;
+      if (current?.videoId === s.id) pd = current;
+      else if (e.ytInitialPlayerResponse?.videoDetails?.videoId === s.id) pd = e.ytInitialPlayerResponse.videoDetails;
     } catch (_) {}
-    const pd = details?.videoId === s.id ? details : {};
+    const scope = s.p?.closest('ytd-watch-flexy,ytd-watch-grid,ytm-watch,ytd-reel-video-renderer') ||
+      document.querySelector(`ytd-watch-flexy[video-id="${s.id}"],ytd-watch-grid[video-id="${s.id}"]`);
+    const text = selector => scope?.querySelector(selector)?.textContent?.trim() || '';
     return {
-      title:
-        data.title ||
-        pd.title ||
-        document.querySelector('ytd-watch-metadata h1, h1.title')?.textContent?.trim() ||
-        '',
-      channel:
-        data.author ||
-        pd.author ||
-        document.querySelector('#owner ytd-channel-name a,#owner-name a')?.textContent?.trim() ||
-        '',
+      title: data.title || pd.title || text('ytd-watch-metadata h1,#title h1,h1.title,ytm-slim-video-metadata-section-renderer h1'),
+      channel: data.author || pd.author || text('#owner ytd-channel-name,#owner-name a,#owner #channel-name a,ytm-slim-owner-renderer .slim-owner-channel-name'),
       channelId: data.channel_id || pd.channelId || '',
     };
   }
@@ -5594,7 +5615,7 @@ const WatchSessions = (() => {
     if (!s?.last || !s.sid || s.readOnly || (s.phase !== 'active' && s.phase !== 'play-blocked'))
       return Promise.resolve(false);
     const z = s.last,
-      signature = [z.pos, z.dur, z.done, Math.floor(s.played * 10)].join('/');
+      signature = JSON.stringify([z.pos, z.dur, z.done, Math.floor(s.played * 10), z.meta.title, z.meta.channel, z.meta.channelId]);
     if (signature === s.sent || (!force && tick() - s.lastWrite < 3500))
       return s.job || Promise.resolve(false);
     s.sent = signature;
@@ -6002,6 +6023,9 @@ const WatchSessions = (() => {
       videoId: current?.id || null,
       held: !!current?.v && locked(current),
       readOnly: !!current?.readOnly,
+      playerAttached: !!current?.v,
+      resumeMode: S.sessionResumeMode,
+      explicitTimestamp: !!current?.explicit,
     }),
   };
 })();
@@ -6065,7 +6089,7 @@ function mountWatchLibrary(parent) {
     const a = add(p, 'a', 'go', label);
     const u = new URL('/watch', location.origin);
     u.searchParams.set('v', id);
-    u.searchParams.set('t', Math.floor(time) + 's');
+    if (time != null) u.searchParams.set('t', Math.floor(time) + 's');
     a.href = u.href;
   };
   function render() {
@@ -6107,6 +6131,11 @@ function mountWatchLibrary(parent) {
       const progress = add(add(d, 'div', 'rail'), 'span', '');
       progress.style.width = Math.max(0, Math.min(100, Number(r.progress) || 0)) + '%';
       const acts = add(item, 'div', 'actions');
+      // Resume is an explicit seek. Offer a normal watch URL as well: an
+      // explicit t= otherwise bypasses the user's Ask prompt by design.
+      if (S.sessionRestoreOn && S.sessionResumeMode === 'ask' && !r.completed &&
+          r.lastPosition >= 5 && (!r.duration || r.lastPosition < r.duration - .5))
+        link(acts, 'Choose position', r.videoId, null);
       link(
         acts,
         r.completed ? 'Rewatch' : r.lastPosition > 0 ? 'Resume ' + ce(r.lastPosition) : 'Play',
@@ -6305,6 +6334,7 @@ function mountWatchLibrary(parent) {
   };
   button(tools, 'Clear history', () => confirmDelete(null, 'all local watch history'), 'danger');
   So('history.updated', refresh);
+  So('cfg.changed', ({key}) => { if (key === 'sessionRestoreOn' || key === 'sessionResumeMode') render(); });
   refresh();
 }
 

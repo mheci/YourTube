@@ -259,13 +259,13 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
             )
 
         def waitrow(expression, id=A, pg=None):
-            (pg or p).wait_for_function(
-                "async id=>{const r=await YourTube.history.get(id);return "
-                + expression
-                + "}",
-                arg=id,
-                timeout=8500,
-            )
+            # Compare the resolved IndexedDB value, not a truthy Promise handle.
+            page = pg or p
+            deadline = time.monotonic() + 8.5
+            while not page.evaluate("async id=>{const r=await YourTube.history.get(id);return !!(" + expression + ")}", id):
+                if time.monotonic() >= deadline:
+                    raise AssertionError(f"History row {id} did not satisfy {expression}: {data(id, page)}")
+                page.wait_for_timeout(100)
 
         def shot(name, el=None):
             if out:
@@ -451,6 +451,39 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 }
 
             case("resume-pause-reload-and-legacy-fields", choose_resume)
+
+            def delayed_metadata():
+                init()
+                watch()
+                phase("active")
+                p.evaluate("""() => {
+                  const host=document.querySelector('#movie_player'), video=v();
+                  const stale=document.createElement('video');stale.className=video.className;stale.hidden=true;
+                  host.prepend(stale);window.v=()=>video;
+                  host.getVideoData=()=>({});host.getPlayerResponse=()=>({});
+                  document.querySelector('ytd-watch-metadata').remove();
+                  const badge=document.createElement('span');badge.className='ytp-live-badge';badge.style.visibility='hidden';badge.textContent='Live';host.append(badge);
+                }""")
+                p.evaluate("async()=>{await v().play();v().currentTime=22}")
+                p.wait_for_function("()=>v().currentTime>22.2")
+                p.evaluate("v().pause()")
+                waitrow("r?.lastPosition>=22 && r.duration>119")
+                p.evaluate("""id=>document.querySelector('#movie_player').getPlayerResponse=()=>({videoDetails:{videoId:id,title:'Late title',author:'Late channel',channelId:'UC-test'}})""", A)
+                waitrow("r?.title==='Late title' && r.channel==='Late channel' && r.channelId==='UC-test'")
+                saved=data(); assert saved['watchCount']==1 and saved['totalWatchTime']>0
+                p.goto(ORIGIN + '/lab/setup', wait_until='domcontentloaded')
+                p.wait_for_function('()=>!!window.YourTube?.history')
+                p.evaluate('YourTube.openDashboard()')
+                p.locator('.ytb-search').fill('session-restore')
+                row=p.locator('.ytb-watch-journal .row').filter(has_text='Late title')
+                assert 'Late channel' in row.inner_text() and '0:22 of 2:00' in row.inner_text()
+                assert 't=22s' in row.get_by_role('link',name='Resume 0:22').get_attribute('href')
+                row.get_by_role('link',name='Choose position').click()
+                p.wait_for_function('()=>!!window.YourTube?.history')
+                hold();assert '0:22' in p.locator('[data-action=resume]').inner_text()
+                return {'saved':saved['lastPosition'],'title':saved['title'],'channel':saved['channel'],'returnPrompt':True}
+
+            case("hidden-secondary-video-and-late-player-metadata", delayed_metadata)
 
             def restart():
                 init([record()])

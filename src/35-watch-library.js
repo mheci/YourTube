@@ -57,7 +57,7 @@ function mountWatchLibrary(parent) {
     const a = add(p, 'a', 'go', label);
     const u = new URL('/watch', location.origin);
     u.searchParams.set('v', id);
-    u.searchParams.set('t', Math.floor(time) + 's');
+    if (time != null) u.searchParams.set('t', Math.floor(time) + 's');
     a.href = u.href;
   };
   function render() {
@@ -99,6 +99,11 @@ function mountWatchLibrary(parent) {
       const progress = add(add(d, 'div', 'rail'), 'span', '');
       progress.style.width = Math.max(0, Math.min(100, Number(r.progress) || 0)) + '%';
       const acts = add(item, 'div', 'actions');
+      // Resume is an explicit seek. Offer a normal watch URL as well: an
+      // explicit t= otherwise bypasses the user's Ask prompt by design.
+      if (S.sessionRestoreOn && S.sessionResumeMode === 'ask' && !r.completed &&
+          r.lastPosition >= 5 && (!r.duration || r.lastPosition < r.duration - .5))
+        link(acts, 'Choose position', r.videoId, null);
       link(
         acts,
         r.completed ? 'Rewatch' : r.lastPosition > 0 ? 'Resume ' + ce(r.lastPosition) : 'Play',
@@ -297,5 +302,6 @@ function mountWatchLibrary(parent) {
   };
   button(tools, 'Clear history', () => confirmDelete(null, 'all local watch history'), 'danger');
   So('history.updated', refresh);
+  So('cfg.changed', ({key}) => { if (key === 'sessionRestoreOn' || key === 'sessionResumeMode') render(); });
   refresh();
 }

@@ -1431,6 +1431,26 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
 
             case("playlist-resume-retries-failed-initial-read", playlist_resume_read_retry)
 
+            def playlist_resume_write_retry():
+                init([], {"playlistResumeOn":True,"sessionRestoreOn":False})
+                p.evaluate("async()=>YourTube.storage.set('__yourtube_pl_resume__',{PLfailure:{v:'FieldFilm02',i:1,t:41,at:Date.now()}})")
+                watch(extra='&list=PLfailure')
+                p.locator('#ytb-plresume-dismiss').wait_for(timeout=7000)
+                p.locator('#ytb-plresume-dismiss').click()
+                p.evaluate("""()=>{window.__playlistPut=IDBObjectStore.prototype.put;window.__playlistFail=true;IDBObjectStore.prototype.put=function(value,...args){if(value?.k==='__yourtube_pl_resume__'&&window.__playlistFail)throw new DOMException('Controlled write failure','QuotaExceededError');return window.__playlistPut.call(this,value,...args)}}""")
+                p.evaluate("()=>{v().currentTime=25;v().dispatchEvent(new Event('timeupdate'))}")
+                p.wait_for_timeout(500)
+                old=p.evaluate("async()=>await YourTube.storage.get('__yourtube_pl_resume__')")
+                assert old['PLfailure']['v']==B and old['PLfailure']['t']==41
+                p.evaluate('window.__playlistFail=false')
+                p.wait_for_timeout(5200)
+                saved=p.evaluate("async()=>await YourTube.storage.get('__yourtube_pl_resume__')")
+                assert saved['PLfailure']['v']==A and saved['PLfailure']['t']>=24
+                p.evaluate('()=>{IDBObjectStore.prototype.put=window.__playlistPut}')
+                return {'oldDurableResumeSurvivedFailure':True,'pendingChangeRetried':True}
+
+            case("playlist-resume-retries-failed-write", playlist_resume_write_retry)
+
             case("quality-live-lock-migration", quality_migration)
 
             def collection_migration():

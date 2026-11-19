@@ -2880,11 +2880,53 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       YourTubeEngine.injectCSS();
       const store = YourTubeEngine.createStore("__yourtube_pl_resume__", {});
       const plId = () => { try { return new URL(location.href).searchParams.get("list"); } catch (_) { return null; } };
-      let saveTick = 0;
+      let saveTick = 0, loaded = false, loading = false, warned = false, alive = true, evaluated = "", pending = null;
+      const clearPrompt = () => {
+        document.getElementById("ytb-plresume")?.remove();
+        document.getElementById("ytb-plresume-dismiss")?.remove();
+      };
+      const offer = () => {
+        if (!alive || !loaded || !document.body) return;
+        const p = plId(), curVid = ie.videoId(), key = (p || "") + "|" + (curVid || "");
+        if (evaluated === key) return;
+        evaluated = key; pending = null; clearPrompt();
+        if (!p) return;
+        const rec = store.get()[p];
+        if (!rec || !CheckpointStore.validId(rec.v) || !Number.isFinite(Number(rec.t)) || rec.t < 15 || curVid === rec.v) return;
+        pending = { playlist:p, video:curVid, record:rec };
+        const resume = document.createElement("button"), dismiss = document.createElement("button");
+        resume.id = "ytb-plresume"; resume.className = "ytb-ui-btn primary";
+        resume.style.cssText = "position:fixed;left:50%;transform:translateX(-100%);bottom:52px;z-index:2147483636;padding:8px 16px";
+        resume.textContent = "↩ Resume this playlist at " + YourTubePack.fmtTs(rec.t);
+        resume.onclick = () => {
+          try { e.location.href = "/watch?v=" + rec.v + "&list=" + encodeURIComponent(p) + (Number.isInteger(rec.i) && rec.i >= 0 ? "&index=" + (rec.i + 1) : "") + "&t=" + Math.floor(rec.t); } catch (_) {}
+          clearPrompt();
+        };
+        dismiss.id = "ytb-plresume-dismiss"; dismiss.className = "ytb-ui-btn";
+        dismiss.style.cssText = "position:fixed;left:50%;bottom:52px;z-index:2147483636;padding:8px 16px";
+        dismiss.textContent = "Continue here";
+        dismiss.onclick = () => { pending = null; clearPrompt(); };
+        document.body?.append(resume, dismiss);
+      };
+      const loadResume = () => {
+        if (!alive || loaded || loading) return;
+        loading = true;
+        store.load().then(() => { loaded = true; warned = false; offer(); }).catch(error => {
+          m("playlist resume load failed", error);
+          if (!warned) { warned = true; pe("Could not load playlist resume points; existing data was not changed. Retrying…", 3500, "error"); }
+        }).finally(() => { loading = false; });
+      };
+      loadResume();
+      ctx.addInterval(loadResume, 5000);
       const binder = YourTubePack.elBinder("playlist-resume");
       binder(ctx, "timeupdate", () => {
+        if (!loaded || !alive) return;
         const p = plId(), el = ie.el();
         if (!p || !el || !Number.isFinite(el.currentTime)) return;
+        offer();
+        // Do not replace a saved playlist position until the user has chosen
+        // resume or continue. Also respect the video-level resume hold.
+        if (pending || WatchSessions.status().held) return;
         const now = Date.now();
         if (now - saveTick < 5000) return;
         saveTick = now;
@@ -2893,32 +2935,14 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           const api = ie.api();
           idx = api && typeof api.getPlaylistIndex === "function" ? api.getPlaylistIndex() : null;
         } catch (_) {}
-        store.update(d => { d[p] = { v: ie.videoId(), i: idx, t: el.currentTime, at: now };
-          const keys = Object.keys(d);
-          if (keys.length > 200) keys.sort((x, y) => (d[x].at || 0) - (d[y].at || 0)).slice(0, keys.length - 200).forEach(k2 => delete d[k2]);
-        });
+        store.update(d => { d[p] = { v: ie.videoId(), i: idx, t: el.currentTime, at: now }; });
+        store.flush().then(ok => {
+          if (!ok && store.dirty()) pe("Playlist resume point could not be saved. Keep this page open and retry.", 3500, "error");
+        }).catch(error => m("playlist resume save failed", error));
       });
-      const offer = () => {
-        const p = plId(); if (!p) return;
-        const rec = store.get()[p];
-        if (!rec || !rec.v || rec.t < 15) return;
-        const curVid = ie.videoId();
-        if (curVid === rec.v) return;
-        const toastHost = document.getElementById("ytb-plresume") || document.createElement("button");
-        toastHost.id = "ytb-plresume";
-        toastHost.className = "ytb-ui-btn primary";
-        toastHost.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);bottom:52px;z-index:2147483636;padding:8px 16px";
-        toastHost.textContent = "↩ Resume this playlist at " + YourTubePack.fmtTs(rec.t);
-        toastHost.onclick = () => {
-          try { e.location.href = "/watch?v=" + rec.v + "&list=" + p + (rec.i != null ? "&index=" + (rec.i + 1) : "") + "&t=" + Math.floor(rec.t); } catch (_) {}
-          toastHost.remove();
-        };
-        if (!toastHost.parentNode) document.body.appendChild(toastHost);
-        setTimeout(() => { if (toastHost.parentNode) toastHost.remove(); }, 12000);
-      };
-      ctx.onNav(() => ctx.addTimeout(offer, 1200));
+      ctx.onNav(() => ctx.addTimeout(offer, 0));
       Yt["playlist-resume"].push(() => {
-        const b = document.getElementById("ytb-plresume"); if (b) b.remove();
+        alive = false; pending = null; clearPrompt();
       });
     },
     settings(en) { en.appendChild(Io("Offer playlist resume points", "playlistResumeOn")); },

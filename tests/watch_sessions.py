@@ -201,6 +201,7 @@ def main():
 if(location.pathname==='/watch' && location.search.includes('db=slow')){const open=indexedDB.open.bind(indexedDB);indexedDB.open=(...a)=>{const facade={};setTimeout(()=>{const req=open(...a);for(const k of ['result','error','transaction'])Object.defineProperty(facade,k,{get:()=>req[k]});for(const k of ['success','error','blocked','upgradeneeded'])req['on'+k]=ev=>facade['on'+k]?.(ev)},1250);return facade;}}
 if(location.pathname==='/watch' && location.search.includes('db=blocked')){indexedDB.open=()=>{throw new DOMException('Controlled DB denial','SecurityError')}}
 if(location.pathname==='/watch' && location.search.includes('write=fault')){const orig=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...a){if(this.name==='history')throw new DOMException('Controlled commit fault','QuotaExceededError');return orig.apply(this,a)}}
+if(location.pathname==='/watch' && location.search.includes('read=playlist-fault')){window.__playlistReadFault=true;const orig=IDBObjectStore.prototype.get;IDBObjectStore.prototype.get=function(key,...args){if(this.name==='kv'&&key==='__yourtube_pl_resume__'&&window.__playlistReadFault)throw new DOMException('Controlled playlist read denial','SecurityError');return orig.call(this,key,...args)}}
 if(location.pathname==='/watch' && location.search.includes('backup=fault')){const orig=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,...rest){if(this.name==='kv'&&v?.k==='yourtube/migration-backup/v1')throw new DOMException('Controlled backup fault','QuotaExceededError');return orig.call(this,v,...rest)}}
 if(location.pathname==='/watch' && location.search.includes('play=denied')){window.fieldDeny=true;HTMLMediaElement.prototype.play=function(){return window.fieldDeny?Promise.reject(new DOMException('Controlled user activation denial','NotAllowedError')):window.fieldNative.apply(this,arguments)}}"""
         )
@@ -1396,6 +1397,39 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 p.wait_for_function("()=>YourTube.cfg.autoHD===false", timeout=5000)
                 assert p.evaluate("YourTube.cfg.videoCodecPref") == "vp9"
                 return {"liveLockMigrated": True, "explicitOffPersists": True, "codecSettingPreserved": True}
+
+            def playlist_resume_no_clobber():
+                init([], {"playlistResumeOn":True,"sessionRestoreOn":False})
+                p.evaluate("""async()=>{const data={};for(let i=0;i<200;i++)data['PL-old-'+i]={v:'FieldFilm02',i:0,t:22,at:Date.now()};data.PLfixture={v:'FieldFilm02',i:1,t:37,at:Date.now()};await YourTube.storage.set('__yourtube_pl_resume__',data)}""")
+                watch(extra='&list=PLfixture')
+                p.locator('#ytb-plresume').wait_for(timeout=7000)
+                p.evaluate("()=>{v().currentTime=24;v().dispatchEvent(new Event('timeupdate'))}")
+                p.wait_for_timeout(700)
+                before=p.evaluate("async()=>await YourTube.storage.get('__yourtube_pl_resume__')")
+                assert before['PLfixture']['v']==B and before['PLfixture']['t']==37 and len(before)==201
+                p.locator('#ytb-plresume-dismiss').click()
+                p.evaluate("()=>{v().currentTime=25;v().dispatchEvent(new Event('timeupdate'))}")
+                p.wait_for_timeout(1000)
+                after=p.evaluate("async()=>await YourTube.storage.get('__yourtube_pl_resume__')")
+                assert after['PLfixture']['v']==A and after['PLfixture']['t']>=24 and len(after)==201, after.get('PLfixture')
+                return {'existingResumeNotClobberedBeforeChoice':True,'explicitContinueWritesCurrent':True,'playlistsPreserved':201}
+
+            case("playlist-resume-waits-for-choice-without-truncation", playlist_resume_no_clobber)
+
+            def playlist_resume_read_retry():
+                init([], {"playlistResumeOn":True,"sessionRestoreOn":False})
+                p.evaluate("async()=>YourTube.storage.set('__yourtube_pl_resume__',{PLblocked:{v:'FieldFilm02',i:1,t:41,at:Date.now()}})")
+                watch(extra='&list=PLblocked&read=playlist-fault')
+                p.evaluate("()=>{v().currentTime=20;v().dispatchEvent(new Event('timeupdate'))}")
+                p.wait_for_timeout(500)
+                assert p.locator('#ytb-plresume').count()==0
+                p.evaluate('window.__playlistReadFault=false')
+                p.locator('#ytb-plresume').wait_for(timeout=8500)
+                saved=p.evaluate("async()=>await YourTube.storage.get('__yourtube_pl_resume__')")
+                assert saved['PLblocked']['v']==B and saved['PLblocked']['t']==41
+                return {'readFailureDidNotClobberResume':True,'recoveredWithoutReload':True}
+
+            case("playlist-resume-retries-failed-initial-read", playlist_resume_read_retry)
 
             case("quality-live-lock-migration", quality_migration)
 

@@ -1172,6 +1172,10 @@ algoBlockChannels: "",
         stopButtonOn: !1,
 
         discoverOn: !1,
+        discoverExcludeWatched: !0,
+        discoverExcludeShown: !0,
+        discoverExcludeChannels: !1,
+        discoverShownDays: 30,
         screenWakeOn: !1,
                 themeGenColor: "#ff3d7f",
         credLayerOn: !1,
@@ -6153,6 +6157,28 @@ const MigrationBackup = (() => {
     });
   }
   return {ensure, read};
+})();
+
+// Novelty is a local heuristic, not a claim about YouTube's account history.
+const DiscoverPolicy = (() => {
+  const normalize = s => String(s || '').trim().toLocaleLowerCase();
+  function filter(videos, options) {
+    const { watched, channels, shown, session, batch, now, days, excludeWatched, excludeShown, excludeChannels } = options;
+    const keep = [];
+    for (const video of videos || []) {
+      if (!video || !/^[A-Za-z0-9_-]{11}$/.test(String(video.videoId || ''))) continue;
+      const id = video.videoId;
+      if (batch.has(id)) continue;
+      batch.add(id);
+      if (excludeWatched && watched.has(id)) continue;
+      if (excludeChannels && video.channel && channels.has(normalize(video.channel))) continue;
+      const at = Number(shown[id]) || 0;
+      if (excludeShown && (session.has(id) || (days > 0 && at > 0 && now - at < days * 86400000))) continue;
+      keep.push(video);
+    }
+    return keep;
+  }
+  return { filter, normalize };
 })();
 
 // Lightweight, local diagnostics: no payloads, authentication material or
@@ -25210,10 +25236,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
   xa.register({
     id: "discover",
     name: "Discover",
-    summary: "Topic-based search discovery with watch-history dedup, no algorithm.",
+    summary: "Explore YouTube search topics with configurable local novelty signals.",
       cat: "insights",
     masterKey: "discoverOn",
-    keys: ["discoverOn"],
+    keys: ["discoverOn", "discoverExcludeWatched", "discoverExcludeShown", "discoverExcludeChannels", "discoverShownDays"],
     apply(ctx) {
       if (!S.discoverOn) return;
       YourTubeEngine.injectCSS();
@@ -25233,6 +25259,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       let activeTopic = null;
       let grid = null;
       const sessionShown = new Set();
+      const seenStore = YourTubeEngine.createStore("__yourtube_discover_seen__", {});
+      let alive = true, generation = 0;
 
       const topicsForMode = () => {
         let ranked = [];
@@ -25254,35 +25282,17 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         return niche.slice(0, DISCOVER_MIN_TOPICS);
       };
 
-      const HISTORY_BATCH = 12;
-      const seen = new Set();
-      const isWatched = async (videoId) => {
-
-        try {
-          if (!S.sessionRestoreOn) return false;
-          return !!(await v("history", videoId));
-        } catch (_) { return false; }
-      };
-      const filterUnwatched = async (videos) => {
-        const kept = [];
-        for (let i = 0; i < videos.length; i += HISTORY_BATCH) {
-          const chunk = videos.slice(i, i + HISTORY_BATCH);
-          const watched = await Promise.all(chunk.map((video) => isWatched(video && video.videoId)));
-          for (let j = 0; j < chunk.length; j++) {
-            const video = chunk[j];
-            if (!video || !video.videoId || seen.has(video.videoId) || sessionShown.has(video.videoId)) continue;
-            if (watched[j]) continue;
-            seen.add(video.videoId);
-            kept.push(video);
-          }
-        }
-        return kept;
-      };
       const fetchFresh = async (category) => {
         const spec = DISCOVER_CATEGORIES[category];
         if (!spec) return [];
-        const fresh = [];
-        const now = Date.now();
+        const fresh = [], batch = new Set(), now = Date.now();
+        const days = Math.max(0, Math.min(90, Number(S.discoverShownDays) || 0));
+        if (S.discoverExcludeShown && days > 0) await seenStore.load();
+        const history = S.discoverExcludeWatched || S.discoverExcludeChannels ? await w("history") : [];
+        const watched = new Set(history.map(row => row.videoId));
+        const channels = new Set(history.map(row => DiscoverPolicy.normalize(row.channel)).filter(Boolean));
+        const policy = { watched, channels, shown: seenStore.get() || {}, session: sessionShown, batch, now, days,
+          excludeWatched: !!S.discoverExcludeWatched, excludeShown: !!S.discoverExcludeShown, excludeChannels: !!S.discoverExcludeChannels };
         for (const sp of DISCOVER_SEARCH_SP) {
           if (fresh.length >= DISCOVER_MIN_VIDEOS) break;
           let list = [];
@@ -25302,7 +25312,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
               }
             }
           }
-          fresh.push(...await filterUnwatched(list));
+          fresh.push(...DiscoverPolicy.filter(list, policy));
         }
         return fresh.slice(0, DISCOVER_MAX_VIDEOS);
       };
@@ -25325,9 +25335,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
       function load() {
         if (!api) return;
-        const key = activeTopic;
+        const key = activeTopic, request = ++generation;
         if (!key) {
-          api.status("Pick a topic above to browse fresh videos you haven't watched.");
+          api.status("Pick a topic to explore YouTube search results.");
           api.clear();
           return;
         }
@@ -25336,15 +25346,14 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         api.clear();
         api.status("Loading " + spec.label + "…");
         fetchFresh(key).then(videos => {
-          if (activeTopic !== key) return;
+          if (!alive || request !== generation || activeTopic !== key) return;
           api.clear();
           if (!videos.length) {
-            api.status("Nothing fresh found for " + spec.label + ". Try another topic.");
+            api.status("No matching results for " + spec.label + ". Try another topic or adjust novelty filters.");
             return;
           }
           videos.forEach(video => {
 
-            if (sessionShown.size > 2000) sessionShown.clear();
             sessionShown.add(video.videoId);
             api.list.appendChild(YourTubeDiscovery.createVideoRow(
               video.videoId,
@@ -25355,9 +25364,19 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
               true,
             ));
           });
-          api.status("Showing " + videos.length + " never-watched picks from " + spec.label);
+          const days = Math.max(0, Math.min(90, Number(S.discoverShownDays) || 0));
+          if (S.discoverExcludeShown && days > 0 && videos.length) {
+            const now = Date.now();
+            seenStore.update(data => {
+              for (const [id, at] of Object.entries(data)) if (!Number.isFinite(Number(at)) || now - Number(at) >= days * 86400000) delete data[id];
+              for (const video of videos) data[video.videoId] = now;
+              const ids = Object.keys(data);
+              if (ids.length > 5000) ids.sort((a,b) => Number(data[b]) - Number(data[a])).slice(5000).forEach(id => delete data[id]);
+            });
+          }
+          api.status("Showing " + videos.length + " YouTube search results from " + spec.label + ". Novelty is estimated from your selected local signals, not guaranteed.");
         }).catch(() => {
-          if (activeTopic === key) { api.clear(); api.status("Search failed. Try again."); }
+          if (alive && request === generation && activeTopic === key) { api.clear(); api.status("Search or local novelty storage failed. Try again."); }
         });
       }
       api = host.addSection("discover", "Discover", load);
@@ -25411,6 +25430,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         load();
       }, 0);
       Yt["discover"].push(() => {
+        alive = false; generation++;
         // addSection() can return null/undefined if the host failed to build;
         // destroying unconditionally then throws (caught by ha(), but the
         // section DOM/pill then survives → leak bisect F8: +1 DOM residue).
@@ -25427,8 +25447,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
     settings(en) {
       en.appendChild(Io("Enable Discover", "discoverOn"));
-      en.appendChild(To("div", "ytb-discover-note",
-        "One toggle for discovery. Browse 8+ categories inside or outside your niche. Picks are filtered against your watch history while Session History is on, and never repeat within a session."));
+      en.appendChild(Io("Exclude videos in local watch history", "discoverExcludeWatched"));
+      en.appendChild(Io("Exclude recently shown discoveries", "discoverExcludeShown"));
+      en.appendChild(Io("Exclude channels in local watch history", "discoverExcludeChannels"));
+      en.appendChild(No("Remember shown discoveries", "discoverShownDays", 0, 90, 1, v => v === 0 ? "This session only" : v + " days"));
+      en.appendChild(To("div", "ytb-discover-note", "Uses YouTube search and local history only. Novelty and unfamiliarity are estimates, not guarantees; channel matching uses recorded channel names."));
     } });
 
 

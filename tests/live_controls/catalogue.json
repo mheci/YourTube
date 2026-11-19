@@ -681,9 +681,13 @@
   "cat": "insights",
   "master": "discoverOn",
   "keys": [
-   "discoverOn"
+   "discoverOn",
+   "discoverExcludeWatched",
+   "discoverExcludeShown",
+   "discoverExcludeChannels",
+   "discoverShownDays"
   ],
-  "summary": "Topic-based search discovery with watch-history dedup, no algorithm."
+  "summary": "Explore YouTube search topics with configurable local novelty signals."
  },
  {
   "id": "curated-collections",

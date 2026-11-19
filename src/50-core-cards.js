@@ -1336,7 +1336,7 @@
           ).push(n);
         const n = t.concat(a);
         let r = 0;
-        const o = Xt.cpuConstrained || Xt.lowMemory || Xt.perfMode || S.perfModeOn ? 3 : 6;
+        const o = Xt.cpuConstrained || Xt.lowMemory ? 3 : 6;
         (async () => {
           for (; r < n.length; ) {
             const e = Math.min(r + o, n.length);
@@ -2725,11 +2725,13 @@
     xa.register({
       id: "session-restore", name: "Session History",
       summary: "A private watch journal. Choose your saved time or start fresh before playback.",
-      cat: "data", masterKey: "sessionRestoreOn", keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
+      cat: "data", masterKey: "sessionRestoreOn", keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign", "sessionGapMinutes"],
       apply() { WatchSessions.configure(); },
       settings(panel) {
         panel.appendChild(Ro("When returning to a video", "sessionResumeMode", {ask:"Pause and ask (recommended)",record:"Record only · use YouTube playback"}));
         panel.appendChild(Ro("Resume prompt", "sessionResumeDesign", {folio:"Folio · reading card",signal:"Signal · time display",dock:"Dock · compact bar"}));
+        panel.appendChild(No("Combine visits within", "sessionGapMinutes", 0, 240, 5, v => v + " min"));
+        panel.appendChild(To("div","ytb-hist-note","Visit groups are calculated from individual sessions, which remain separate in local storage."));
         panel.appendChild(To("div","ytb-hist-note","A timestamped link takes precedence. Ads and live streams are not saved. Minimize keeps a saved video paused; it does not make the choice for you."));
         mountWatchLibrary(panel);
       },

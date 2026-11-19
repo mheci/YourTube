@@ -973,6 +973,7 @@ algoBlockChannels: "",
         sessionRestoreOn: !1,
         sessionResumeMode: "ask",
         sessionResumeDesign: "folio",
+        sessionGapMinutes: 60,
         sessionResumePromptMigrated: !1,
         fpsCounterOn: !1,
         fpsCounterPos: "tl",
@@ -1922,7 +1923,7 @@ algoBlockChannels: "",
   }
   function Y() {
     _cfgDirty = !0;
-    const delay = (typeof Xt !== "undefined" && Xt.perfMode) || (typeof S !== "undefined" && S.perfModeOn) ? 1200 : 600;
+    const delay = 600;
     T && (clearTimeout(O), (O = setTimeout(U, delay)));
   }
   function G() {

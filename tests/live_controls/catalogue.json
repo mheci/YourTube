@@ -171,9 +171,10 @@
   "keys": [
    "sessionRestoreOn",
    "sessionResumeMode",
-   "sessionResumeDesign"
+   "sessionResumeDesign",
+   "sessionGapMinutes"
   ],
-  "summary": "Local watch history with resume positions, bookmarks and search."
+  "summary": "A private watch journal. Choose your saved time or start fresh before playback."
  },
  {
   "id": "force-watched",

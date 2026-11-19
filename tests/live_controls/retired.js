@@ -7,5 +7,21 @@ async () => {
     if(r.registered.length||r.mounted.length||!r.savedSettingsPreserved)throw Error('Retirement or saved settings mismatch');
     r.pass=true;
   });
+  await trial('core','retired-hotkey','Saved screenshot setting cannot intercept the former shortcut',async r=>{
+    YourTube.setCfgMany({screenshotOn:true,keymapOn:true,keymap:{screenshot:'keyx'}});
+    const event=new KeyboardEvent('keydown',{code:'KeyX',key:'x',bubbles:true,cancelable:true});
+    document.body.dispatchEvent(event);
+    r.prevented=event.defaultPrevented;
+    r.savedSetting=YourTube.cfg.screenshotOn;
+    if(r.prevented || !r.savedSetting) throw Error('Retired screenshot shortcut remained active or settings lost');
+    r.pass=true;
+  });
+  await trial('aio-compact-dense','retired-bundle-members','A legacy bundle does not change retired playlist settings',async r=>{
+    YourTube.setCfgMany({compactPlaylistOn:true,playlistAutoscrollOn:true,aioCompactDenseOn:true,aioCompactDenseOnEnrolled:true,aioCompactDenseOnEnrolledMembers:'compactPlaylistOn,playlistAutoscrollOn'});
+    await set('aio-compact-dense','aioCompactDenseOn',false);
+    r.compact=YourTube.cfg.compactPlaylistOn;r.autoscroll=YourTube.cfg.playlistAutoscrollOn;
+    if(!r.compact||!r.autoscroll)throw Error('Legacy settings modified on bundle disable');
+    r.pass=true;
+  });
   return rows;
 };

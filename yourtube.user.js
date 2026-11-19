@@ -1010,6 +1010,7 @@ algoBlockChannels: "",
         sessionRestoreOn: !1,
         sessionResumeMode: "ask",
         sessionResumeDesign: "folio",
+        sessionGapMinutes: 60,
         sessionResumePromptMigrated: !1,
         fpsCounterOn: !1,
         fpsCounterPos: "tl",
@@ -1959,7 +1960,7 @@ algoBlockChannels: "",
   }
   function Y() {
     _cfgDirty = !0;
-    const delay = (typeof Xt !== "undefined" && Xt.perfMode) || (typeof S !== "undefined" && S.perfModeOn) ? 1200 : 600;
+    const delay = 600;
     T && (clearTimeout(O), (O = setTimeout(U, delay)));
   }
   function G() {
@@ -6061,6 +6062,47 @@ function mountWatchLibrary(parent) {
   So('history.updated', refresh);
   refresh();
 }
+
+// Analytics use recorded sessions, not a video's lifetime total attributed to
+// its most recent day. Legacy totals without dated sessions remain unallocated.
+const WatchAnalytics = (() => {
+  function summarize(rows, cutoff, gapMinutes = 60) {
+    const gap = Math.max(0, Math.min(1440, Number.isFinite(Number(gapMinutes)) ? Number(gapMinutes) : 60)) * 60000;
+    const channels = new Map(), days = new Map();
+    let seconds = 0, videos = 0, groups = 0, unallocatedSeconds = 0;
+    for (const row of rows || []) {
+      if (!row || !row.videoId) continue;
+      const all = (Array.isArray(row.sessions) ? row.sessions : []).filter(s => s && Number.isFinite(Number(s.start)) && Number(s.start) > 0 && Number(s.start) <= 8640000000000000);
+      let datedSeconds = 0;
+      for (const session of all) {
+        const duration = Number(session.played);
+        if (Number.isFinite(duration) && duration >= 0) datedSeconds += duration;
+      }
+      const lifetime = Number(row.totalWatchTime);
+      if (Number.isFinite(lifetime) && lifetime > datedSeconds) unallocatedSeconds += lifetime - datedSeconds;
+      const current = all.filter(s => Number(s.start) >= cutoff).sort((a,b) => Number(a.start)-Number(b.start));
+      if (!current.length) continue;
+      videos++;
+      let previousEnd = -Infinity, channelSeconds = 0;
+      for (const session of current) {
+        const start = Number(session.start), rawEnd = Number(session.end);
+        const end = Number.isFinite(rawEnd) && rawEnd >= start && rawEnd <= 8640000000000000 ? rawEnd : start;
+        if (start - previousEnd > gap) groups++;
+        previousEnd = Math.max(previousEnd, end);
+        const duration = Number(session.played);
+        if (!Number.isFinite(duration) || duration < 0) continue;
+        seconds += duration;
+        channelSeconds += duration;
+        const day = new Date(start).toISOString().slice(0,10);
+        days.set(day, (days.get(day) || 0) + duration);
+      }
+      const channel = row.channel || 'Unknown';
+      channels.set(channel, (channels.get(channel) || 0) + channelSeconds);
+    }
+    return { seconds, videos, groups, unallocatedSeconds, channels, days };
+  }
+  return { summarize };
+})();
 
   //  SponsorBlock Engine v2 (YourTube)
   const SponsorBlockEngine = (() => {
@@ -10525,7 +10567,7 @@ function mountWatchLibrary(parent) {
           ).push(n);
         const n = t.concat(a);
         let r = 0;
-        const o = Xt.cpuConstrained || Xt.lowMemory || Xt.perfMode || S.perfModeOn ? 3 : 6;
+        const o = Xt.cpuConstrained || Xt.lowMemory ? 3 : 6;
         (async () => {
           for (; r < n.length; ) {
             const e = Math.min(r + o, n.length);
@@ -11914,11 +11956,13 @@ function mountWatchLibrary(parent) {
     xa.register({
       id: "session-restore", name: "Session History",
       summary: "A private watch journal. Choose your saved time or start fresh before playback.",
-      cat: "data", masterKey: "sessionRestoreOn", keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign"],
+      cat: "data", masterKey: "sessionRestoreOn", keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign", "sessionGapMinutes"],
       apply() { WatchSessions.configure(); },
       settings(panel) {
         panel.appendChild(Ro("When returning to a video", "sessionResumeMode", {ask:"Pause and ask (recommended)",record:"Record only · use YouTube playback"}));
         panel.appendChild(Ro("Resume prompt", "sessionResumeDesign", {folio:"Folio · reading card",signal:"Signal · time display",dock:"Dock · compact bar"}));
+        panel.appendChild(No("Combine visits within", "sessionGapMinutes", 0, 240, 5, v => v + " min"));
+        panel.appendChild(To("div","ytb-hist-note","Visit groups are calculated from individual sessions, which remain separate in local storage."));
         panel.appendChild(To("div","ytb-hist-note","A timestamped link takes precedence. Ads and live streams are not saved. Minimize keeps a saved video paused; it does not make the choice for you."));
         mountWatchLibrary(panel);
       },
@@ -26270,11 +26314,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       // only if they are still on: anything the user had set by hand (not in
       // the recorded list, or turned back on after enrolment) is untouched.
       const flipped = String(S[listKey] || "").split(",").filter(Boolean);
-      for (const k of flipped) if (S[k]) Ta(k, false);
+      for (const k of flipped) if (members.includes(k) && S[k]) Ta(k, false);
       Ta(listKey, "");
     }
   };
-  const _playerTools = ["videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
+  const _playerTools = ["videoNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
   xa.register({
     id: "aio-player-tools", name: "Bundle: Player Tools",
     summary: "Group switch for the player-bar extras; members stay individually toggleable; OFF removes only what it enabled.",
@@ -26305,10 +26349,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn", "themeCompactOn"];
+  const _dense = ["compactUI", "denseVideoGridOn", "themeCompactOn"];
   xa.register({
     id: "aio-compact-dense", name: "Bundle: Compact Layout",
-    summary: "Group switch: compact UI, dense grid, compact playlists.",
+    summary: "Group switch for compact UI and dense grid.",
       cat: "bundles",
     masterKey: "aioCompactDenseOn",
     settingsAlways: !0,
@@ -27398,27 +27442,13 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         try { rows = (await w("history")) || []; } catch (_) {}
         const windowDays = Math.max(1, Math.min(365, Number(S.watchStatsDays) || 30));
         const cutoff = Date.now() - windowDays * 86400000;
-        let totalSec = 0;
-        let watched = 0;
-        const perChannel = new Map();
-        const perDay = new Map();
-        for (const row of rows) {
-          if (!row || !row.videoId) continue;
-          const at = row.lastWatched || 0;
-          if (at && at < cutoff) continue;
-          const seconds = Number(row.totalWatchTime) || 0;
-          totalSec += seconds;
-          watched++;
-          const channel = row.channel || "Unknown";
-          perChannel.set(channel, (perChannel.get(channel) || 0) + seconds);
-          const day = new Date(at || Date.now()).toISOString().slice(0, 10);
-          perDay.set(day, (perDay.get(day) || 0) + seconds);
-        }
-        const top = Array.from(perChannel.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
-        const days = Array.from(perDay.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 14);
+        const summary = WatchAnalytics.summarize(rows, cutoff, S.sessionGapMinutes);
+        const top = Array.from(summary.channels.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+        const days = Array.from(summary.days.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 14);
         const lines = [];
         lines.push("Window: last " + windowDays + " days");
-        lines.push("Videos recorded: " + watched + "   Watch time: " + fmtHours(totalSec));
+        lines.push("Videos recorded: " + summary.videos + "   Grouped visits: " + summary.groups + "   Watch time: " + fmtHours(summary.seconds));
+        lines.push("Sessions are counted by start date; undated legacy time is excluded (" + fmtHours(summary.unallocatedSeconds) + " unallocated across all history).");
         lines.push("");
         lines.push("Top channels");
         for (const [name, seconds] of top) lines.push("  " + fmtHours(seconds).padStart(8) + "  " + name);
@@ -27430,7 +27460,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       render();
       if (typeof So === "function") {
         So("cfg.changed", (ev) => {
-          if (ev.key === "watchStatsDays" || ev.key === "watchStatsOn") render();
+          if (ev.key === "watchStatsDays" || ev.key === "watchStatsOn" || ev.key === "sessionGapMinutes") render();
         });
       }
     },
@@ -27454,22 +27484,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}
         const cutoff = Date.now() - week;
-        let totalSec = 0;
-        let count = 0;
-        const perChannel = new Map();
-        for (const row of rows) {
-          if (!row || !row.videoId) continue;
-          const at = row.lastWatched || 0;
-          if (at < cutoff) continue;
-          totalSec += Number(row.totalWatchTime) || 0;
-          count++;
-          const channel = row.channel || "Unknown";
-          perChannel.set(channel, (perChannel.get(channel) || 0) + 1);
-        }
-        if (!count) return;
-        const top = Array.from(perChannel.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3)
-          .map(([name, n]) => name + " (" + n + ")").join(", ");
-        pe("Last 7 days: " + count + " video" + (count === 1 ? "" : "s") + ", " + fmtHours(totalSec) + " watched. Most: " + top, 9000, "info");
+        const summary = WatchAnalytics.summarize(rows, cutoff, S.sessionGapMinutes);
+        if (!summary.videos) return;
+        const top = Array.from(summary.channels.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3)
+          .map(([name, seconds]) => name + " (" + fmtHours(seconds) + ")").join(", ");
+        pe("Last 7 days: " + summary.videos + " video" + (summary.videos === 1 ? "" : "s") + ", " + fmtHours(summary.seconds) + " in dated sessions. Most: " + top + ". Undated legacy time excluded.", 9000, "info");
         store.update((data) => { data.lastShown = Date.now(); });
       };
       ctx.addTimeout(run, 8000);
@@ -27792,7 +27811,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
   // through these specs, so a shortcut can be rebound in the dashboard.
   const _YT_KEYMAP_DEFAULTS = {
     forceWatched: "shift+keyw",
-    screenshot: "keyx",
     stop: "shift+keys",
     chapterPrev: "minus",
     chapterNext: "equal",
@@ -28644,15 +28662,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
             Ut();
           } catch (err) {
             m("hotkey force watched", err);
-          }
-        }
-
-        if (S.screenshotOn && _bound("screenshot")) {
-          e.preventDefault();
-          try {
-            Ia();
-          } catch (err) {
-            m("hotkey screenshot", err);
           }
         }
 

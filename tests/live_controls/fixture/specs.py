@@ -1470,3 +1470,8 @@ S["reader-mode"]["html"] = '<svg hidden><g id="description"></g></svg>' + S["rea
 S["wheel-controls"][
     "setup"
 ] += ";const host=mp(),normal=host.addEventListener;host.addEventListener=function(type,...args){if(type!=='wheel')return normal.call(this,type,...args)}"
+
+# Statistics require dated sessions: an undated legacy lifetime total must not
+# be attributed to the latest watch day.
+for _id in ("watch-stats", "weekly-report"):
+    S[_id]["setup"] = historyrow + ";const r=await dbop('history','get','LabVideo001');r.sessions=[{start:Date.now()-60000,end:Date.now(),played:120}];await dbop('history','put',r)"

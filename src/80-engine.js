@@ -2975,11 +2975,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       // only if they are still on: anything the user had set by hand (not in
       // the recorded list, or turned back on after enrolment) is untouched.
       const flipped = String(S[listKey] || "").split(",").filter(Boolean);
-      for (const k of flipped) if (S[k]) Ta(k, false);
+      for (const k of flipped) if (members.includes(k) && S[k]) Ta(k, false);
       Ta(listKey, "");
     }
   };
-  const _playerTools = ["videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
+  const _playerTools = ["videoNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
   xa.register({
     id: "aio-player-tools", name: "Bundle: Player Tools",
     summary: "Group switch for the player-bar extras; members stay individually toggleable; OFF removes only what it enabled.",
@@ -3010,10 +3010,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  const _dense = ["compactUI", "denseVideoGridOn", "compactPlaylistOn", "playlistAutoscrollOn", "themeCompactOn"];
+  const _dense = ["compactUI", "denseVideoGridOn", "themeCompactOn"];
   xa.register({
     id: "aio-compact-dense", name: "Bundle: Compact Layout",
-    summary: "Group switch: compact UI, dense grid, compact playlists.",
+    summary: "Group switch for compact UI and dense grid.",
       cat: "bundles",
     masterKey: "aioCompactDenseOn",
     settingsAlways: !0,
@@ -4103,27 +4103,13 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         try { rows = (await w("history")) || []; } catch (_) {}
         const windowDays = Math.max(1, Math.min(365, Number(S.watchStatsDays) || 30));
         const cutoff = Date.now() - windowDays * 86400000;
-        let totalSec = 0;
-        let watched = 0;
-        const perChannel = new Map();
-        const perDay = new Map();
-        for (const row of rows) {
-          if (!row || !row.videoId) continue;
-          const at = row.lastWatched || 0;
-          if (at && at < cutoff) continue;
-          const seconds = Number(row.totalWatchTime) || 0;
-          totalSec += seconds;
-          watched++;
-          const channel = row.channel || "Unknown";
-          perChannel.set(channel, (perChannel.get(channel) || 0) + seconds);
-          const day = new Date(at || Date.now()).toISOString().slice(0, 10);
-          perDay.set(day, (perDay.get(day) || 0) + seconds);
-        }
-        const top = Array.from(perChannel.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
-        const days = Array.from(perDay.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 14);
+        const summary = WatchAnalytics.summarize(rows, cutoff, S.sessionGapMinutes);
+        const top = Array.from(summary.channels.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+        const days = Array.from(summary.days.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 14);
         const lines = [];
         lines.push("Window: last " + windowDays + " days");
-        lines.push("Videos recorded: " + watched + "   Watch time: " + fmtHours(totalSec));
+        lines.push("Videos recorded: " + summary.videos + "   Grouped visits: " + summary.groups + "   Watch time: " + fmtHours(summary.seconds));
+        lines.push("Sessions are counted by start date; undated legacy time is excluded (" + fmtHours(summary.unallocatedSeconds) + " unallocated across all history).");
         lines.push("");
         lines.push("Top channels");
         for (const [name, seconds] of top) lines.push("  " + fmtHours(seconds).padStart(8) + "  " + name);
@@ -4135,7 +4121,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       render();
       if (typeof So === "function") {
         So("cfg.changed", (ev) => {
-          if (ev.key === "watchStatsDays" || ev.key === "watchStatsOn") render();
+          if (ev.key === "watchStatsDays" || ev.key === "watchStatsOn" || ev.key === "sessionGapMinutes") render();
         });
       }
     },
@@ -4159,22 +4145,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}
         const cutoff = Date.now() - week;
-        let totalSec = 0;
-        let count = 0;
-        const perChannel = new Map();
-        for (const row of rows) {
-          if (!row || !row.videoId) continue;
-          const at = row.lastWatched || 0;
-          if (at < cutoff) continue;
-          totalSec += Number(row.totalWatchTime) || 0;
-          count++;
-          const channel = row.channel || "Unknown";
-          perChannel.set(channel, (perChannel.get(channel) || 0) + 1);
-        }
-        if (!count) return;
-        const top = Array.from(perChannel.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3)
-          .map(([name, n]) => name + " (" + n + ")").join(", ");
-        pe("Last 7 days: " + count + " video" + (count === 1 ? "" : "s") + ", " + fmtHours(totalSec) + " watched. Most: " + top, 9000, "info");
+        const summary = WatchAnalytics.summarize(rows, cutoff, S.sessionGapMinutes);
+        if (!summary.videos) return;
+        const top = Array.from(summary.channels.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3)
+          .map(([name, seconds]) => name + " (" + fmtHours(seconds) + ")").join(", ");
+        pe("Last 7 days: " + summary.videos + " video" + (summary.videos === 1 ? "" : "s") + ", " + fmtHours(summary.seconds) + " in dated sessions. Most: " + top + ". Undated legacy time excluded.", 9000, "info");
         store.update((data) => { data.lastShown = Date.now(); });
       };
       ctx.addTimeout(run, 8000);
@@ -4497,7 +4472,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
   // through these specs, so a shortcut can be rebound in the dashboard.
   const _YT_KEYMAP_DEFAULTS = {
     forceWatched: "shift+keyw",
-    screenshot: "keyx",
     stop: "shift+keys",
     chapterPrev: "minus",
     chapterNext: "equal",

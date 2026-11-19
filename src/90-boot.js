@@ -154,15 +154,6 @@
           }
         }
 
-        if (S.screenshotOn && _bound("screenshot")) {
-          e.preventDefault();
-          try {
-            Ia();
-          } catch (err) {
-            m("hotkey screenshot", err);
-          }
-        }
-
         if (S.stopButtonOn && _bound("stop")) {
           e.preventDefault();
           try {

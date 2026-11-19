@@ -1249,10 +1249,14 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 row=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const old=d.getTime()-86400000;return {videoId:id,title:'Corrupt backup gate',lastWatched:old,watchCount:1,totalWatchTime:2,sessions:[{start:old,end:old,played:2}]}}""",C)
                 p.evaluate('async row=>YourTube.history.put(row)',row)
                 watch()
-                p.evaluate("async()=>YourTube.storage.set('yourtube/migration-backup/v1',{format:'broken'})")
-                result=p.evaluate("async()=>{try{await YourTube.history.retentionSweep();return 'bad'}catch(e){return 'rejected'}}")
-                assert result=='rejected' and data(C)==row
-                assert p.evaluate("async()=>await YourTube.storage.get('yourtube/migration-backup/v1')")=={'format':'broken'}
+                original=p.evaluate("async()=>await YourTube.storage.get('yourtube/migration-backup/v1')")
+                try:
+                    p.evaluate("async()=>YourTube.storage.set('yourtube/migration-backup/v1',{format:'broken'})")
+                    result=p.evaluate("async()=>{try{await YourTube.history.retentionSweep();return 'bad'}catch(e){return 'rejected'}}")
+                    assert result=='rejected' and data(C)==row
+                    assert p.evaluate("async()=>await YourTube.storage.get('yourtube/migration-backup/v1')")=={'format':'broken'}
+                finally:
+                    p.evaluate("async backup=>YourTube.storage.set('yourtube/migration-backup/v1',backup)",original)
                 return {'invalidBackupDoesNotAuthorizeDeletion':True,'corruptBackupNotOverwritten':True}
 
             case("history-retention-rejects-invalid-backup", history_retention_corrupt_backup)
@@ -1280,6 +1284,69 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 return {'importPreservedScopeAndDeadline':True,'restoredAlongsideActiveVideo':True}
 
             case("history-imported-session-trash-restores-into-active-row", import_session_trash)
+
+            def import_retention_exemptions():
+                init([])
+                watch()
+                now=int(time.time()*1000)
+                imported=record(C,12,title='Imported exemptions',sessions=[{'sid':'protected-visit','start':now-100*86400000,'end':now-100*86400000,'played':10,'retentionExempt':True},{'sid':'ordinary-visit','start':now-3600000,'end':now-3600000,'played':20}],watchCount=2,totalWatchTime=30)
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal')
+                panel.locator('input[type=file]').nth(0).set_input_files({'name':'history.json','mimeType':'application/json','buffer':json.dumps({'history':[imported]}).encode()})
+                panel.get_by_text('Imported 1 entries. Newer local saves were kept.').wait_for()
+                saved=data(C)
+                assert saved['sessions'][0]['sid']=='protected-visit' and saved['sessions'][0]['retentionExempt'] is True
+                assert saved['sessions'][1]['sid']=='ordinary-visit' and not saved['sessions'][1].get('retentionExempt',False)
+                assert p.evaluate('async()=>YourTube.history.retentionSweep()')['changed']==0
+                return {'restoredExemptionsSurviveImport':True,'visitIdsPreserved':True}
+
+            case("history-import-preserves-session-exemptions", import_retention_exemptions)
+
+            def import_expired_sessions():
+                init([])
+                watch()
+                old=p.evaluate("""id=>{const now=Date.now(),d=new Date(now);d.setUTCMonth(d.getUTCMonth()-3);const b=d.getTime(),a=b-2*86400000,z=b-10*86400000;return {videoId:id,title:'Imported expired sessions',lastWatched:a,firstWatched:z,lastPosition:11,duration:120,watchCount:2,totalWatchTime:30,sessions:[{sid:'trash-import',start:a,end:a,played:20},{sid:'discard-import',start:z,end:z,played:10}]}}""",C)
+                recent=record(C,29,title='Newer local',sessions=[{'sid':'recent','start':int(time.time()*1000)-3600000,'played':5}],watchCount=1,totalWatchTime=5)
+                p.evaluate('async row=>YourTube.history.put(row)',recent)
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');input=panel.locator('input[type=file]').nth(0)
+                buf=json.dumps({'history':[old]}).encode()
+                input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('Expired sessions: 1 moved to trash, 1 past recovery, 0 already in trash.',exact=False).wait_for()
+                assert data(C)['title']=='Newer local' and data(C)['lastPosition']==29
+                input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('Expired sessions: 0 moved to trash, 1 past recovery, 1 already in trash.',exact=False).wait_for()
+                panel.get_by_text('History trash',exact=True).click()
+                line=panel.locator('.row').filter(has_text='Imported expired sessions')
+                line.get_by_text('Restore',exact=True).wait_for()
+                assert line.count()==1
+                line.get_by_text('Restore',exact=True).click()
+                p.wait_for_timeout(250)
+                saved=data(C)
+                assert saved['title']=='Newer local' and saved['lastPosition']==29
+                assert any(v.get('sid')=='trash-import' and v.get('retentionExempt') for v in saved['sessions'])
+                assert not any(v.get('sid')=='discard-import' for v in saved['sessions'])
+                return {'expiredImportedToOriginalWindow':True,'pastWindowDiscarded':True,'duplicateSkipped':True,'newerLocalPreserved':True}
+
+            case("history-import-routes-expired-sessions-atomically", import_expired_sessions)
+
+            def import_expired_write_failure():
+                init([])
+                watch()
+                old=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const a=d.getTime()-86400000;return {videoId:id,title:'Failing import',lastWatched:a,watchCount:1,totalWatchTime:10,sessions:[{sid:'failed-import',start:a,end:a,played:10}]}}""",C)
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');input=panel.locator('input[type=file]').nth(0)
+                p.evaluate("""()=>{window._origImportPut=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,...args){if(v?.k?.startsWith('yourtube/trash/history/'))throw new DOMException('quota','QuotaExceededError');return window._origImportPut.call(this,v,...args)}}""")
+                buf=json.dumps({'history':[old]}).encode()
+                input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('Import stopped. Earlier entries may already be saved; check the file and local storage before retrying.').wait_for()
+                assert data(C) is None
+                p.evaluate('()=>{IDBObjectStore.prototype.put=window._origImportPut}')
+                input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('Expired sessions: 1 moved to trash',exact=False).wait_for()
+                return {'failedImportDidNotPartiallyActivate':True,'retryArchivedOnce':True}
+
+            case("history-expired-import-rolls-back-on-write-failure", import_expired_write_failure)
 
             def quality_migration():
                 init([], {"autoHD":False,"stickyQualityOn":True,"qualityLockMigrated":False,"videoCodecPref":"vp9"})

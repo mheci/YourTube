@@ -254,6 +254,61 @@ const CheckpointStore = (() => {
       tx.onerror = tx.onabort = () => reject(tx.error || new Error('Trash lookup failed'));
     });
   }
+  // Import a portable history row and route expired sessions directly to
+  // trash in the same transaction, without overwriting a newer local row.
+  async function importActive(row) {
+    if (!validId(row?.videoId)) throw new Error('Invalid history item');
+    await MigrationBackup.ensure();
+    const db = await b();
+    if (!db) throw new Error('History storage unavailable');
+    const now = Date.now(), sessions = Array.isArray(row.sessions) ? row.sessions : [];
+    const decision = row.retentionExempt === true ? {trash:[],discard:[],undated:[]} : RetentionPolicy.classify(sessions, now, S.sessionGapMinutes);
+    const expired = [...decision.trash,...decision.discard], removedSessions = expired.flatMap(group => group.sessions), removed = new Set(removedSessions);
+    const retained = sessions.filter(session => !removed.has(session));
+    const played = list => list.reduce((n,s) => {const p=Number(s?.played);return n+(Number.isFinite(p)&&p>=0?p:0);},0);
+    const remainingTime = Math.max(0,(Number(row.totalWatchTime)||0)-played(removedSessions));
+    const remainingCount = Math.max(0,(Number(row.watchCount)||0)-removedSessions.length);
+    const legacy = remainingTime > 0.001 || remainingCount > retained.length || decision.undated.length > 0;
+    const recentResume = Number(row.lastWatched)>0 && RetentionPolicy.plusMonths(Number(row.lastWatched))>now;
+    const hasActive = !sessions.length || retained.length>0 || legacy || recentResume;
+    const latestEnd = sessions.reduce((latest,s) => Math.max(latest,Number(s?.end)||Number(s?.start)||0),0);
+    const result = await new Promise((resolve,reject) => {
+      const tx=db.transaction(['history','kv'],'readwrite'), history=tx.objectStore('history'),kv=tx.objectStore('kv');
+      const existing=history.get(row.videoId);
+      // Most imports have no expired recoverable groups; avoid scanning all trash for every row.
+      const cursor=decision.trash.length ? kv.openCursor(IDBKeyRange.bound(trashPrefix,trashPrefix+'\uffff')) : null;
+      const known=new Set();
+      let imported=0,moved=0,duplicates=0;
+      const writeImport = () => {
+        try {
+          for(const group of decision.trash){
+            if(known.has(group.expiresAt)){duplicates++;continue;}
+            const snapshot={...row,sessions:group.sessions,watchCount:group.sessions.length,totalWatchTime:played(group.sessions),firstWatched:group.start,lastWatched:group.end};
+            if(group.end!==latestEnd) Object.assign(snapshot,{lastPosition:0,progress:0,remaining:0,completed:false});
+            delete snapshot._checkpoint;delete snapshot._checkpointLife;
+            kv.put({k:trashPrefix+nonce(),v:{kind:'history',scope:'sessions',deletedAt:group.expiresAt,expiresAt:group.trashExpiresAt,row:snapshot}});
+            known.add(group.expiresAt);moved++;
+          }
+          const prior=existing.result;
+          if(hasActive && (!prior || (Number(prior.lastWatched)||0)<(Number(row.lastWatched)||0))){
+            history.put({...prior,...row,sessions:retained,watchCount:remainingCount,totalWatchTime:remainingTime,
+              _checkpointLife:nonce(),_checkpoint:{start:now,sid:nonce(),seq:0}});
+            imported=1;
+          }
+        } catch(error){try{tx.abort();}catch(_){}reject(error);}
+      };
+      if (cursor) cursor.onsuccess = () => {
+        const c=cursor.result;
+        if(c){const v=c.value?.v;if(v?.scope==='sessions'&&v.row?.videoId===row.videoId&&Number.isFinite(v.deletedAt)&&Number(v.expiresAt)>now) known.add(v.deletedAt);c.continue();return;}
+        writeImport();
+      };
+      else existing.onsuccess = writeImport;
+      tx.oncomplete=()=>resolve({imported,moved,discarded:decision.discard.length,duplicates});
+      tx.onerror=tx.onabort=()=>reject(tx.error||new Error('History import transaction failed'));
+    });
+    if(result.imported||result.moved) g.emit('history.updated',{imported:true});
+    return result;
+  }
   // Expire dated watch-session groups atomically with their trash records.
   // Legacy undated/unallocated data is deliberately kept rather than guessed.
   async function expireSessions(now = Date.now(), gapMinutes = S.sessionGapMinutes) {
@@ -419,5 +474,5 @@ const CheckpointStore = (() => {
       cur.continue();
     };
   }
-  return { load, commit, edit, erase, trash, restoreTrash, importTrash, expireSessions, blank, nonce, validId, pruneTickets };
+  return { load, commit, edit, erase, trash, restoreTrash, importTrash, importActive, expireSessions, blank, nonce, validId, pruneTickets };
 })();

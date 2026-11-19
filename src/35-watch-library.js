@@ -181,7 +181,7 @@ function mountWatchLibrary(parent) {
       const obj = JSON.parse(await file.text()),
         entries = Array.isArray(obj) ? obj : obj.history;
       if (!Array.isArray(entries) || entries.length > 5000) throw Error();
-      let count = 0;
+      let count = 0, moved = 0, discarded = 0, duplicates = 0;
       for (const item of entries) {
         if (!CheckpointStore.validId(item?.videoId)) continue;
         // Accept portable fields, never restore another profile's write fences.
@@ -201,6 +201,7 @@ function mountWatchLibrary(parent) {
         row.firstWatched = num(item.firstWatched, Date.now());
         row.lastWatched = num(item.lastWatched, Date.now());
         row.completed = item.completed === true;
+        row.retentionExempt = item.retentionExempt === true;
         row.pinned = item.pinned === true || item.pinned === 1 ? 1 : 0;
         row.progress = row.completed ? 100 : num(item.progress, 99);
         if (
@@ -230,24 +231,18 @@ function mountWatchLibrary(parent) {
               const session = { start: num(v.start) };
               for (const k of ['end', 'played']) if (k in v) session[k] = num(v[k]);
               if (typeof v.kind === 'string') session.kind = v.kind.slice(0, 60);
+              if (typeof v.sid === 'string' && v.sid.length <= 80) session.sid = v.sid;
+              if (v.retentionExempt === true) session.retentionExempt = true;
               return session;
             });
-        const merged = await CheckpointStore.edit(row.videoId, (prev) => {
-          if (prev && (prev.lastWatched || 0) >= row.lastWatched) return null;
-          // Delayed flushes from a tab opened before this import must not win.
-          return {
-            ...prev,
-            ...row,
-            _checkpointLife: CheckpointStore.nonce(),
-            _checkpoint: { start: Date.now(), sid: CheckpointStore.nonce(), seq: 0 },
-          };
-        });
-        if (merged) count++;
+        const result = await CheckpointStore.importActive(row);
+        count += result.imported; moved += result.moved; discarded += result.discarded; duplicates += result.duplicates;
       }
       await refresh();
-      msg.textContent = 'Imported ' + count + ' entries. Newer local saves were kept.';
+      msg.textContent = 'Imported ' + count + ' entries. Newer local saves were kept.' +
+        (moved || discarded || duplicates ? ' Expired sessions: ' + moved + ' moved to trash, ' + discarded + ' past recovery, ' + duplicates + ' already in trash.' : '');
     } catch (_) {
-      msg.textContent = 'Import stopped. Use a history JSON file under 8 MB.';
+      msg.textContent = 'Import stopped. Earlier entries may already be saved; check the file and local storage before retrying.';
     } finally {
       input.value = '';
     }

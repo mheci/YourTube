@@ -6370,25 +6370,32 @@ const MigrationBackup = (() => {
         }
         const rows = history.getAll(), values = kv.getAll();
         values.onsuccess = () => {
-        const records = values.result.filter(row => row && typeof row.k === 'string' &&
-          (selected.has(row.k) || row.k.startsWith('note:video:')));
-        // z() only hydrates synchronous mirrors. IndexedDB may contain a newer
-        // configuration until the later asynchronous boot merge has finished.
-        // Select from the same version/timestamp sources as that merge, while
-        // retaining raw copies for recovery instead of silently backing up defaults.
-        const stored = values.result.find(row => row?.k === I);
-        const candidates = [];
-        if (stored?.v && typeof stored.v === 'object')
-          candidates.push({src:'idb', data:stored.v, ver:stored.ver || 0, ts:stored.updatedAt || 0});
-        const gm = q(), local = V();
-        if (gm) candidates.push({src:'gm', data:gm, ver:gm.__ver || 0, ts:gm.__ts || 0});
-        if (local) candidates.push({src:'local', data:local, ver:local.__ver || 0, ts:local.__ts || 0});
-        const selectedConfig = F(candidates.slice());
-        const settings = selectedConfig ? {...selectedConfig.data} : {...S};
-        delete settings.__ts; delete settings.__ver;
-        kv.put({k:key, v:{format:'yourtube-migration-backup-v1', createdAt:Date.now(),
-          settings, settingsSources:candidates, history:rows.result || [], records}});
-        made = true;
+          try {
+            const records = values.result.filter(row => row && typeof row.k === 'string' &&
+              (selected.has(row.k) || row.k.startsWith('note:video:')));
+            // z() only hydrates synchronous mirrors. IndexedDB may contain a newer
+            // configuration until the later asynchronous boot merge has finished.
+            // Select from the same version/timestamp sources as that merge, while
+            // retaining raw copies for recovery instead of silently backing up defaults.
+            const stored = values.result.find(row => row?.k === I);
+            const candidates = [];
+            if (stored?.v && typeof stored.v === 'object')
+              candidates.push({src:'idb', data:stored.v, ver:stored.ver || 0, ts:stored.updatedAt || 0});
+            const gm = q(), local = V();
+            if (gm) candidates.push({src:'gm', data:gm, ver:gm.__ver || 0, ts:gm.__ts || 0});
+            if (local) candidates.push({src:'local', data:local, ver:local.__ver || 0, ts:local.__ts || 0});
+            const selectedConfig = F(candidates.slice());
+            const settings = selectedConfig ? {...selectedConfig.data} : {...S};
+            delete settings.__ts; delete settings.__ver;
+            kv.put({k:key, v:{format:'yourtube-migration-backup-v1', createdAt:Date.now(),
+              settings, settingsSources:candidates, history:rows.result || [], records}});
+            made = true;
+          } catch (error) {
+            // A synchronous clone/quota failure in this event callback is not
+            // caught by the outer promise executor. Fail the migration closed.
+            try { tx.abort(); } catch (_) {}
+            reject(error);
+          }
         };
       };
       tx.oncomplete = () => resolve(made);
@@ -14431,7 +14438,7 @@ const IntegrationDiagnostics = (() => {
       apply(e) {
 
         if (!S.skipPausedContinueOn) return;
-        const run = ee(() => {
+        const run = e.debounce(() => {
           const btn = _ytbPausedDialogConfirmBtn();
           if (btn) {
             try {
@@ -15310,6 +15317,23 @@ const IntegrationDiagnostics = (() => {
       }
         if (!S.heroHealOn) return;
 
+        let active = true;
+        const checks = new WeakMap(), healed = new WeakSet(), originals = new WeakMap();
+        Yt["hero-artwork-heal"].push(() => {
+          active = false;
+          for (const hero of document.querySelectorAll("[data-ytb-hero-art]")) {
+            const saved = originals.get(hero);
+            if (!saved) continue;
+            delete hero.dataset.ytbHeroArt;
+            if (hero.style.backgroundImage !== saved.written) continue;
+            if (hero.dataset.ytbInjectedHero === "1") hero.remove();
+            else {
+              hero.style.backgroundImage = saved.image;
+              if (hero.style.backgroundSize === "cover") hero.style.backgroundSize = saved.size;
+              if (hero.style.backgroundPosition === "center center" || hero.style.backgroundPosition === "center") hero.style.backgroundPosition = saved.position;
+            }
+          }
+        });
         const QUAL = ["maxresdefault", "sddefault", "hqdefault"];
         const preload = (url) =>
           new Promise((res) => {
@@ -15350,7 +15374,7 @@ const IntegrationDiagnostics = (() => {
         };
         const heal = async (panel) => {
           try {
-            if (panel.dataset.ytbHeroHealed === "1") return;
+            if (!active || !panel.isConnected || healed.has(panel)) return;
             const item = panel.closest("ytd-carousel-item-renderer") || panel;
             const ir = item.getBoundingClientRect();
             if (ir.width < 600 || ir.height < 200) return;
@@ -15359,11 +15383,11 @@ const IntegrationDiagnostics = (() => {
             const hasBg = !!(cs && cs.backgroundImage && cs.backgroundImage !== "none");
             const v = panel.querySelector("video");
             const videoAlive = !!(v && (v.readyState >= 1 || v.currentSrc || v.poster));
-            if (hasBg || videoAlive) { panel.dataset.ytbHeroHealed = "1"; return; }
+            if (hasBg || videoAlive) { healed.add(panel); return; }
 
-            const checks = parseInt(panel.dataset.ytbHeroChecks || "0", 10) + 1;
-            panel.dataset.ytbHeroChecks = String(checks);
-            if (checks < 2) return;
+            const count = (checks.get(panel) || 0) + 1;
+            checks.set(panel, count);
+            if (count < 2) return;
             const a = panel.querySelector('a[href*="watch?v="]');
             if (!a) return;
             let id = "";
@@ -15371,12 +15395,18 @@ const IntegrationDiagnostics = (() => {
             if (!/^[\w-]{6,}$/.test(id)) return;
             for (const q of QUAL) {
               const url = "https://i.ytimg.com/vi/" + id + "/" + q + ".jpg";
-              if (await preload(url)) {
+              const loaded = await preload(url);
+              if (!active || !panel.isConnected || healed.has(panel) || !panel.contains(a) || new URL(a.href).searchParams.get("v") !== id) return;
+              if (loaded) {
                 hero = ensureHero(panel);
+                const saved = { image: hero.style.backgroundImage, size: hero.style.backgroundSize, position: hero.style.backgroundPosition };
+                originals.set(hero, saved);
+                hero.dataset.ytbHeroArt = "1";
                 hero.style.backgroundImage = 'url("' + url + '")';
+                saved.written = hero.style.backgroundImage;
                 hero.style.backgroundSize = "cover";
                 hero.style.backgroundPosition = "center";
-                panel.dataset.ytbHeroHealed = "1";
+                healed.add(panel);
                 try { pe("✨ Restored channel hero artwork", 2200, "success"); } catch (_) {}
                 return;
               }
@@ -22391,7 +22421,7 @@ body.ytb-silent #ytb-toast,body.ytb-silent #ytb-sb-hud,body.ytb-silent #ytb-sb-o
     const keys = (ev) => {
       if (wo !== shell || ev.defaultPrevented || ev.isComposing) return;
       const target = ev.composedPath()[0];
-      const editing = target?.matches?.("input,textarea,select") || target?.isContentEditable;
+      const editing = target?.matches?.("input:not([type=checkbox]):not([type=radio]),textarea,select") || target?.isContentEditable;
       if (ev.key === "Escape") {
         if (target === input && input.value) {
           ev.preventDefault();
@@ -23990,6 +24020,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
                 } catch (_) { resolve({ ok: false, status: 0, json: null, text: "" }); }
               },
               onerror: () => resolve({ ok: false, status: 0, json: null, text: "" }),
+              onabort: () => resolve({ ok: false, status: 0, json: null, text: "" }),
               ontimeout: () => resolve({ ok: false, status: 0, json: null, text: "" }),
             });
           } catch (_) { resolve({ ok: false, status: 0, json: null, text: "" }); }
@@ -27407,10 +27438,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!S.deArrowThumbs || !data || !Array.isArray(data.thumbnails) || !data.thumbnails.length) return;
         const best = data.thumbnails.find((entry) => entry && !entry.original && Number.isFinite(entry.timestamp)) || null;
         if (!best) return;
-        const image = card.querySelector("img");
+        const image = card.querySelector("a[href*='/watch?v='] img, ytd-thumbnail img, img#img");
         if (!image || image.dataset.ytbDeArrow) return;
         if (!thumbOriginals.has(image)) {
-          thumbOriginals.set(image, { src: image.getAttribute("src") || "", srcset: image.getAttribute("srcset") || "" });
+          thumbOriginals.set(image, { src: image.getAttribute("src"), srcset: image.getAttribute("srcset"), written: thumbUrl(videoId, best.timestamp) });
         }
         image.dataset.ytbDeArrow = "1";
         image.src = thumbUrl(videoId, best.timestamp);
@@ -27491,9 +27522,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         document.querySelectorAll(".ytb-ui-dearrow-chip").forEach((el) => el.remove());
         for (const [image, original] of thumbOriginals) {
           try {
-            if (original.src) image.setAttribute("src", original.src);
-            if (original.srcset) image.setAttribute("srcset", original.srcset);
-            else image.removeAttribute("srcset");
+            if (image.getAttribute("src") === original.written) {
+              if (original.src === null) image.removeAttribute("src");
+              else image.setAttribute("src", original.src);
+              if (!image.hasAttribute("srcset") && original.srcset !== null) image.setAttribute("srcset", original.srcset);
+            }
             delete image.dataset.ytbDeArrow;
           } catch (_) {}
         }

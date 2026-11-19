@@ -56,7 +56,7 @@ def main():
             evidence["version"] = p.evaluate("YourTube.version")
             evidence["browser"] = c.browser.version
             p.evaluate(
-                'YourTube.setCfgMany({sessionRestoreOn:true,sessionResumeMode:"ask",sessionResumeDesign:"folio",stripResumeTimesOn:false,forceWatchedAccountHistory:false,sponsorblockOn:false,dearrowOn:false,updateCheckOn:false})'
+                'YourTube.setCfgMany({sessionRestoreOn:true,sessionResumeMode:"ask",sessionResumeDesign:"folio",stripResumeTimesOn:false,forceWatchedAccountHistory:false,sponsorblockOn:false,deArrowOn:false,updateCheckOn:false})'
             )
             p.evaluate(
                 "async r=>{await YourTube.history.del(r.videoId);await YourTube.history.put(r)}",

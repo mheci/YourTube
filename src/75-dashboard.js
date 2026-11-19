@@ -465,7 +465,7 @@
     const keys = (ev) => {
       if (wo !== shell || ev.defaultPrevented || ev.isComposing) return;
       const target = ev.composedPath()[0];
-      const editing = target?.matches?.("input,textarea,select") || target?.isContentEditable;
+      const editing = target?.matches?.("input:not([type=checkbox]):not([type=radio]),textarea,select") || target?.isContentEditable;
       if (ev.key === "Escape") {
         if (target === input && input.value) {
           ev.preventDefault();

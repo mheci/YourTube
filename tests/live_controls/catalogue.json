@@ -486,7 +486,7 @@
  },
  {
   "id": "redirect-shorts",
-  "name": "Shorts \u00e2\u2020\u2019 Player",
+  "name": "Shorts \u2192 Player",
   "cat": "playback",
   "master": "redirectShortsOn",
   "keys": [

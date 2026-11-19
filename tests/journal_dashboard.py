@@ -45,7 +45,7 @@ def main():
         "sessionRestoreOn": False,
         "sponsorblockOn": False,
         "silentToasts": True,
-        "dearrowOn": False,
+        "deArrowOn": False,
     }
     results = {
         "version": version,
@@ -237,6 +237,8 @@ def main():
             shell.locator(".yj-jump").click()
             card = shell.locator('[data-feat="session-restore"]')
             switch = card.get_by_role("checkbox", name="Session History", exact=True)
+            switch.press("/")
+            check("Search shortcut works from a focused switch", search.evaluate("n=>n===document.activeElement"))
             switch.focus()
             switch.press("Space")
             journal = card.locator(".ytb-watch-journal")

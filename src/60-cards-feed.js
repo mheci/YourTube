@@ -1682,7 +1682,7 @@
       apply(e) {
 
         if (!S.skipPausedContinueOn) return;
-        const run = ee(() => {
+        const run = e.debounce(() => {
           const btn = _ytbPausedDialogConfirmBtn();
           if (btn) {
             try {
@@ -2561,6 +2561,23 @@
       }
         if (!S.heroHealOn) return;
 
+        let active = true;
+        const checks = new WeakMap(), healed = new WeakSet(), originals = new WeakMap();
+        Yt["hero-artwork-heal"].push(() => {
+          active = false;
+          for (const hero of document.querySelectorAll("[data-ytb-hero-art]")) {
+            const saved = originals.get(hero);
+            if (!saved) continue;
+            delete hero.dataset.ytbHeroArt;
+            if (hero.style.backgroundImage !== saved.written) continue;
+            if (hero.dataset.ytbInjectedHero === "1") hero.remove();
+            else {
+              hero.style.backgroundImage = saved.image;
+              if (hero.style.backgroundSize === "cover") hero.style.backgroundSize = saved.size;
+              if (hero.style.backgroundPosition === "center center" || hero.style.backgroundPosition === "center") hero.style.backgroundPosition = saved.position;
+            }
+          }
+        });
         const QUAL = ["maxresdefault", "sddefault", "hqdefault"];
         const preload = (url) =>
           new Promise((res) => {
@@ -2601,7 +2618,7 @@
         };
         const heal = async (panel) => {
           try {
-            if (panel.dataset.ytbHeroHealed === "1") return;
+            if (!active || !panel.isConnected || healed.has(panel)) return;
             const item = panel.closest("ytd-carousel-item-renderer") || panel;
             const ir = item.getBoundingClientRect();
             if (ir.width < 600 || ir.height < 200) return;
@@ -2610,11 +2627,11 @@
             const hasBg = !!(cs && cs.backgroundImage && cs.backgroundImage !== "none");
             const v = panel.querySelector("video");
             const videoAlive = !!(v && (v.readyState >= 1 || v.currentSrc || v.poster));
-            if (hasBg || videoAlive) { panel.dataset.ytbHeroHealed = "1"; return; }
+            if (hasBg || videoAlive) { healed.add(panel); return; }
 
-            const checks = parseInt(panel.dataset.ytbHeroChecks || "0", 10) + 1;
-            panel.dataset.ytbHeroChecks = String(checks);
-            if (checks < 2) return;
+            const count = (checks.get(panel) || 0) + 1;
+            checks.set(panel, count);
+            if (count < 2) return;
             const a = panel.querySelector('a[href*="watch?v="]');
             if (!a) return;
             let id = "";
@@ -2622,12 +2639,18 @@
             if (!/^[\w-]{6,}$/.test(id)) return;
             for (const q of QUAL) {
               const url = "https://i.ytimg.com/vi/" + id + "/" + q + ".jpg";
-              if (await preload(url)) {
+              const loaded = await preload(url);
+              if (!active || !panel.isConnected || healed.has(panel) || !panel.contains(a) || new URL(a.href).searchParams.get("v") !== id) return;
+              if (loaded) {
                 hero = ensureHero(panel);
+                const saved = { image: hero.style.backgroundImage, size: hero.style.backgroundSize, position: hero.style.backgroundPosition };
+                originals.set(hero, saved);
+                hero.dataset.ytbHeroArt = "1";
                 hero.style.backgroundImage = 'url("' + url + '")';
+                saved.written = hero.style.backgroundImage;
                 hero.style.backgroundSize = "cover";
                 hero.style.backgroundPosition = "center";
-                panel.dataset.ytbHeroHealed = "1";
+                healed.add(panel);
                 try { pe("✨ Restored channel hero artwork", 2200, "success"); } catch (_) {}
                 return;
               }

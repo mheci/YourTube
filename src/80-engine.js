@@ -2895,44 +2895,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  xa.register({
-    id: "dup-title-spotter", name: "Duplicate Title Flags",
-    summary: "Marks repeated titles in search (reuploads).",
-      cat: "feed",
-    masterKey: "dupTitleSpotterOn", keys: ["dupTitleSpotterOn"],
-    apply(ctx) {
-      if (!S.dupTitleSpotterOn) return;
-      YourTubeEngine.injectCSS();
-      const norm = (t) => String(t || "").normalize("NFC").toLowerCase().replace(/[^a-z0-9]+/g, "");
-      const scan = () => {
-        if (!location.pathname.startsWith("/results")) return;
-        const rows = [...document.querySelectorAll("ytd-video-renderer")];
-        const seen = new Map();
-        rows.forEach((row) => {
-          const t = row.querySelector("#video-title");
-          if (!t) return;
-          const key = norm(t.textContent).slice(0, 90);
-          const badge = row.querySelector(".ytb-ui-dup-badge");
-          if (!key || key.length < 12) { if (badge) badge.remove(); return; }
-          if (seen.has(key)) {
-            if (!badge) {
-              const b = document.createElement("span");
-              b.className = "ytb-ui-dup-badge ytb-ui-velocity";
-              b.textContent = "dup title";
-              t.parentNode && t.parentNode.appendChild(b);
-            }
-          } else if (badge) badge.remove();
-          seen.set(key, true);
-        });
-      };
-      ctx.addObserver(document.body, ctx.debounce(scan, 350), { childList: true, subtree: true });
-      ctx.onNav(() => ctx.addTimeout(scan, 700));
-      Yt["dup-title-spotter"].push(() => {
-        document.querySelectorAll(".ytb-ui-dup-badge").forEach((b) => b.remove());
-      });
-    },
-    settings(en) { en.appendChild(Io("Flag duplicate titles on search", "dupTitleSpotterOn")); },
-  });
+
 
   xa.register({
     id: "playlist-watched-marker", name: "Playlist Watch-Marks",
@@ -3202,117 +3165,18 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         site: "Everywhere",
         watch: "Watch page only",
       }));
+      const preview = To("div", "ytb-text-scale-preview", "Preview: This is how descriptions and comments will read.");
+      preview.style.cssText = "margin-top:8px;padding:10px;border:1px solid var(--yt-spec-10-percent-layer, #ccc);border-radius:8px;line-height:1.5";
+      const updatePreview = () => { preview.style.fontSize = Math.max(100, Math.min(180, Number(S.textScalePct) || 115)) + "%"; };
+      updatePreview();
+      So("cfg.changed", ({key}) => { if (key === "textScalePct") updatePreview(); });
+      en.appendChild(preview);
     },
   });
 
-  xa.register({
-    id: "storage-dashboard", name: "Storage Usage",
-    summary: "Inspect and prune YourTube's local storage footprint.",
-      cat: "data",
-    masterKey: "storageDashboardOn", keys: ["storageDashboardOn"],
-    apply(ctx) {  },
-    settings(en) {
-      en.appendChild(Io("Show storage overview", "storageDashboardOn"));
-      const wrap = document.createElement("div");
-      en.appendChild(wrap);
-      const out = document.createElement("div");
-      out.className = "ytb-hist-note"; out.style.marginTop = "8px";
-      wrap.appendChild(out);
-      const fmtBytes = (n) => n > 1073741824 ? (n / 1073741824).toFixed(2) + " GB"
-        : n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : (n / 1024).toFixed(0) + " KB";
-      const render = async () => {
-        out.textContent = "Counting…";
-        const lines = [];
-        let est = null;
-        try { est = await navigator.storage.estimate(); } catch (_) {}
-        lines.push(est && est.quota
-          ? "Browser quota used: ~" + fmtBytes(est.usage || 0) + " of " + fmtBytes(est.quota || 0)
-          : "Storage estimate unavailable; showing row counts only.");
-        // count() avoids deserializing every record.
-        for (const storeName of ["kv", "history", "thumbCache", "replay"]) {
-          const count = await _idbCount(storeName);
-          lines.push(storeName + ": " + (count === null ? "unavailable" : count + " rows"));
-        }
-        out.innerHTML = Xy("");
-        const pre = document.createElement("div");
-        pre.style.whiteSpace = "pre-line";
-        pre.textContent = lines.join("\n");
-        out.appendChild(pre);
-        const trim = Oo("Trim old caches now", () => {
-          try {
-            if (typeof YourTubeCache !== "undefined" && YourTubeCache.cleanup) YourTubeCache.cleanup();
-            YourTubeResources.TrackedBlobURL.revokeOlderThan(30 * 60 * 1000);
-            try { Ve.clear(); } catch (_) {}
-            pe("Cache trim requested.", 1600, "success");
-          } catch (_) { pe("Trim failed.", 1600, "error"); }
-        });
-        out.appendChild(trim);
-      };
-      const sync = () => {
-        const on = !!S.storageDashboardOn;
-        wrap.style.display = on ? "" : "none";
-        if (on) render();
-      };
-      sync();
-      if (typeof So === "function") So("cfg.changed", (ev) => { if (ev.key === "storageDashboardOn") sync(); });
-    },
-  });
 
-  xa.register({
-    id: "health-check", name: "Health Check",
-    summary: "Diagnostics: stats, quarantined features, live DOM probes.",
-      cat: "tools",
-    masterKey: "healthCheckOn", keys: ["healthCheckOn"],
-    apply(ctx) { },
-    settings(en) {
-      en.appendChild(Io("Show health check", "healthCheckOn"));
-      const wrap = document.createElement("div");
-      en.appendChild(wrap);
-      const box = document.createElement("div");
-      box.className = "ytb-hist-note"; box.style.marginTop = "8px";
-      box.style.whiteSpace = "pre-line";
-      wrap.appendChild(box);
-      const render = () => {
-        const L = [];
-        try {
-          const rs = YourTubeResources.stats();
-          L.push("Observers: " + rs.sharedObserver.subscribers + " subs (" + (rs.sharedObserver.active ? "active" : "idle") + ")");
-          L.push("Tickers: " + rs.sharedTicker.tasks + " tasks");
-          L.push("Blob URLs alive: " + rs.blobURLs.active);
-          L.push("Deferred tasks: " + rs.deferred.pending);
-          L.push("Abort groups: " + rs.abortGroups.groups);
-        } catch (_) { L.push("YourTubeResources: unavailable"); }
-        try {
-          const sb = SponsorBlockEngine.stats();
-          L.push("SponsorBlock: " + sb.skips + " skips all-time, cache hit " + sb.hitRate + "%");
-        } catch (_) { L.push("SponsorBlock: off"); }
-        try {
-          const q = xa.list().filter((f) => xa.isQuarantined(f.id));
-          L.push(q.length ? "Quarantined features: " + q.map((f) => f.id).join(", ") : "No quarantined features ✓");
-        } catch (_) {}
 
-        for (const probe of [
-          ["video element", "video.html5-main-video"],
-          ["player shell", "#movie_player"],
-          ["home grid", "ytd-rich-grid-renderer #contents"],
-        ]) {
-          let ok = false;
-          try { ok = !!document.querySelector(probe[1]); } catch (_) {}
-          L.push("Probe " + probe[0] + ": " + (ok ? "found ✓" : "not on this page"));
-        }
-        box.textContent = L.join("\n");
-      };
-      render();
-      const btn = Oo("Re-run checks", render); wrap.appendChild(btn);
-      const sync = () => {
-        const on = !!S.healthCheckOn;
-        wrap.style.display = on ? "" : "none";
-        if (on) render();
-      };
-      sync();
-      if (typeof So === "function") So("cfg.changed", (ev) => { if (ev.key === "healthCheckOn") sync(); });
-    },
-  });
+
 
   xa.register({
     id: "frame-stepper", name: "Frame Stepper",
@@ -3413,54 +3277,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     settings(en) { en.appendChild(Io("Offer playlist resume points", "playlistResumeOn")); },
   });
 
-  xa.register({
-    id: "channel-volume", name: "Per-Channel Volume",
-    summary: "Stores one volume level per channel.",
-      cat: "audio",
-    masterKey: "channelVolumeOn", keys: ["channelVolumeOn"],
-    apply(ctx) {
-      if (!S.channelVolumeOn) return;
-      const store = YourTubeEngine.createStore("__yourtube_ch_vol__", {});
-      let appliedFor = "";
-      const chKey = () => {
-        try {
-          const h = typeof Ne === "function" ? Ne() : "";
-          if (h) return h;
-        } catch (_) {}
-        return ie.channel() || "";
-      };
-      const legacyKey = () => { try { return ie.channel() || ""; } catch (_) { return ""; } };
-      const binder = YourTubePack.elBinder("channel-volume");
-      binder(ctx, "loadedmetadata", tryApply);
-      binder(ctx, "play", tryApply);
-      function tryApply() {
-        const el = ie.el(), ch = chKey();
-        if (!el || !ch || ch === appliedFor) return;
-        const pref = store.get()[ch] || store.get()[legacyKey()];
-        if (pref && Number.isFinite(pref.v)) {
-          try { el.volume = Math.max(0, Math.min(1, pref.v)); } catch (_) {}
-          appliedFor = ch;
-        }
-      }
 
-      const binder2 = YourTubePack.elBinder("channel-volume");
-      binder2(ctx, "volumechange", () => {
-        const el = ie.el(), ch = chKey();
-        if (!el || !ch) return;
-        clearTimeout(tryApply._t);
-        tryApply._t = setTimeout(() => {
-          const cur = ie.el();
-          if (!cur || cur !== el) return;
-          store.update(d => { d[ch] = { v: el.volume, at: Date.now() };
-          const vkeys = Object.keys(d);
-          if (vkeys.length > 300) vkeys.sort((x, y) => (d[x].at || 0) - (d[y].at || 0)).slice(0, vkeys.length - 300).forEach(k3 => delete d[k3]);
-        });
-        }, 3000);
-      });
-      Yt["channel-volume"].push(() => { clearTimeout(tryApply._t); });
-    },
-    settings(en) { en.appendChild(Io("Remember volume per channel", "channelVolumeOn")); },
-  });
 
   xa.register({
     id: "quick-collection-send", name: "Save to Collection",
@@ -3505,68 +3322,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     settings(en) { en.appendChild(Io("Show quick-save under the player", "quickCollectionSendOn")); },
   });
 
-  xa.register({
-    id: "reader-mode", name: "Description Reader",
-    summary: "Renders long descriptions in a clean reading panel.",
-      cat: "appearance",
-    masterKey: "readerModeOn", keys: ["readerModeOn"],
-    apply(ctx) {
-      if (!S.readerModeOn) return;
-      YourTubeEngine.injectCSS();
-      let overlay = null;
-      const open = (descEl) => {
-        // YouTube also ships an SVG <g id="description">. Read from the
-        // specific watch expander that owns the clicked control, not an ID
-        // lookup over the whole page (or a hidden duplicate from a panel).
-        if (!descEl.isConnected || !document.body) return;
-        close();
-        overlay = document.createElement("div");
-        overlay.id = "ytb-reader";
-        overlay.setAttribute("role", "dialog");
-        overlay.style.cssText = "position:fixed;inset:0;z-index:2147483640;background:rgba(10,11,15,.94);" +
-          "display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto";
-        const inner = document.createElement("div");
-        inner.style.cssText = "max-width:720px;width:100%;background:rgba(18,20,27,.98);border-radius:14px;" +
-          "padding:26px 30px;border:1px solid rgba(255,255,255,.1);color:#e8e8ee;" +
-          "font:15px/1.65 system-ui;white-space:pre-wrap;max-height:86vh;overflow:auto";
-        const content = descEl.querySelector("#attributed-description-text,yt-attributed-string#content,#description-text") || descEl;
-        const copy = content.cloneNode(true);
-        copy.querySelectorAll("button,script,style,#expand,#collapse,.ytb-ui-reader-open").forEach(node => node.remove());
-        inner.textContent = (copy.textContent || "").trim();
-        const closeBtn = document.createElement("button");
-        closeBtn.textContent = "× Close";
-        closeBtn.className = "ytb-ui-btn";
-        closeBtn.style.cssText = "float:right;margin-left:12px";
-        closeBtn.addEventListener("click", close);
-        inner.prepend(closeBtn);
-        overlay.appendChild(inner);
-        overlay.addEventListener("click", (ev) => { if (ev.target === overlay) close(); });
-        document.body.appendChild(overlay);
-      };
-      const close = () => { if (overlay) { overlay.remove(); overlay = null; } };
-      const mount = () => {
-        if (!location.pathname.startsWith("/watch")) return false;
-        const visible = selector => Array.from(document.querySelectorAll(selector)).find(node =>
-          node instanceof HTMLElement && node.getClientRects().length && !node.closest("[hidden]"));
-        const meta = visible("ytd-watch-metadata #description-inline-expander,ytd-watch-flexy #description-inline-expander") ||
-          visible("#description-inline-expander") || visible("ytd-watch-metadata ytd-text-inline-expander");
-        if (!meta || meta.querySelector(".ytb-ui-reader-open")) return !!meta;
-        const b = document.createElement("button");
-        b.className = "ytb-ui-btn ytb-ui-reader-open";
-        b.style.cssText = "margin-top:6px";
-        b.textContent = "📖 Reader mode";
-        b.addEventListener("click", ev => { ev.stopPropagation(); open(meta); });
-        meta.appendChild(b);
-        return true;
-      };
-      YourTubeEngine.scheduleOnReady(ctx, mount, { attempts: 10, delayMs: 500 });
-      ctx.addObserver(document.body, ctx.debounce(mount, 200), {childList:true, subtree:true});
-      ctx.addListener(document, "keydown", (ev) => { if (ev.key === "Escape") close(); });
-      ctx.onNav(close);
-      Yt["reader-mode"].push(() => { close(); document.querySelectorAll(".ytb-ui-reader-open").forEach(node => node.remove()); });
-    },
-    settings(en) { en.appendChild(Io("Add reader mode to descriptions", "readerModeOn")); },
-  });
+
 
 
 
@@ -3820,87 +3576,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
   // search results, then hides the ones seen before. The grace period keeps the
   // current scroll position stable: a card is only hidden on a later visit, not
   // while you are looking at it.
-  xa.register({
-    id: "seen-memory", name: "Anti-Repeat Memory",
-    summary: "Suppresses cards scrolled past for a configurable number of days.",
-      cat: "feed",
-    masterKey: "antiRepeatOn", keys: ["antiRepeatOn", "antiRepeatDays", "antiRepeatGraceMin"],
-    apply(ctx) {
-      if (!S.antiRepeatOn) return;
-      const seen = YourTubeEngine.createStore("__yourtube_seen__", {});
-      const CARD_SELECTOR = _ytCardMeta.CARDS + ", ytd-playlist-video-renderer, yt-lockup-view-model";
-      const maxAgeMs = () => Math.max(1, Math.min(365, Number(S.antiRepeatDays) || 14)) * 86400000;
-      const graceMs = () => Math.max(1, Math.min(1440, Number(S.antiRepeatGraceMin) || 30)) * 60000;
-      const trimStore = (map) => {
-        const keys = Object.keys(map);
-        if (keys.length <= 5000) return;
-        keys.sort((a, b) => (map[a] || 0) - (map[b] || 0));
-        for (const key of keys.slice(0, keys.length - 5000)) delete map[key];
-      };
-      let lastScan = 0;
-      let pendingWrites = 0;
-      let lastFlush = Date.now();
-      const scan = () => {
-        const now = Date.now();
-        if (now - lastScan < 1500) return;
-        lastScan = now;
-        const playing = (ie.videoId && ie.videoId()) || "";
-        const data = seen.get();
-        const limit = maxAgeMs();
-        const grace = graceMs();
-        let recorded = 0;
-        document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
-          const id = _ytCardMeta.videoIdOf(card);
-          if (!id) return;
-          const at = data[id] || 0;
-          const hide = !!(at && now - at <= limit && now - at > grace && id !== playing);
-          if (hide) {
-            if (!card.dataset.ytbSeen) { card.dataset.ytbSeen = "1"; card.style.display = "none"; }
-          } else if (card.dataset.ytbSeen) {
-            delete card.dataset.ytbSeen;
-            card.style.display = "";
-          }
-          if (!hide && (!at || now - at > 600000)) { data[id] = now; recorded++; }
-        });
-        if (recorded) {
-          pendingWrites += recorded;
-          // The store debounces its own writes, but a busy feed can still push
-          // a full snapshot every few seconds; batch until 20 new entries or
-          // two minutes have passed.
-          if (pendingWrites >= 20 || now - lastFlush > 120000) {
-            pendingWrites = 0;
-            lastFlush = now;
-            trimStore(data);
-            seen.set(data);
-          }
-        }
-      };
-      const flushSeen = () => {
-        if (!pendingWrites) return;
-        pendingWrites = 0;
-        const data = seen.get();
-        trimStore(data);
-        seen.set(data);
-      };
-      ctx.addObserver(document.body, ctx.debounce(scan, 400), { childList: true, subtree: true });
-      ctx.addInterval(scan, 6000);
-      ctx.onNav(() => ctx.addTimeout(scan, 800));
-      Yt["seen-memory"].push(() => {
-        flushSeen();
-        document.querySelectorAll("[data-ytb-seen]").forEach((el) => {
-          el.style.display = "";
-          delete el.dataset.ytbSeen;
-        });
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Hide videos I have already seen", "antiRepeatOn"));
-      en.appendChild(No("Forget after", "antiRepeatDays", 1, 365, 1, (v) => v + " days"));
-      en.appendChild(No("Grace period", "antiRepeatGraceMin", 5, 1440, 5, (v) => v + " min"));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Cards are recorded when they appear, and hidden on a later visit. The list stays in your browser."));
-    },
-  });
+
 
   // Hides cards whose view count is below the threshold. Cards without a view
   // count (live, upcoming, some shorts) are left alone.
@@ -4007,46 +3683,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
   // Removes the filler sections YouTube injects into search results. Matching is
   // by element first, with an English text fallback for sections that have no
   // stable id of their own.
-  xa.register({
-    id: "search-filler", name: "Search Filler Removal",
-    summary: "Removes related-search and 'similar' filler blocks.",
-      cat: "feed",
-    masterKey: "searchFillerOff", keys: ["searchFillerOff"],
-    apply(ctx) {
-      if (!S.searchFillerOff) return;
-      ctx.addStyle(
-        "ytd-search-refinement-card-renderer, ytd-search-pyv-renderer, " +
-        "ytd-horizontal-card-list-renderer[is-search-refinement]{display:none!important}",
-      );
-      const FILLER = /^(related to your search|people also search for|others also searched for|search instead for|more results for)/i;
-      const scan = () => {
-        if (!location.pathname.startsWith("/results")) return;
-        document.querySelectorAll("ytd-item-section-renderer, ytd-shelf-renderer").forEach((section) => {
-          if (section.dataset.ytbFiller) return;
-          const header = section.querySelector("#title-container #title, #title, .ytd-item-section-header-renderer");
-          const label = ((header && header.textContent) || "").trim();
-          if (!FILLER.test(label)) return;
-          section.dataset.ytbFiller = "1";
-          section.style.display = "none";
-        });
-      };
-      ctx.addObserver(document.body, ctx.debounce(scan, 400), { childList: true, subtree: true });
-      scan();
-      ctx.addInterval(scan, 4000);
-      ctx.onNav(() => ctx.addTimeout(scan, 900));
-      Yt["search-filler"].push(() => {
-        document.querySelectorAll("[data-ytb-filler]").forEach((el) => {
-          el.style.display = "";
-          delete el.dataset.ytbFiller;
-        });
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Remove search filler sections", "searchFillerOff"));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Hides the related-search and similar sections below results. 'Did you mean' suggestions are kept."));
-    },
-  });
+
 
   xa.register({
     id: "hide-community-posts", name: "Hide Community Posts",
@@ -4308,74 +3945,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  xa.register({
-    id: "volume-boost", name: "Volume Boost",
-    summary: "Amplifies playback past 100% via WebAudio; optional per-channel.",
-      cat: "audio",
-    masterKey: "volumeBoostOn", keys: ["volumeBoostOn", "volumeBoostPct", "volumeBoostPerChannel"],
-    apply(ctx) {
-      if (!S.volumeBoostOn) return;
-      const store = YourTubeEngine.createStore("__yourtube_boost__", {});
-      const channelKey = () => { try { return (typeof Ne === "function" ? Ne() : "") || ""; } catch (_) { return ""; } };
-      const factor = () => {
-        let pct = Number(S.volumeBoostPct) || 150;
-        if (S.volumeBoostPerChannel) {
-          const channel = channelKey();
-          const saved = channel && store.get()[channel];
-          if (saved && Number.isFinite(saved.pct)) pct = saved.pct;
-        }
-        return Math.max(1, Math.min(3, pct / 100));
-      };
-      const applyGain = () => {
-        const el = ie.el();
-        const entry = _ytAudioEntry(el);
-        if (!entry) return;
-        const target = factor();
-        try {
-          if (Math.abs(entry.gain.gain.value - target) > 0.001) entry.gain.gain.value = target;
-        } catch (_) {}
-      };
-      const remember = () => {
-        if (!S.volumeBoostPerChannel) return;
-        const channel = channelKey();
-        if (!channel) return;
-        store.update((data) => {
-          const existing = data[channel];
-          // Seed a channel once with the amount in effect; after that the saved
-          // value is the per-channel choice and must not be overwritten by the
-          // global amount.
-          if (!existing || !Number.isFinite(existing.pct)) {
-            data[channel] = { pct: Number(S.volumeBoostPct) || 150, at: Date.now() };
-          }
-          const keys = Object.keys(data);
-          if (keys.length > 300) {
-            keys.sort((a, b) => (data[a].at || 0) - (data[b].at || 0));
-            for (const key of keys.slice(0, keys.length - 300)) delete data[key];
-          }
-        });
-      };
-      applyGain();
-      ctx.onNav(() => { ctx.addTimeout(applyGain, 1200); ctx.addTimeout(remember, 2500); });
-      ctx.addInterval(applyGain, 4000);
-      ctx.addListener(document, "pointerdown", () => {
-        try { if (_ytAudio.ctx && _ytAudio.ctx.state === "suspended") _ytAudio.ctx.resume(); } catch (_) {}
-      }, { capture: true });
-      Yt["volume-boost"].push(() => {
-        try {
-          const el = ie.el();
-          const entry = el && _ytAudioGraphs.get(el);
-          if (entry) entry.gain.gain.value = 1;
-        } catch (_) {}
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Boost the volume", "volumeBoostOn"));
-      en.appendChild(No("Amount", "volumeBoostPct", 100, 300, 10, (v) => v + "%"));
-      en.appendChild(Io("Remember the boost per channel", "volumeBoostPerChannel"));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Audio is routed through a WebAudio gain node. Turn this off if the player goes silent; DRM-protected content can refuse the route."));
-    },
-  });
+
 
   xa.register({
     id: "loudness-leveling", name: "Loudness Normalization",
@@ -4482,68 +4052,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     },
   });
 
-  xa.register({
-    id: "shorts-speed", name: "Shorts Speed & Progress",
-    summary: "Speed control and a progress bar for Shorts.",
-      cat: "playback",
-    masterKey: "shortsSpeedOn", keys: ["shortsSpeedOn", "shortsSpeedDefault", "shortsProgressOn"],
-    apply(ctx) {
-      if (!S.shortsSpeedOn) return;
-      ctx.addStyle(
-        ".ytb-ui-shorts-progress{position:fixed;left:0;right:0;bottom:0;height:3px;z-index:2147483000;display:none;background:rgba(255,255,255,.14)}" +
-        ".ytb-ui-shorts-progress-fill{height:100%;width:0;background:#ff3d7f;transition:width .2s linear}",
-      );
-      const rate = () => Math.max(0.25, Math.min(4, Number(S.shortsSpeedDefault) || 1));
-      let lastVid = "", owner = null, previous = 1, written = null;
-      const releaseRate = () => {
-        if (owner && written !== null && owner.playbackRate === written) owner.playbackRate = previous;
-        owner = null; written = null;
-      };
-      let bar = null;
-      const ensureBar = () => {
-        if (!S.shortsProgressOn) return null;
-        if (bar && document.body && document.body.contains(bar)) return bar;
-        bar = To("div", "ytb-ui-shorts-progress");
-        bar.appendChild(To("div", "ytb-ui-shorts-progress-fill"));
-        if (document.body) document.body.appendChild(bar);
-        return bar;
-      };
-      const tick = () => {
-        const onShorts = location.pathname.startsWith("/shorts");
-        const el = ie.el();
-        const progress = ensureBar();
-        if (!onShorts || !el) {
-          releaseRate();
-          if (progress) progress.style.display = "none";
-          return;
-        }
-        const vid = (ie.videoId && ie.videoId()) || "";
-        if (vid && (vid !== lastVid || owner !== el)) {
-          releaseRate(); owner = el; previous = el.playbackRate;
-          lastVid = vid;
-          try { written = rate(); el.playbackRate = written; } catch (_) {}
-        }
-        if (progress) {
-          progress.style.display = "block";
-          const pct = el.duration ? Math.min(100, (el.currentTime / el.duration) * 100) : 0;
-          progress.firstChild.style.width = pct + "%";
-        }
-      };
-      ctx.addObserver(document.body, ctx.debounce(tick, 300), { childList: true, subtree: true });
-      tick();
-      ctx.addInterval(tick, 1000);
-      ctx.onNav(() => { lastVid = ""; ctx.addTimeout(tick, 600); });
-      Yt["shorts-speed"].push(() => {
-        releaseRate();
-        if (bar) { try { bar.remove(); } catch (_) {} bar = null; }
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Set a Shorts playback speed", "shortsSpeedOn"));
-      en.appendChild(No("Speed", "shortsSpeedDefault", 0.25, 4, 0.25, (v) => v + "x"));
-      en.appendChild(Io("Show a progress bar", "shortsProgressOn"));
-    },
-  });
+
   // ---------------------------------------------------------------------------
   // Third-party integrations
   // ---------------------------------------------------------------------------
@@ -5033,91 +4542,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
 
   // Adds copy and download actions to the transcript panel, and stops YouTube
   // from scrolling the page when the panel opens.
-  xa.register({
-    id: "transcript-tools", name: "Transcript Tools",
-    summary: "Copy or download transcripts without scrolling.",
-      cat: "playback",
-    masterKey: "transcriptToolsOn", keys: ["transcriptToolsOn", "transcriptTimestamps", "transcriptNoScroll"],
-    apply(ctx) {
-      if (!S.transcriptToolsOn) return;
-      const rowsOf = () => {
-        const rows = document.querySelectorAll("ytd-transcript-segment-renderer");
-        const out = [];
-        rows.forEach((row) => {
-          const time = row.querySelector(".segment-timestamp, #timestamp");
-          const text = row.querySelector(".segment-text, #text, yt-formatted-string.segment-text");
-          if (!text) return;
-          out.push({
-            time: ((time && time.textContent) || "").trim(),
-            text: (text.textContent || "").trim(),
-          });
-        });
-        return out;
-      };
-      const asText = () => rowsOf()
-        .map((row) => (S.transcriptTimestamps && row.time ? row.time + " " + row.text : row.text))
-        .join("\n");
-      const download = (name, body) => {
-        try {
-          const url = YourTubeResources.TrackedBlobURL.create(new Blob([body], { type: "text/plain" }), "ytb-transcript");
-          if (!url) return;
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = name;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          setTimeout(() => YourTubeResources.TrackedBlobURL.revoke(url), 4000);
-        } catch (_) {}
-      };
-      const mount = () => {
-        if (!location.pathname.startsWith("/watch")) return false;
-        const panel = document.querySelector("ytd-transcript-renderer #header, ytd-transcript-renderer");
-        if (!panel || panel.querySelector(".ytb-ui-transcript-tools")) return !!panel;
-        const row = To("div", "ytb-ui-transcript-tools");
-        row.style.cssText = "display:flex;gap:6px;padding:6px 0";
-        row.appendChild(Oo("Copy", () => {
-          const text = asText();
-          if (!text) { pe("Transcript is still loading.", 1600, "info"); return; }
-          try { navigator.clipboard.writeText(text).then(() => pe("Transcript copied.", 1400, "success"), () => pe("Clipboard blocked.", 1600, "error")); } catch (_) {}
-        }));
-        row.appendChild(Oo("Download", () => {
-          const text = asText();
-          if (!text) { pe("Transcript is still loading.", 1600, "info"); return; }
-          download("transcript-" + ((ie.videoId && ie.videoId()) || "video") + ".txt", text);
-        }));
-        panel.prepend ? panel.prepend(row) : panel.appendChild(row);
-        return true;
-      };
-      if (S.transcriptNoScroll) {
-        const bound = new WeakSet();
-        const bind = () => {
-          const button = document.querySelector("ytd-video-description-transcript-section-renderer button, button[aria-label*='transcript' i]");
-          if (!button || bound.has(button)) return;
-          bound.add(button);
-          ctx.addListener(button, "click", () => {
-            const y = window.scrollY;
-            for (const delay of [50, 250, 600, 1200]) {
-              ctx.addTimeout(() => { try { window.scrollTo({ top: y }); } catch (_) {} }, delay);
-            }
-          });
-        };
-        bind();
-        ctx.onNav(() => ctx.addTimeout(bind, 1500));
-      }
-      mount();
-      ctx.addInterval(mount, 1500);
-      ctx.onNav(() => ctx.addTimeout(mount, 1200));
-      Yt["transcript-tools"].push(() => {
-        document.querySelectorAll(".ytb-ui-transcript-tools").forEach((el) => el.remove());
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Add copy and download to the transcript", "transcriptToolsOn"));
-      en.appendChild(Io("Include timestamps when copying", "transcriptTimestamps"));
-      en.appendChild(Io("Do not scroll the page when opening the transcript", "transcriptNoScroll"));
-    },
-  });
+
 
   xa.register({
     id: "notification-clean", name: "Notification Cleanup",
@@ -6086,79 +5511,3 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
 
   // Client-side sorting of the results YouTube already returned. It reorders the
   // cards on the page; it cannot fetch more results.
-  xa.register({
-    id: "sort-search", name: "Sort Results",
-    summary: "Reorders page results by date, views or length.",
-      cat: "feed",
-    masterKey: "sortSearchOn", keys: ["sortSearchOn", "sortSearchBy"],
-    apply(ctx) {
-      if (!S.sortSearchOn) return;
-      ctx.addStyle(
-        ".ytb-ui-sort-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0 12px;font-size:12px;color:#aaa}" +
-        ".ytb-ui-sort-bar .ytb-btn.active{background:rgba(255,61,127,.18);border-color:rgba(255,61,127,.4);color:#ff8aa5}",
-      );
-      const lists = "ytd-search ytd-item-section-renderer #contents, #search ytd-item-section-renderer #contents";
-      const ranks = new WeakMap();
-      let nextRank = 0, mode = S.sortSearchBy || "relevance";
-      const reorder = (list, order) => {
-        const cards = Array.from(list.children).filter((el) => el.matches("ytd-video-renderer"));
-        for (const card of cards) if (!ranks.has(card)) ranks.set(card, nextRank++);
-        if (cards.length < 2) return;
-        const val = new Map(cards.map((c) => {
-          const meta = c.querySelector(_ytCardMeta.META);
-          const text = meta ? meta.textContent : "";
-          const age = order === "date" ? _ytCardMeta.ageDays(text) : -1;
-          return [c, order === "views" ? -_ytCardMeta.views(text) :
-            order === "duration" ? -_ytCardMeta.durationSec(c) :
-            order === "date" ? (age < 0 ? Infinity : age) : ranks.get(c)];
-        }));
-        const sorted = cards.slice().sort((a,b) => (val.get(a)-val.get(b)) || (ranks.get(a)-ranks.get(b)));
-        // Swap only the video slots. Headers, shelves and continuation sentinels
-        // must keep their exact positions; leave already-sorted DOM untouched.
-        const slots = [];
-        for (let i = 0; i < cards.length; i++) if (cards[i] !== sorted[i]) {
-          const slot = document.createComment("yourtube-sort");
-          cards[i].replaceWith(slot); slots.push([slot, sorted[i]]);
-        }
-        for (const [slot, card] of slots) slot.replaceWith(card);
-      };
-      const sync = () => {
-        if (location.pathname !== "/results") return;
-        const host = document.querySelector("ytd-search #container.ytd-search, ytd-search #primary");
-        if (!host) return;
-        let bar = host.querySelector(".ytb-ui-sort-bar");
-        if (!bar) {
-          bar = To("div", "ytb-ui-sort-bar");
-          bar.appendChild(To("span", null, "Sort:"));
-          for (const [value,label] of [["relevance","YouTube order"],["date","Newest"],["views","Most viewed"],["duration","Longest"]]) {
-            const button = Oo(label, () => { mode = value; sync(); });
-            button.dataset.order = value; bar.appendChild(button);
-          }
-          host.prepend(bar);
-        }
-        for (const b of bar.querySelectorAll("[data-order]")) {
-          b.classList.toggle("active", b.dataset.order === mode);
-          b.setAttribute("aria-pressed", String(b.dataset.order === mode));
-        }
-        for (const list of document.querySelectorAll(lists)) reorder(list, mode);
-      };
-      sync();
-      ctx.addInterval(sync, 2000);
-      ctx.onNav(() => { mode = S.sortSearchBy || "relevance"; ctx.addTimeout(sync, 300); });
-      Yt["sort-search"].push(() => {
-        for (const list of document.querySelectorAll(lists)) reorder(list, "relevance");
-        document.querySelectorAll(".ytb-ui-sort-bar").forEach((el) => el.remove());
-      });
-    },
-    settings(en) {
-      en.appendChild(Io("Add sort buttons to search results", "sortSearchOn"));
-      en.appendChild(Ro("Default order", "sortSearchBy", {
-        relevance: "YouTube's order",
-        date: "Newest first",
-        views: "Most viewed",
-        duration: "Longest first",
-      }));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Sorting only reorders the results YouTube already returned for the page."));
-    },
-  });

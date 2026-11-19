@@ -1092,16 +1092,6 @@
   "summary": "Temporarily hides channels from your feeds for N days."
  },
  {
-  "id": "dup-title-spotter",
-  "name": "Duplicate Title Flags",
-  "cat": "feed",
-  "master": "dupTitleSpotterOn",
-  "keys": [
-   "dupTitleSpotterOn"
-  ],
-  "summary": "Marks repeated titles in search (reuploads)."
- },
- {
   "id": "playlist-watched-marker",
   "name": "Playlist Watch-Marks",
   "cat": "channels",
@@ -1170,26 +1160,6 @@
   "summary": "Adjusts text size for descriptions and comments; site-wide or scoped."
  },
  {
-  "id": "storage-dashboard",
-  "name": "Storage Usage",
-  "cat": "data",
-  "master": "storageDashboardOn",
-  "keys": [
-   "storageDashboardOn"
-  ],
-  "summary": "Inspect and prune YourTube's local storage footprint."
- },
- {
-  "id": "health-check",
-  "name": "Health Check",
-  "cat": "tools",
-  "master": "healthCheckOn",
-  "keys": [
-   "healthCheckOn"
-  ],
-  "summary": "Diagnostics: stats, quarantined features, live DOM probes."
- },
- {
   "id": "frame-stepper",
   "name": "Frame Stepper",
   "cat": "playback",
@@ -1211,16 +1181,6 @@
   "summary": "Reopens playlists at the position you stopped."
  },
  {
-  "id": "channel-volume",
-  "name": "Per-Channel Volume",
-  "cat": "audio",
-  "master": "channelVolumeOn",
-  "keys": [
-   "channelVolumeOn"
-  ],
-  "summary": "Stores one volume level per channel."
- },
- {
   "id": "quick-collection-send",
   "name": "Save to Collection",
   "cat": "channels",
@@ -1229,16 +1189,6 @@
    "quickCollectionSendOn"
   ],
   "summary": "One-click save of the current video into a collection."
- },
- {
-  "id": "reader-mode",
-  "name": "Description Reader",
-  "cat": "appearance",
-  "master": "readerModeOn",
-  "keys": [
-   "readerModeOn"
-  ],
-  "summary": "Renders long descriptions in a clean reading panel."
  },
  {
   "id": "aio-player-tools",
@@ -1337,18 +1287,6 @@
   "summary": "Group switch: clamp long comments, highlight creators/timestamps."
  },
  {
-  "id": "seen-memory",
-  "name": "Anti-Repeat Memory",
-  "cat": "feed",
-  "master": "antiRepeatOn",
-  "keys": [
-   "antiRepeatOn",
-   "antiRepeatDays",
-   "antiRepeatGraceMin"
-  ],
-  "summary": "Suppresses cards scrolled past for a configurable number of days."
- },
- {
   "id": "hide-low-views",
   "name": "Low-View Filter",
   "cat": "feed",
@@ -1372,16 +1310,6 @@
    "exactDatesCards"
   ],
   "summary": "Upload date and views/day badges on feed and search cards."
- },
- {
-  "id": "search-filler",
-  "name": "Search Filler Removal",
-  "cat": "feed",
-  "master": "searchFillerOff",
-  "keys": [
-   "searchFillerOff"
-  ],
-  "summary": "Removes related-search and 'similar' filler blocks."
  },
  {
   "id": "hide-community-posts",
@@ -1456,18 +1384,6 @@
   "summary": "Wheel over the player adjusts volume; over the seek bar seeks."
  },
  {
-  "id": "volume-boost",
-  "name": "Volume Boost",
-  "cat": "audio",
-  "master": "volumeBoostOn",
-  "keys": [
-   "volumeBoostOn",
-   "volumeBoostPct",
-   "volumeBoostPerChannel"
-  ],
-  "summary": "Amplifies playback past 100% via WebAudio; optional per-channel."
- },
- {
   "id": "loudness-leveling",
   "name": "Loudness Normalization",
   "cat": "audio",
@@ -1498,18 +1414,6 @@
    "widePlayerOn"
   ],
   "summary": "Stretches the player to the full window width."
- },
- {
-  "id": "shorts-speed",
-  "name": "Shorts Speed & Progress",
-  "cat": "playback",
-  "master": "shortsSpeedOn",
-  "keys": [
-   "shortsSpeedOn",
-   "shortsSpeedDefault",
-   "shortsProgressOn"
-  ],
-  "summary": "Speed control and a progress bar for Shorts."
  },
  {
   "id": "return-dislike",
@@ -1568,18 +1472,6 @@
    "liveChatCompact"
   ],
   "summary": "Hides paid messages and compacts the chat feed."
- },
- {
-  "id": "transcript-tools",
-  "name": "Transcript Tools",
-  "cat": "playback",
-  "master": "transcriptToolsOn",
-  "keys": [
-   "transcriptToolsOn",
-   "transcriptTimestamps",
-   "transcriptNoScroll"
-  ],
-  "summary": "Copy or download transcripts without scrolling."
  },
  {
   "id": "notification-clean",
@@ -1720,17 +1612,6 @@
    "subsOnlyRedirect"
   ],
   "summary": "Redirects the home feed to your subscriptions; optional full redirect."
- },
- {
-  "id": "sort-search",
-  "name": "Sort Results",
-  "cat": "feed",
-  "master": "sortSearchOn",
-  "keys": [
-   "sortSearchOn",
-   "sortSearchBy"
-  ],
-  "summary": "Reorders page results by date, views or length."
  },
  {
   "id": "exact-upload-dates",

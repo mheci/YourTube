@@ -46,3 +46,5 @@ Where YouTube offers normal playback, enable only the candidate (disable duplica
 `local_feed` checks keyword/channel filtering on existing and newly added cards, cleanup on OFF, and no YouTube internal requests when old automatic reaction/boost settings remain enabled. Those legacy settings are preserved for export, but do not activate account actions. `retired` confirms the first retired wellness, credibility, outdated-content and wake-lock cards do not register even when old settings are enabled; saved values are not deleted. Neither suite proves public YouTube behavior.
 
 `theme_schedule` uses a controlled browser color-scheme event and actual mounted controls to verify automatic dark/light changes, both manual override policies, Resume, and OFF restoration. It checks browser attributes in a fixture, not every custom palette on live YouTube.
+
+`text_preview` verifies the retained text-scaling preview changes with the dashboard slider. Player action coverage excludes the retired Shorts speed card; the retained active-Short mute test is still separate until that bundle is redesigned.

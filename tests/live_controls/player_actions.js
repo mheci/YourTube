@@ -251,29 +251,6 @@ async () => {
     "/shorts/LabVideo001",
   );
   const [pre, active] = q("#stage").querySelectorAll("video");
-  await set("shorts-speed", "shortsSpeedOn", true);
-  await set("shorts-speed", "shortsSpeedDefault", 1.75);
-  await paired(
-    "shorts-speed",
-    "shortsProgressOn",
-    "Progress bar on visible Short only",
-    false,
-    true,
-    () => !!q(".ytb-ui-shorts-progress")?.getClientRects().length,
-    false,
-    true,
-  );
-  await trial(
-    "shorts-speed",
-    "shortsSpeedOn",
-    "Speed belongs to active Short only; OFF releases its original rate",
-    async (r) => {
-      r.on = [pre.playbackRate, active.playbackRate];
-      await set("shorts-speed", "shortsSpeedOn", false);
-      r.off = [pre.playbackRate, active.playbackRate];
-      r.pass = JSON.stringify(r.on) === "[1,1.75]" && JSON.stringify(r.off) === "[1,1]";
-    },
-  );
   await paired(
     "shorts-auto-mute",
     "shortsAutoMuteOn",

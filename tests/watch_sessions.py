@@ -1312,10 +1312,10 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 panel=p.locator('.ytb-watch-journal');input=panel.locator('input[type=file]').nth(0)
                 buf=json.dumps({'history':[old]}).encode()
                 input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
-                panel.get_by_text('Expired sessions: 1 moved to trash, 1 past recovery, 0 already in trash.',exact=False).wait_for()
+                panel.get_by_text('Expired history items: 1 moved to trash, 1 past recovery, 0 already in trash.',exact=False).wait_for()
                 assert data(C)['title']=='Newer local' and data(C)['lastPosition']==29
                 input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
-                panel.get_by_text('Expired sessions: 0 moved to trash, 1 past recovery, 1 already in trash.',exact=False).wait_for()
+                panel.get_by_text('Expired history items: 0 moved to trash, 1 past recovery, 1 already in trash.',exact=False).wait_for()
                 panel.get_by_text('History trash',exact=True).click()
                 line=panel.locator('.row').filter(has_text='Imported expired sessions')
                 line.get_by_text('Restore',exact=True).wait_for()
@@ -1343,10 +1343,47 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 assert data(C) is None
                 p.evaluate('()=>{IDBObjectStore.prototype.put=window._origImportPut}')
                 input.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
-                panel.get_by_text('Expired sessions: 1 moved to trash',exact=False).wait_for()
+                panel.get_by_text('Expired history items: 1 moved to trash',exact=False).wait_for()
                 return {'failedImportDidNotPartiallyActivate':True,'retryArchivedOnce':True}
 
             case("history-expired-import-rolls-back-on-write-failure", import_expired_write_failure)
+
+            def legacy_resume_retention():
+                init([])
+                watch()
+                old=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const a=d.getTime()-86400000;return {videoId:id,title:'Legacy resume',lastWatched:a,lastPosition:31,duration:120,watchCount:1,totalWatchTime:10,sessions:[]}}""",C)
+                undated={'videoId':B,'title':'Undated legacy resume','lastWatched':0,'lastPosition':22,'sessions':[]}
+                p.evaluate('async rows=>{for(const row of rows)await YourTube.history.put(row)}',[old,undated])
+                result=p.evaluate('async()=>YourTube.history.retentionSweep()')
+                assert result['moved']==1 and data(C) is None and data(B)==undated
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');panel.get_by_text('History trash',exact=True).click()
+                panel.locator('.row').filter(has_text='Legacy resume').get_by_text('Restore',exact=True).click()
+                p.wait_for_timeout(200)
+                assert data(C)['lastPosition']==31 and data(C)['retentionExempt'] is True
+                return {'datedLegacyResumeRecoverable':True,'undatedLegacyKept':True}
+
+            case("legacy-resume-expiry-uses-last-watched", legacy_resume_retention)
+
+            def legacy_resume_import():
+                init([])
+                watch()
+                old=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const a=d.getTime()-86400000;return {videoId:id,title:'Imported legacy resume',lastWatched:a,lastPosition:31,duration:120,watchCount:1,totalWatchTime:10,sessions:[]}}""",C)
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');inp=panel.locator('input[type=file]').nth(0)
+                buf=json.dumps({'history':[old]}).encode()
+                inp.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('Expired history items: 1 moved to trash',exact=False).wait_for()
+                assert data(C) is None
+                inp.set_input_files({'name':'history.json','mimeType':'application/json','buffer':buf})
+                panel.get_by_text('1 already in trash',exact=False).wait_for()
+                panel.get_by_text('History trash',exact=True).click()
+                panel.locator('.row').filter(has_text='Imported legacy resume').get_by_text('Restore',exact=True).click()
+                p.wait_for_timeout(200)
+                assert data(C)['lastPosition']==31 and data(C)['retentionExempt'] is True
+                return {'expiredLegacyResumeImportedToTrash':True,'duplicateSkipped':True,'restoredPosition':31}
+
+            case("legacy-resume-import-respects-expiry", legacy_resume_import)
 
             def quality_migration():
                 init([], {"autoHD":False,"stickyQualityOn":True,"qualityLockMigrated":False,"videoCodecPref":"vp9"})

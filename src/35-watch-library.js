@@ -240,7 +240,7 @@ function mountWatchLibrary(parent) {
       }
       await refresh();
       msg.textContent = 'Imported ' + count + ' entries. Newer local saves were kept.' +
-        (moved || discarded || duplicates ? ' Expired sessions: ' + moved + ' moved to trash, ' + discarded + ' past recovery, ' + duplicates + ' already in trash.' : '');
+        (moved || discarded || duplicates ? ' Expired history items: ' + moved + ' moved to trash, ' + discarded + ' past recovery, ' + duplicates + ' already in trash.' : '');
     } catch (_) {
       msg.textContent = 'Import stopped. Earlier entries may already be saved; check the file and local storage before retrying.';
     } finally {

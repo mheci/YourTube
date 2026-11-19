@@ -4841,6 +4841,9 @@ const CheckpointStore = (() => {
     if (!db) throw new Error('History storage unavailable');
     const now = Date.now(), sessions = Array.isArray(row.sessions) ? row.sessions : [];
     const decision = row.retentionExempt === true ? {trash:[],discard:[],undated:[]} : RetentionPolicy.classify(sessions, now, S.sessionGapMinutes);
+    // Old versions sometimes saved a dated resume without session records.
+    // Its last-watched date is usable; missing/invalid dates stay untouched.
+    const legacyDecision = sessions.length ? null : RetentionPolicy.classifyCreated(row, 'lastWatched', now);
     const expired = [...decision.trash,...decision.discard], removedSessions = expired.flatMap(group => group.sessions), removed = new Set(removedSessions);
     const retained = sessions.filter(session => !removed.has(session));
     const played = list => list.reduce((n,s) => {const p=Number(s?.played);return n+(Number.isFinite(p)&&p>=0?p:0);},0);
@@ -4848,24 +4851,33 @@ const CheckpointStore = (() => {
     const remainingCount = Math.max(0,(Number(row.watchCount)||0)-removedSessions.length);
     const legacy = remainingTime > 0.001 || remainingCount > retained.length || decision.undated.length > 0;
     const recentResume = Number(row.lastWatched)>0 && RetentionPolicy.plusMonths(Number(row.lastWatched))>now;
-    const hasActive = !sessions.length || retained.length>0 || legacy || recentResume;
+    const hasActive = legacyDecision ? legacyDecision.state === 'active' : retained.length>0 || legacy || recentResume;
     const latestEnd = sessions.reduce((latest,s) => Math.max(latest,Number(s?.end)||Number(s?.start)||0),0);
     const result = await new Promise((resolve,reject) => {
       const tx=db.transaction(['history','kv'],'readwrite'), history=tx.objectStore('history'),kv=tx.objectStore('kv');
       const existing=history.get(row.videoId);
       // Most imports have no expired recoverable groups; avoid scanning all trash for every row.
-      const cursor=decision.trash.length ? kv.openCursor(IDBKeyRange.bound(trashPrefix,trashPrefix+'\uffff')) : null;
+      const cursor=decision.trash.length || legacyDecision?.state === 'trash' ? kv.openCursor(IDBKeyRange.bound(trashPrefix,trashPrefix+'\uffff')) : null;
       const known=new Set();
       let imported=0,moved=0,duplicates=0;
       const writeImport = () => {
         try {
           for(const group of decision.trash){
-            if(known.has(group.expiresAt)){duplicates++;continue;}
+            if(known.has('sessions:'+group.expiresAt)){duplicates++;continue;}
             const snapshot={...row,sessions:group.sessions,watchCount:group.sessions.length,totalWatchTime:played(group.sessions),firstWatched:group.start,lastWatched:group.end};
             if(group.end!==latestEnd) Object.assign(snapshot,{lastPosition:0,progress:0,remaining:0,completed:false});
             delete snapshot._checkpoint;delete snapshot._checkpointLife;
             kv.put({k:trashPrefix+nonce(),v:{kind:'history',scope:'sessions',deletedAt:group.expiresAt,expiresAt:group.trashExpiresAt,row:snapshot}});
-            known.add(group.expiresAt);moved++;
+            known.add('sessions:'+group.expiresAt);moved++;
+          }
+          if (legacyDecision?.state === 'trash') {
+            const fingerprint='record:'+legacyDecision.expiresAt;
+            if (known.has(fingerprint)) duplicates++;
+            else {
+              const snapshot={...row}; delete snapshot._checkpoint; delete snapshot._checkpointLife;
+              kv.put({k:trashPrefix+nonce(),v:{kind:'history',deletedAt:legacyDecision.expiresAt,expiresAt:legacyDecision.trashExpiresAt,row:snapshot}});
+              known.add(fingerprint); moved++;
+            }
           }
           const prior=existing.result;
           if(hasActive && (!prior || (Number(prior.lastWatched)||0)<(Number(row.lastWatched)||0))){
@@ -4877,11 +4889,11 @@ const CheckpointStore = (() => {
       };
       if (cursor) cursor.onsuccess = () => {
         const c=cursor.result;
-        if(c){const v=c.value?.v;if(v?.scope==='sessions'&&v.row?.videoId===row.videoId&&Number.isFinite(v.deletedAt)&&Number(v.expiresAt)>now) known.add(v.deletedAt);c.continue();return;}
+        if(c){const v=c.value?.v;if(v?.row?.videoId===row.videoId&&Number.isFinite(v.deletedAt)&&Number(v.expiresAt)>now) known.add((v.scope==='sessions'?'sessions:':'record:')+v.deletedAt);c.continue();return;}
         writeImport();
       };
       else existing.onsuccess = writeImport;
-      tx.oncomplete=()=>resolve({imported,moved,discarded:decision.discard.length,duplicates});
+      tx.oncomplete=()=>resolve({imported,moved,discarded:decision.discard.length+(legacyDecision?.state==='discard'?1:0),duplicates});
       tx.onerror=tx.onabort=()=>reject(tx.error||new Error('History import transaction failed'));
     });
     if(result.imported||result.moved) g.emit('history.updated',{imported:true});
@@ -4906,7 +4918,19 @@ const CheckpointStore = (() => {
           const c = cursor.result;
           if (!c) return;
           const row = c.value;
-          if (!row || !validId(row.videoId) || row.videoId === currentId || row.retentionExempt === true || !Array.isArray(row.sessions)) { c.continue(); return; }
+          if (!row || !validId(row.videoId) || row.videoId === currentId || row.retentionExempt === true) { c.continue(); return; }
+          if (!Array.isArray(row.sessions) || !row.sessions.length) {
+            const legacy=RetentionPolicy.classifyCreated(row,'lastWatched',now);
+            if (legacy.state === 'trash') {
+              const snapshot={...row}; delete snapshot._checkpoint; delete snapshot._checkpointLife;
+              kv.put({k:trashPrefix+nonce(),v:{kind:'history',deletedAt:legacy.expiresAt,expiresAt:legacy.trashExpiresAt,row:snapshot}});
+              moved++;
+            } else if (legacy.state === 'discard') discarded++;
+            if (legacy.state === 'trash' || legacy.state === 'discard') {
+              c.delete();kv.delete(tickets+row.videoId);changed++;
+            }
+            c.continue();return;
+          }
           const decision = RetentionPolicy.classify(row.sessions, now, gapMinutes);
           const expired = [...decision.trash, ...decision.discard];
           if (!expired.length) { c.continue(); return; }
@@ -6217,7 +6241,7 @@ function mountWatchLibrary(parent) {
       }
       await refresh();
       msg.textContent = 'Imported ' + count + ' entries. Newer local saves were kept.' +
-        (moved || discarded || duplicates ? ' Expired sessions: ' + moved + ' moved to trash, ' + discarded + ' past recovery, ' + duplicates + ' already in trash.' : '');
+        (moved || discarded || duplicates ? ' Expired history items: ' + moved + ' moved to trash, ' + discarded + ' past recovery, ' + duplicates + ' already in trash.' : '');
     } catch (_) {
       msg.textContent = 'Import stopped. Earlier entries may already be saved; check the file and local storage before retrying.';
     } finally {

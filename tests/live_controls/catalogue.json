@@ -176,27 +176,6 @@
   "summary": "Local watch history with resume positions, bookmarks and search."
  },
  {
-  "id": "pip-button",
-  "name": "Picture-in-Picture",
-  "cat": "playback",
-  "master": null,
-  "keys": [],
-  "summary": "Adds a PiP button; detaches the video into a floating window."
- },
- {
-  "id": "screenshot",
-  "name": "Frame Capture",
-  "cat": "playback",
-  "master": "screenshotOn",
-  "keys": [
-   "screenshotOn",
-   "screenshotFmt",
-   "screenshotScale",
-   "screenshotClipboard"
-  ],
-  "summary": "Saves the current video frame as PNG/JPG; optional clipboard copy; hotkey available."
- },
- {
   "id": "force-watched",
   "name": "Mark as Watched",
   "cat": "playback",
@@ -219,17 +198,6 @@
   "summary": "Opens watch pages in theater mode."
  },
  {
-  "id": "cinema-mode",
-  "name": "Cinema Mode",
-  "cat": "playback",
-  "master": "cinemaMode",
-  "keys": [
-   "cinemaMode",
-   "cinemaOp"
-  ],
-  "summary": "Dims everything outside the player with adjustable opacity."
- },
- {
   "id": "compact-ui",
   "name": "Compact UI",
   "cat": "appearance",
@@ -238,23 +206,6 @@
    "compactUI"
   ],
   "summary": "Tighter watch-page margins, metadata sizes and paddings."
- },
- {
-  "id": "video-filters",
-  "name": "Video Adjustments",
-  "cat": "playback",
-  "master": "videoFiltersOn",
-  "keys": [
-   "videoFiltersOn",
-   "vfBright",
-   "vfContrast",
-   "vfSat",
-   "vfHue",
-   "vfGray",
-   "vfFlip",
-   "vfZoom"
-  ],
-  "summary": "Brightness, contrast, saturation, hue, zoom and flip applied to the player."
  },
  {
   "id": "hide-recs",
@@ -390,26 +341,6 @@
   "summary": "Live log of what YourTube is applying and why."
  },
  {
-  "id": "default-audio-track",
-  "name": "Original Audio Track",
-  "cat": "playback",
-  "master": "defaultOriginalAudioOn",
-  "keys": [
-   "defaultOriginalAudioOn"
-  ],
-  "summary": "Picks the original-language audio over auto-dubbed tracks."
- },
- {
-  "id": "restore-fullscreen-scrolling",
-  "name": "Fullscreen Scrolling",
-  "cat": "playback",
-  "master": "restoreFsScrollOn",
-  "keys": [
-   "restoreFsScrollOn"
-  ],
-  "summary": "Restores page scrolling while fullscreen is active."
- },
- {
   "id": "remove-redirect-urls",
   "name": "Redirect Bypass",
   "cat": "privacy",
@@ -438,16 +369,6 @@
    "skipPausedContinueOn"
   ],
   "summary": "Confirms YouTube's 'Video paused. Continue watching?' dialog automatically."
- },
- {
-  "id": "click-logo-to-subs",
-  "name": "Logo â†’ Subscriptions",
-  "cat": "channels",
-  "master": "logoToSubsOn",
-  "keys": [
-   "logoToSubsOn"
-  ],
-  "summary": "Routes the YouTube logo to Subscriptions instead of Home."
  },
  {
   "id": "default-channel-tab",
@@ -512,41 +433,6 @@
   "summary": "Player-bar jump buttons with configurable step size."
  },
  {
-  "id": "reverse-playlist",
-  "name": "Reverse Playlist",
-  "cat": "playback",
-  "master": "reversePlaylistOn",
-  "keys": [
-   "reversePlaylistOn"
-  ],
-  "summary": "Plays a playlist from last item to first."
- },
- {
-  "id": "flip-video",
-  "name": "Flip Video",
-  "cat": "playback",
-  "master": "flipVideoOn",
-  "keys": [
-   "flipVideoOn",
-   "flipVideoH",
-   "flipVideoV",
-   "videoFiltersOn"
-  ],
-  "summary": "Mirrors or flips the video frame horizontally/vertically."
- },
- {
-  "id": "cookie-control",
-  "name": "Cookie Control",
-  "cat": "privacy",
-  "master": "cookieControlOn",
-  "keys": [
-   "cookieControlOn",
-   "cookieControlLive",
-   "cookieControlNotify"
-  ],
-  "summary": "Inspect, search and edit cookies visible to this page."
- },
- {
   "id": "player-dashboard-button",
   "name": "Player Launcher Button",
   "cat": "playback",
@@ -598,23 +484,13 @@
  },
  {
   "id": "redirect-shorts",
-  "name": "Shorts â†’ Player",
+  "name": "Shorts \u00e2\u2020\u2019 Player",
   "cat": "playback",
   "master": "redirectShortsOn",
   "keys": [
    "redirectShortsOn"
   ],
   "summary": "Opens Shorts URLs in the standard player."
- },
- {
-  "id": "auto-expand-desc",
-  "name": "Expand Description",
-  "cat": "playback",
-  "master": "autoExpandDescOn",
-  "keys": [
-   "autoExpandDescOn"
-  ],
-  "summary": "Expands the video description on watch pages."
  },
  {
   "id": "disable-autoplay",
@@ -669,16 +545,6 @@
   "summary": "Local per-video notes."
  },
  {
-  "id": "channel-notes",
-  "name": "Channel Notes",
-  "cat": "channels",
-  "master": "channelNotesOn",
-  "keys": [
-   "channelNotesOn"
-  ],
-  "summary": "Local per-channel notes shown on their pages."
- },
- {
   "id": "chapter-hotkeys",
   "name": "Chapter Hotkeys",
   "cat": "playback",
@@ -709,20 +575,6 @@
   "summary": "More thumbnails per row on wide viewports."
  },
  {
-  "id": "highlight-video-length",
-  "name": "Length Highlights",
-  "cat": "feed",
-  "master": "highlightVideoLengthMode",
-  "keys": [
-   "highlightVideoLengthMode",
-   "longVideoMinSec",
-   "shortVideoMaxSec",
-   "highlightLongVideosOn",
-   "highlightShortVideosOn"
-  ],
-  "summary": "Color-codes duration badges for long/short videos."
- },
- {
   "id": "hide-live-content",
   "name": "Hide Live Streams",
   "cat": "feed",
@@ -743,26 +595,6 @@
   "summary": "Removes scheduled premiere cards from feeds."
  },
  {
-  "id": "playlist-autoscroll",
-  "name": "Playlist Autoscroll",
-  "cat": "playback",
-  "master": "playlistAutoscrollOn",
-  "keys": [
-   "playlistAutoscrollOn"
-  ],
-  "summary": "Keeps the playing entry visible in the playlist panel."
- },
- {
-  "id": "compact-playlist",
-  "name": "Compact Playlist",
-  "cat": "playback",
-  "master": "compactPlaylistOn",
-  "keys": [
-   "compactPlaylistOn"
-  ],
-  "summary": "Denser rows in the playlist drawer."
- },
- {
   "id": "feed-watched",
   "name": "Watched Feed Treatment",
   "cat": "feed",
@@ -773,17 +605,6 @@
    "feedHideWatchedOn"
   ],
   "summary": "Dims or hides cards you've already watched."
- },
- {
-  "id": "end-soon-warning",
-  "name": "End-of-Video Warning",
-  "cat": "playback",
-  "master": "endSoonWarningOn",
-  "keys": [
-   "endSoonWarningOn",
-   "endSoonSec"
-  ],
-  "summary": "Shows a notice N seconds before the video ends."
  },
  {
   "id": "theme-engine",
@@ -888,31 +709,6 @@
    "algoBlockChannels"
   ],
   "summary": "Locally hides feed cards matching topic, keyword and channel filters; no account feedback."
- },
- {
-  "id": "perf-mode",
-  "name": "Performance Mode",
-  "cat": "tools",
-  "master": "perfModeOn",
-  "keys": [
-   "perfModeOn",
-   "perfModeLevel",
-   "perfModeAuto",
-   "perfContainment",
-   "perfLazyThumbs",
-   "perfLazyComments",
-   "perfKillAnim",
-   "perfKillBlur",
-   "perfThumbQuality",
-   "perfDisablePreviews",
-   "perfMemoryTrim",
-   "perfPrefetch",
-   "perfPreconnect",
-   "perfBgThrottle",
-   "perfPaintReduction",
-   "perfQualityCap"
-  ],
-  "summary": "Five presets scaling work from light to maximum."
  },
  {
   "id": "silence-skipper",
@@ -1021,16 +817,6 @@
    "commentBlockWords"
   ],
   "summary": "Hides comments matching your keyword list."
- },
- {
-  "id": "history-local-hide",
-  "name": "Local History Hide",
-  "cat": "privacy",
-  "master": "historyLocalHideOn",
-  "keys": [
-   "historyLocalHideOn"
-  ],
-  "summary": "Suppresses videos from YourTube's local history (does not touch account history)."
  },
  {
   "id": "copy-link-cleaner",
@@ -1178,20 +964,6 @@
   "summary": "Hides cards below a view-count threshold."
  },
  {
-  "id": "card-metadata",
-  "name": "Card Metadata",
-  "cat": "feed",
-  "master": "cardMetaOn",
-  "keys": [
-   "cardMetaOn",
-   "cardMetaVelocity",
-   "cardMetaDate",
-   "exactDatesOn",
-   "exactDatesCards"
-  ],
-  "summary": "Upload date and views/day badges on feed and search cards."
- },
- {
   "id": "hide-community-posts",
   "name": "Hide Community Posts",
   "cat": "feed",
@@ -1286,16 +1058,6 @@
   "summary": "Re-applies the preferred quality on live streams."
  },
  {
-  "id": "wide-player",
-  "name": "Wide Player",
-  "cat": "playback",
-  "master": "widePlayerOn",
-  "keys": [
-   "widePlayerOn"
-  ],
-  "summary": "Stretches the player to the full window width."
- },
- {
   "id": "return-dislike",
   "name": "Return YouTube Dislike",
   "cat": "integrations",
@@ -1365,18 +1127,6 @@
   "summary": "Hides the notification badge and adds a mark-all-read control."
  },
  {
-  "id": "watch-later-tools",
-  "name": "Watch Later Tools",
-  "cat": "channels",
-  "master": "watchLaterToolsOn",
-  "keys": [
-   "watchLaterToolsOn",
-   "watchLaterHideWatched",
-   "watchLaterSortDuration"
-  ],
-  "summary": "Hide watched entries, export the rest, sort by duration."
- },
- {
   "id": "watch-stats",
   "name": "Watch Statistics",
   "cat": "insights",
@@ -1398,27 +1148,6 @@
   "summary": "Seven-day watch summary, generated weekly."
  },
  {
-  "id": "random-pick",
-  "name": "Random Pick",
-  "cat": "insights",
-  "master": "randomPickOn",
-  "keys": [
-   "randomPickOn",
-   "randomPickUnwatched"
-  ],
-  "summary": "Plays a random video from a channel or playlist."
- },
- {
-  "id": "shuffle-tools",
-  "name": "Shuffle & Queue",
-  "cat": "insights",
-  "master": "shuffleToolsOn",
-  "keys": [
-   "shuffleToolsOn"
-  ],
-  "summary": "Reorders playlists randomly; manages your queue."
- },
- {
   "id": "export-data",
   "name": "Data Export",
   "cat": "data",
@@ -1427,17 +1156,6 @@
    "exportDataOn"
   ],
   "summary": "Exports history, notes, playlists and groups to a file."
- },
- {
-  "id": "sub-groups",
-  "name": "Subscription Groups",
-  "cat": "channels",
-  "master": "subGroupsOn",
-  "keys": [
-   "subGroupsOn",
-   "subGroupsActive"
-  ],
-  "summary": "Local channel folders plus a filtered subscriptions feed."
  },
  {
   "id": "ui-restore-2026",
@@ -1460,38 +1178,6 @@
    "watchTabsOn"
   ],
   "summary": "Details, comments, chapters and related videos as tabs."
- },
- {
-  "id": "keymap",
-  "name": "Keymap",
-  "cat": "tools",
-  "master": "keymapOn",
-  "keys": [
-   "keymapOn",
-   "keymap"
-  ],
-  "summary": "Rebinds the listed playback and SponsorBlock shortcuts."
- },
- {
-  "id": "sub-group-add",
-  "name": "Assign to Group",
-  "cat": "channels",
-  "master": "subGroupsOn",
-  "keys": [
-   "subGroupsOn"
-  ],
-  "summary": "Adds the open channel to one of your groups."
- },
- {
-  "id": "subs-only-home",
-  "name": "Subscriptions Home",
-  "cat": "feed",
-  "master": "subsOnlyHomeOn",
-  "keys": [
-   "subsOnlyHomeOn",
-   "subsOnlyRedirect"
-  ],
-  "summary": "Redirects the home feed to your subscriptions; optional full redirect."
  },
  {
   "id": "exact-upload-dates",
@@ -1576,30 +1262,6 @@
    "hideVideoShelvesOn"
   ],
   "summary": "Removes Shorts shelves that appear around a video."
- },
- {
-  "id": "fixed-player-size",
-  "name": "Player Size",
-  "cat": "playback",
-  "master": "playerSizeOn",
-  "keys": [
-   "playerSizeOn",
-   "playerHeightNormal",
-   "playerHeightTheater",
-   "playerAlign"
-  ],
-  "summary": "Sets a fixed player height in normal and theater mode and aligns it in its column."
- },
- {
-  "id": "description-width",
-  "name": "Description Width",
-  "cat": "appearance",
-  "master": "descriptionWidthOn",
-  "keys": [
-   "descriptionWidthOn",
-   "descriptionWidthPreset"
-  ],
-  "summary": "Sets the width of the watch page columns, including the suggested videos sidebar."
  },
  {
   "id": "channel-banner-mode",

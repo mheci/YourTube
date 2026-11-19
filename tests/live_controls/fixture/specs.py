@@ -1213,12 +1213,12 @@ test(
 test(
     "force-watched",
     player,
-    "(await dbop('history','get','LabVideo001'))?.progress||0",
-    "x===100",
+    "[(await dbop('history','get','LabVideo001'))?.progress||0,v().currentTime,v().duration]",
+    "x[0]===100&&x[2]>0&&x[1]>=x[2]-0.05",
     setup="await dbop('history','clear')",
     cfg={"forceWatchedAccountHistory": False, "forceWatchedLocalHistory": True},
     key="Shift+w",
-    note="Local-only marking: account history explicitly off, network blocked.",
+    note="Local-only marking and ending the decoded fixture video: account history explicitly off, network blocked.",
 )
 test(
     "update-check",

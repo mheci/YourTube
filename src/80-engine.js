@@ -296,6 +296,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
                 } catch (_) { resolve({ ok: false, status: 0, json: null, text: "" }); }
               },
               onerror: () => resolve({ ok: false, status: 0, json: null, text: "" }),
+              onabort: () => resolve({ ok: false, status: 0, json: null, text: "" }),
               ontimeout: () => resolve({ ok: false, status: 0, json: null, text: "" }),
             });
           } catch (_) { resolve({ ok: false, status: 0, json: null, text: "" }); }
@@ -3713,10 +3714,10 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!S.deArrowThumbs || !data || !Array.isArray(data.thumbnails) || !data.thumbnails.length) return;
         const best = data.thumbnails.find((entry) => entry && !entry.original && Number.isFinite(entry.timestamp)) || null;
         if (!best) return;
-        const image = card.querySelector("img");
+        const image = card.querySelector("a[href*='/watch?v='] img, ytd-thumbnail img, img#img");
         if (!image || image.dataset.ytbDeArrow) return;
         if (!thumbOriginals.has(image)) {
-          thumbOriginals.set(image, { src: image.getAttribute("src") || "", srcset: image.getAttribute("srcset") || "" });
+          thumbOriginals.set(image, { src: image.getAttribute("src"), srcset: image.getAttribute("srcset"), written: thumbUrl(videoId, best.timestamp) });
         }
         image.dataset.ytbDeArrow = "1";
         image.src = thumbUrl(videoId, best.timestamp);
@@ -3797,9 +3798,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         document.querySelectorAll(".ytb-ui-dearrow-chip").forEach((el) => el.remove());
         for (const [image, original] of thumbOriginals) {
           try {
-            if (original.src) image.setAttribute("src", original.src);
-            if (original.srcset) image.setAttribute("srcset", original.srcset);
-            else image.removeAttribute("srcset");
+            if (image.getAttribute("src") === original.written) {
+              if (original.src === null) image.removeAttribute("src");
+              else image.setAttribute("src", original.src);
+              if (!image.hasAttribute("srcset") && original.srcset !== null) image.setAttribute("srcset", original.srcset);
+            }
             delete image.dataset.ytbDeArrow;
           } catch (_) {}
         }
@@ -4075,12 +4078,15 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       out.style.cssText = "margin-top:8px;white-space:pre-line";
       en.appendChild(out);
       const fmtHours = (seconds) => (seconds >= 3600 ? (seconds / 3600).toFixed(1) + " h" : Math.round(seconds / 60) + " min");
+      let renderVersion = 0;
       const render = async () => {
+        const version = ++renderVersion;
         out.hidden = !S.watchStatsOn;
         if (out.hidden) { out.textContent = ""; return; }
         out.textContent = "Reading local history…";
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}
+        if (version !== renderVersion || !S.watchStatsOn) return;
         const windowDays = Math.max(1, Math.min(365, Number(S.watchStatsDays) || 30));
         const cutoff = Date.now() - windowDays * 86400000;
         const summary = WatchAnalytics.summarize(rows, cutoff, S.sessionGapMinutes);
@@ -4118,12 +4124,17 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       const STORE = "__yourtube_report__";
       const store = YourTubeEngine.createStore(STORE, { lastShown: 0 });
       const fmtHours = (seconds) => (seconds >= 3600 ? (seconds / 3600).toFixed(1) + " h" : Math.round(seconds / 60) + " min");
+      let active = true;
+      Yt["weekly-report"].push(() => { active = false; });
       const run = async () => {
+        try { await store.load(); } catch (_) { return; }
+        if (!active) return;
         const state = store.get() || {};
         const week = 7 * 86400000;
         if (state.lastShown && Date.now() - state.lastShown < week) return;
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}
+        if (!active) return;
         const cutoff = Date.now() - week;
         const summary = WatchAnalytics.summarize(rows, cutoff, S.sessionGapMinutes);
         if (!summary.videos) return;

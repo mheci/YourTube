@@ -168,6 +168,7 @@ matching.
 npm ci            # toolchain-free: packaging only, no runtime dependencies
 npm run build     # assemble src/ -> yourtube.user.js + yourtube.meta.js
 npm run check     # static gate: syntax of bundle, meta and scripts; theme table
+npm test          # run every Node regression suite
 npm run verify    # rebuild and compare sha256 against the committed bundle
 ```
 

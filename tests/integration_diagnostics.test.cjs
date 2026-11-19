@@ -22,3 +22,20 @@ test('logs observed client version changes without claiming API breakage',()=>{
  const x=make([]);x.api.checkClient();x.api.checkClient();x.setVersion('two');x.api.checkClient();
  const items=x.api.entries();assert.equal(items.length,2);assert.equal(items[1].state,'changed');assert.equal(items[1].detail,'one → two');
 });
+test('aborted manager request settles and allows the integration to retry', async () => {
+ const engine = fs.readFileSync('src/80-engine.js', 'utf8').split('  const YourTubeDiscovery =')[0];
+ const diagnostics = fs.readFileSync('src/39-integration-diagnostics.js', 'utf8');
+ let attempts = 0;
+ const api = vm.runInNewContext(engine + diagnostics + '\nIntegrationDiagnostics;', {
+   S: {safeMode: false}, YourTubeResources: {Logger: {namespace: () => ({})}},
+   g: {emit() {}}, setTimeout: queueMicrotask,
+   GM_xmlhttpRequest(req) {
+     if (++attempts === 1) queueMicrotask(() => req.onabort());
+     else queueMicrotask(() => req.onload({status: 200, responseText: '{"votes":1}'}));
+   },
+ });
+ const result = await api.request('Votes', 'https://example.test');
+ assert.equal(attempts, 2);
+ assert.equal(result.json.votes, 1);
+ assert.equal(api.status('Votes').state, 'ok');
+});

@@ -52,9 +52,10 @@ async def main():
         "/audit/media.webm": ("video/webm", (A / "media.webm").read_bytes()),
         "/audit/bundle.js": ("application/javascript", bundle),
     }
-    selected = set(args.select.split(",")) if args.select else set(S) & set(IDS)
+    selected = set(args.select.split(",")) if args.select else set(IDS)
     ids = [r["id"] for r in REG if r["id"] in selected and r["id"] in S]
     assert not (selected - set(IDS)), selected - set(IDS)
+    assert not (selected - S.keys()), f"Missing effect scenarios: {sorted(selected - S.keys())}"
     sem = asyncio.Semaphore(1 if args.tm_profile else args.workers)
     async with async_playwright() as pw:
         opts = {
@@ -182,7 +183,7 @@ async def main():
                                         "title": "Field recording, restored",
                                     }
                                 ],
-                                "thumbnails": [],
+                                "thumbnails": [{"original": False, "timestamp": 12}],
                             }
                         )
                     elif u.hostname == "i.ytimg.com" and id == "hero-artwork-heal":
@@ -367,6 +368,13 @@ async def main():
                         assert await p.evaluate(
                             "(x)=>(" + spec["before"] + ")", rec["before"]
                         ), "precondition"
+                    if id == "weekly-report":
+                        # Cancel the scheduled report before its first eligible week is consumed.
+                        await operate(active)
+                        await operate(False)
+                        await p.clock.run_for(9500)
+                        rec["offMeasurement"] = await p.evaluate(measure)
+                        assert "Last 7 days:" not in rec["offMeasurement"]
                     rec["control"] = gate or "action button"
                     rec["activation"] = active if gate else "click"
                     await operate(active, dashboard_action)
@@ -450,7 +458,7 @@ async def main():
                         if id in OFF_WITNESS:
                             rec["onWitness"] = await p.evaluate("()=>" + OFF_WITNESS[id][0])
                         # For an irreversible action, clicking off is not itself a negative control.
-                        await operate(basecfg.get(gate, False))
+                        await operate(basecfg.get(gate, False), keep=id in {"watch-stats", "export-data"})
                         rec["offClicked"] = True
                         if id in NEXT:
                             stimulus, expr, predicate = NEXT[id]
@@ -465,8 +473,21 @@ async def main():
                             ), "Missing active target before testing removal"
                             rec["offMeasurement"] = await until_value(expr, predicate, 3000)
                             rec["offPredicate"] = expr + " => " + predicate
+                    if id in {"default-channel-tab", "redirect-shorts", "playlist-resume"}:
+                        await p.wait_for_function("()=>window.auditBooted")
+                        await operate(basecfg.get(gate, False))
+                        await p.goto(origin + spec["path"], wait_until="domcontentloaded")
+                        await p.wait_for_function("()=>window.auditBooted")
+                        await p.evaluate("h=>q('#lab-scene').innerHTML=h", spec["html"])
+                        await js("YourTube.bus.emit('nav.changed',{url:location.href});await nap(1800)")
+                        rec["offMeasurement"] = await p.evaluate(measure)
+                        assert rec["offMeasurement"] == rec["before"], "Route changed with setting disabled"
+                        if id == "playlist-resume":
+                            assert await p.locator("#ytb-plresume").count() == 0
                     rec["oneDocument"] = await p.evaluate("window.__auditDocument === 1")
                     assert rec["oneDocument"] or id in ROUTES, "Unexpected full page reload"
+                    if gate:
+                        assert "restored" in rec or "offMeasurement" in rec, "No independent OFF measurement"
                     rec["pass"] = True
                     if pic.exists():
                         rec["screenshot"] = "screens/features/" + pic.name
@@ -489,6 +510,8 @@ async def main():
                         except:
                             pass
                     if errors:
+                        rec["pass"] = False
+                        rec.setdefault("error", errors[0])
                         rec["pageErrors"] = errors[:6]
                     fpath.write_text(json.dumps(rec, indent=1, ensure_ascii=False) + "\n")
                     print(

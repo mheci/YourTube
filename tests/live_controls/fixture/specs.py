@@ -1369,32 +1369,24 @@ test(
     note="15 minutes of simulated active playback on a virtual clock.",
 )
 S["stretch-reminder"]["advance"] = 905000
-for id, doc, sel, expect, cfg in [
-    (
-        "return-dislike",
-        player
-        + "<ytd-menu-renderer><dislike-button-view-model><button>Dislike</button></dislike-button-view-model></ytd-menu-renderer>",
-        ".ytb-ui-ryd-count",
-        "x==='140'",
-        {"returnDislikeBar": True},
-    ),
-    (
-        "dearrow",
-        player,
-        "#title h1",
-        "x.includes('Field recording, restored')",
-        {"deArrowThumbs": False, "deArrowTitles": True},
-    ),
-]:
-    test(
-        id,
-        doc,
-        f"tx({sel!r})",
-        expect,
-        cfg={**cfg, "safeMode": False},
-        action=NAV,
-        note="Synthetic community API response. Validates rendering, not accuracy or availability of the third-party service.",
-    )
+test(
+    "return-dislike",
+    player + "<ytd-menu-renderer><dislike-button-view-model><button>Dislike</button></dislike-button-view-model></ytd-menu-renderer>",
+    "tx('.ytb-ui-ryd-count')",
+    "x==='140'",
+    cfg={"returnDislikeBar": True, "safeMode": False},
+    action=NAV,
+    note="Synthetic votes response; checks rendering, not service availability.",
+)
+test(
+    "dearrow",
+    player + '<ytd-video-renderer><img id="avatar"><a href="/watch?v=LabVideo001"><img id="community-thumb" srcset=""></a></ytd-video-renderer>',
+    "[tx('#title h1'),q('#community-thumb').getAttribute('src'),q('#community-thumb').getAttribute('srcset'),q('#avatar').getAttribute('src')]",
+    "x[0].includes('Field recording, restored') && x[1]?.startsWith('https://dearrow-thumb.ajay.app/') && x[2]===null && x[3]===null",
+    cfg={"safeMode": False, "deArrowThumbs": True, "deArrowTitles": True},
+    action=NAV,
+    note="Synthetic branding response; check title and thumbnail, then exact restoration of missing and empty native attributes.",
+)
 test(
     "exact-upload-dates",
     player

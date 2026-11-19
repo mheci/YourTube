@@ -149,11 +149,17 @@ def main():
                     print(suite, len(data) - len(bad), "/", len(data), flush=True)
                     failures += bad
                 else:
+                    actual = {row["id"] for row in data if row["id"] != "core"}
+                    expected = {row["id"] for row in reg}
+                    if actual != expected:
+                        raise ValueError(f"Catalogue differs from runtime: {sorted(actual ^ expected)}")
                     print("inventory:", len(data), "cards and shell", flush=True)
             except Exception as e:
                 res["error"] = str(e)
                 failures.append({"suite": suite, "error": str(e)})
                 print(suite, str(e)[:300], flush=True)
+            if errors:
+                failures.append({"suite": suite, "pageErrors": errors[:8]})
             res["pageErrors"] = errors[:8]
             (a.out / (suite + ".json")).write_text(json.dumps(res, indent=1, ensure_ascii=False) + "\n")
             c.close()

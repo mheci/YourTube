@@ -30,7 +30,7 @@ BASE = {
     "forceWatchedAccountHistory": False,
     "stripResumeTimesOn": False,
     "sponsorblockOn": False,
-    "dearrowOn": False,
+    "deArrowOn": False,
     "silentToasts": True,
     "adaptiveThrottleOn": False,
 }
@@ -290,6 +290,9 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 print("FAIL DETAIL", row["trace"], flush=True)
             row["elapsedSeconds"] = round(time.monotonic() - start, 2)
             row["pageErrors"] = errors[before:]
+            if row["pageErrors"]:
+                row["pass"] = False
+                row.setdefault("error", row["pageErrors"][0])
             print("PASS" if row["pass"] else "FAIL", name, flush=True)
             if out:
                 (out / "evidence/results.json").write_text(

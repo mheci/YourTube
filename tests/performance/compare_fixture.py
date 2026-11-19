@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 ORIGIN = 'https://www.youtube.com'
 CARDS = ''.join(f'<ytd-video-renderer><a id="video-title" href="/watch?v=Bench{i:06d}">Science and technology field video {i}</a><div id="metadata-line">2 days ago · {i+10}K views</div><span id="channel-name">Channel {i%15}</span></ytd-video-renderer>' for i in range(150))
 HTML = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Fixture</title></head><body><ytd-app><ytd-search><div id="primary"><ytd-item-section-renderer><div id="contents">'+CARDS+'</div></ytd-item-section-renderer></div></ytd-search></ytd-app><script src="/audit/bundle.js"></script></body></html>').encode()
-CFG = {'safeMode':True,'updateCheckOn':False,'themeEngineOn':False,'sessionRestoreOn':False,'algoIntelligenceOn':False,'sponsorblockOn':False,'dearrowOn':False,'forceCC':False,'silentToasts':True}
+CFG = {'safeMode':True,'updateCheckOn':False,'themeEngineOn':False,'sessionRestoreOn':False,'algoIntelligenceOn':False,'sponsorblockOn':False,'deArrowOn':False,'forceCC':False,'silentToasts':True}
 
 def process_stats(browser_cdp):
     entries=browser_cdp.send('SystemInfo.getProcessInfo')['processInfo']

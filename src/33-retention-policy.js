@@ -25,11 +25,10 @@ const RetentionPolicy = (() => {
     const output=[];
     for (const item of valid) {
       let group=output[output.length-1];
-      // Restored sessions retain their own exemption: do not merge them into
-      // unprotected visits, since that would exempt unrelated future history.
-      const exempt = item.session.retentionExempt === true;
-      if (!group || item.start-group.end>gap || group.exempt!==exempt) {
-        group={start:item.start,end:item.end,exempt,sessions:[]}; output.push(group);
+      // Determine the visit boundary from time alone. Exempt sessions still
+      // bridge nearby visits, but exemption is applied per session below.
+      if (!group || item.start-group.end>gap) {
+        group={start:item.start,end:item.end,sessions:[]}; output.push(group);
       }
       group.end=Math.max(group.end,item.end); group.sessions.push(item.session);
     }
@@ -40,11 +39,28 @@ const RetentionPolicy = (() => {
     for (const group of grouped.groups) {
       const expiresAt=plusMonths(group.end), trashExpiresAt=expiresAt+trashWindow;
       const result={...group,expiresAt,trashExpiresAt};
-      if (group.exempt || !Number.isFinite(expiresAt) || !Number.isFinite(now) || expiresAt>now) active.push(result);
-      else if (trashExpiresAt>now) trash.push(result);
-      else discard.push(result);
+      if (!Number.isFinite(expiresAt) || !Number.isFinite(now) || expiresAt>now) {
+        active.push(result);
+        continue;
+      }
+      const exempt = group.sessions.filter(session => session.retentionExempt === true);
+      const expiring = group.sessions.filter(session => session.retentionExempt !== true);
+      if (exempt.length) active.push({...result,sessions:exempt});
+      if (expiring.length) (trashExpiresAt>now ? trash : discard).push({...result,sessions:expiring});
     }
     return {active,trash,discard,undated:grouped.undated};
   }
-  return {plusMonths,groups,classify,trashWindow};
+  // Notes/bookmarks use `at`; entire collections use `createdAt`. Preserve
+  // legacy items without a trustworthy creation date instead of guessing.
+  function classifyCreated(item, createdField, now) {
+    if (item?.retentionExempt === true) return {state:'active', reason:'exempt'};
+    const raw = item && item[createdField];
+    const createdAt = typeof raw === 'number' ? raw : NaN;
+    if (!Number.isFinite(createdAt) || createdAt <= 0 || !Number.isFinite(new Date(createdAt).getTime()) || !Number.isFinite(now) || createdAt > now)
+      return {state:'active', reason:'unknown-creation'};
+    const expiresAt = plusMonths(createdAt), trashExpiresAt = expiresAt + trashWindow;
+    if (!Number.isFinite(expiresAt) || expiresAt > now) return {state:'active', expiresAt};
+    return {state:trashExpiresAt > now ? 'trash' : 'discard', expiresAt, trashExpiresAt};
+  }
+  return {plusMonths,groups,classify,classifyCreated,trashWindow};
 })();

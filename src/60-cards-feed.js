@@ -936,7 +936,6 @@
       a = kn();
     try {
       if (e.ytcfg && e.ytcfg.set && e.ytcfg.get) {
-        if (e.ytcfg.get("GL") === t && e.ytcfg.get("HL") === a) return;
         e.ytcfg.set({
           GL: t,
           HL: a,
@@ -1022,6 +1021,16 @@
       }
     } catch (_e3) {}
   }
+  let geoDocumentLanguage = null;
+  function restoreGeoDocumentLanguage() {
+    try {
+      const el = document.documentElement, record = geoDocumentLanguage;
+      if (el && record && el.getAttribute("lang") === record.applied) {
+        if (record.before === null) el.removeAttribute("lang");
+        else el.setAttribute("lang", record.before);
+      }
+    } finally { geoDocumentLanguage = null; }
+  }
   function In() {
     (Mn(),
       An(),
@@ -1064,10 +1073,12 @@
       (function () {
         try {
           const e = document.documentElement;
-          e &&
-            xn() &&
-            e.getAttribute("lang") !== kn() &&
+          if (e && xn() && e.getAttribute("lang") !== kn()) {
+            const old = e.getAttribute("lang");
+            const before = geoDocumentLanguage && geoDocumentLanguage.applied === old ? geoDocumentLanguage.before : old;
+            geoDocumentLanguage = { before, applied: kn() };
             e.setAttribute("lang", kn());
+          }
         } catch (e) {}
       })());
   }
@@ -1311,7 +1322,7 @@
       "geoPatchNavigator",
     ],
     apply(t) {
-        if (!S.geoOverrideOn) return (En(), Bn(), Pn(), restoreGeoNavigator(), void Ln());
+        if (!S.geoOverrideOn) return (En(), Bn(), Pn(), restoreGeoNavigator(), restoreGeoDocumentLanguage(), void Ln());
         if (!S.geoPatchNavigator) restoreGeoNavigator();
       (!(function () {
         if (!hn && S.geoPatchNavigator) {
@@ -1507,17 +1518,12 @@
         ),
       ),
         n.appendChild(
-          Oo("Reload page", () => {
-            (S.geoOverrideOn && In(), setTimeout(() => location.reload(), 200));
-          }),
-        ),
-        n.appendChild(
           Oo(
-            "Turn off & restore locale",
+            "Turn off locale override",
             () => {
               (Ta("geoOverrideOn", false),
                 pe(
-                  "Country settings cleared. Refresh the page to apply.",
+                  "Locale interception is off. Existing YouTube content and client state may still reflect the previous locale.",
                   2500,
                   "info",
                 ));
@@ -1530,7 +1536,7 @@
           To(
             "div",
             "ytb-hist-note",
-            "Uses GL/HL locale cookies and client settings, without changing PREF or visitor privacy cookies. Turn off and reload to restore native client settings. Network interception is optional.",
+            "Updates supported client locale hints immediately and optionally intercepts selected requests. Existing content may not change; the IP address, account region and server-side availability are not changed. Disabling restores script-owned language and locale cookies where possible, but cannot undo all YouTube client state.",
           ),
         ));
     },

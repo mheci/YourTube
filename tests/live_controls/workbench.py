@@ -35,7 +35,7 @@ def main():
     ap.add_argument("--bundle", type=Path, default=D.parents[1] / "yourtube.user.js")
     ap.add_argument("--browser", default="/usr/bin/chromium")
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--select", default="inventory,dispatch,elements,options,sponsors,player_actions,shell,bundles,local_feed,retired,feed_race,theme_schedule,text_preview,bundle_dedup,export_data,watch_analytics,channel_merge,discover_novelty")
+    ap.add_argument("--select", default="inventory,dispatch,elements,options,sponsors,player_actions,shell,bundles,local_feed,retired,feed_race,theme_schedule,text_preview,bundle_dedup,export_data,watch_analytics,channel_merge,discover_novelty,geo_immediate")
     a = ap.parse_args()
     a.out.mkdir(exist_ok=True, parents=True)
     bundle = a.bundle.read_bytes()

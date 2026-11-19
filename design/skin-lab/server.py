@@ -1,4 +1,4 @@
-"""Serve just the design lab and production bundle; no repository directory listings."""
+"""Serve only the standalone design prototypes; no repository directory listings."""
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
@@ -9,9 +9,7 @@ ROOT = Path(__file__).resolve().parent
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path.lstrip('/') or 'index.html'
-        if path == 'bundle.js':
-            file = ROOT.parents[1] / 'yourtube.user.js'
-        elif path in ('index.html', 'preview.html', 'skins.js') or re.fullmatch(r'shots/\d{2}\.jpg', path):
+        if path in ('index.html', 'preview.html', 'skins.js', 'concepts.css', 'concepts.js') or re.fullmatch(r'shots/\d{2}\.jpg', path):
             file = ROOT / path
         else:
             return self.send_error(404)

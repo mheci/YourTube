@@ -3350,13 +3350,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       Ta(listKey, "");
     }
   };
-  const aioRows = (en, rows) => {
-    for (const row of rows) {
-      en.appendChild(typeof row === "function" ? row() : Io(row[0], row[1]));
-    }
-  };
-
-  const _playerTools = ["copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn", "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
+  const _playerTools = ["videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
   xa.register({
     id: "aio-player-tools", name: "Bundle: Player Tools",
     summary: "Group switch for the player-bar extras; members stay individually toggleable; OFF removes only what it enabled.",
@@ -3367,41 +3361,16 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     apply() { aioEnroll("aioPlayerToolsOn", _playerTools); },
     settings(en) {
       en.appendChild(Io("Turn on every player tool", "aioPlayerToolsOn"));
-      aioRows(en, [
-        ["Copy timestamp button", "copyTimestampButtonOn"],
-        ["Copy video info button", "copyVideoInfoButtonOn"],
-        ["Open transcript button", "openTranscriptButtonOn"],
-        ["Video notes", "videoNotesOn"],
-        ["Channel notes", "channelNotesOn"],
-        ["Chapter buttons", "chapterButtonsOn"],
-        ["Chapter hotkeys", "chapterHotkeysOn"],
-      ]);
     },
   });
 
-  const _shorts = ["redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"];
-  xa.register({
-    id: "aio-shorts-cleanup", name: "Bundle: Shorts Cleanup",
-    summary: "Group switch: Shorts in player, auto-mute, hide comments.",
-      cat: "bundles",
-    masterKey: "aioShortsCleanupOn",
-    settingsAlways: !0,
-    keys: ["aioShortsCleanupOn", "aioShortsCleanupOnEnrolled", ..._shorts],
-    apply() { aioEnroll("aioShortsCleanupOn", _shorts); },
-    settings(en) {
-      en.appendChild(Io("Turn on every Shorts cleanup", "aioShortsCleanupOn"));
-      aioRows(en, [
-        ["Open Shorts in the regular player", "redirectShortsOn"],
-        ["Mute Shorts", "shortsAutoMuteOn"],
-        ["Hide Shorts comments", "shortsHideCommentsOn"],
-      ]);
-    },
-  });
 
-  const _feed = ["hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn", "numberSearchResultsOn"];
+
+
+  const _feed = ["hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn"];
   xa.register({
     id: "aio-feed-cleanup", name: "Bundle: Feed Cleanup",
-    summary: "Group switch: hide recs/live/premieres/dubs, number cards.",
+    summary: "Group switch: hide recommendations, live streams, premieres and dubbed cards.",
       cat: "bundles",
     masterKey: "aioFeedCleanupOn",
     settingsAlways: !0,
@@ -3409,15 +3378,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     apply() { aioEnroll("aioFeedCleanupOn", _feed); },
     settings(en) {
       en.appendChild(Io("Hide extra feed shelves and live noise", "aioFeedCleanupOn"));
-      aioRows(en, [
-        ["Hide recommended shelves", "hideRecs"],
-        ["Hide live streams", "hideLiveContentOn"],
-        ["Hide premieres", "hidePremieresOn"],
-        ["Hide Top live games", "hideTopLiveGamesOn"],
-        ["Hide auto-dubbed cards", "hideAutoDubbedOn"],
-        ["Restore original audio on watch pages", "hideAutoDubbedPreferOriginal"],
-        ["Number video cards", "numberSearchResultsOn"],
-      ]);
     },
   });
 
@@ -3432,13 +3392,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     apply() { aioEnroll("aioCompactDenseOn", _dense); },
     settings(en) {
       en.appendChild(Io("Turn on all compact/density options", "aioCompactDenseOn"));
-      aioRows(en, [
-        ["Compact UI", "compactUI"],
-        ["Dense video grid", "denseVideoGridOn"],
-        ["Tighter theme spacing", "themeCompactOn"],
-        ["Compact playlists", "compactPlaylistOn"],
-        ["Auto-scroll playlist to current", "playlistAutoscrollOn"],
-      ]);
+      en.appendChild(Io("Tighter theme spacing", "themeCompactOn"));
     },
   });
 
@@ -3453,34 +3407,12 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     apply() { aioEnroll("aioPrivacyShieldOn", _privacy); },
     settings(en) {
       en.appendChild(Io("Enable core privacy protections", "aioPrivacyShieldOn"));
-      aioRows(en, [
-        ["Privacy shield", "privacyShieldOn"],
-        ["Skip YouTube /redirect URLs", "removeRedirectUrlsOn"],
-        ["Shorten share URLs", "shortenShareUrlOn"],
-        ["Block YouTube AI features", "blockYTAIOn"],
-      ]);
+      en.appendChild(Io("Privacy shield", "privacyShieldOn"));
     },
   });
 
-  const _comments = ["collapseLongCommentsOn", "highlightCreatorCommentsOn", "highlightTimestampLinksOn"];
-  xa.register({
-    id: "aio-comment-cleanup", name: "Bundle: Comment Cleanup",
-    summary: "Group switch: clamp long comments, highlight creators/timestamps.",
-      cat: "bundles",
-    masterKey: "aioCommentCleanupOn",
-    settingsAlways: !0,
-    keys: ["aioCommentCleanupOn", "aioCommentCleanupOnEnrolled", ..._comments, "collapseLongCommentChars"],
-    apply() { aioEnroll("aioCommentCleanupOn", _comments); },
-    settings(en) {
-      en.appendChild(Io("Turn on every comment cleanup", "aioCommentCleanupOn"));
-      aioRows(en, [
-        ["Clamp long comments", "collapseLongCommentsOn"],
-        () => No("Clamp threshold (characters)", "collapseLongCommentChars", 400, 5000, 100, (v) => v + " chars"),
-        ["Highlight creator comments", "highlightCreatorCommentsOn"],
-        ["Highlight timestamp links", "highlightTimestampLinksOn"],
-      ]);
-    },
-  });
+
+
   // ---------------------------------------------------------------------------
   // Feed hygiene
   // ---------------------------------------------------------------------------
@@ -4939,11 +4871,32 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         save("yourtube-history-" + stamp() + ".csv", header + "\n" + body, "text/csv");
       }));
       row.appendChild(Oo("Notes & bookmarks", async () => {
-        const out = { notes: {}, bookmarks: {}, collections: [] };
-        try { out.notes = (await w("kv")).filter((r) => r && typeof r.k === "string" && r.k.startsWith("note:")); } catch (_) {}
-        try { out.bookmarks = (await v("kv", "__yourtube_bookmarks__")) || {}; } catch (_) {}
-        try { out.collections = (await v("kv", "__yourtube_collections__")) || []; } catch (_) {}
-        save("yourtube-notes-" + stamp() + ".json", JSON.stringify(out, null, 2));
+        try {
+          const database = await b();
+          if (!database) throw new Error("Local storage is unavailable");
+          // Flush pending edits before reading. Values are stored inside {k,v}
+          // records; exporting the wrappers omitted timestamped notes and made
+          // bookmark/collection imports ambiguous.
+          const stores = [
+            ["__yourtube_notes__", {}],
+            ["__yourtube_bookmarks__", {}],
+            ["__yourtube_collections__", []],
+          ].map(([key, initial]) => YourTubeEngine.createStore(key, initial));
+          await Promise.all(stores.map(async store => { await store.load(); await store.flush(); }));
+          const records = await w("kv");
+          const out = {
+            format: "yourtube-local-notes-v1",
+            exportedAt: new Date().toISOString(),
+            notes: records.filter(r => r && typeof r.k === "string" && r.k.startsWith("note:")),
+            timestampNotes: (await v("kv", "__yourtube_notes__"))?.v || {},
+            bookmarks: (await v("kv", "__yourtube_bookmarks__"))?.v || {},
+            collections: (await v("kv", "__yourtube_collections__"))?.v || [],
+          };
+          save("yourtube-notes-" + stamp() + ".json", JSON.stringify(out, null, 2));
+        } catch (error) {
+          m("notes export failed", error);
+          pe("Could not read local notes for export.", 2400, "error");
+        }
       }));
       row.appendChild(Oo("This playlist", () => {
         const items = [];

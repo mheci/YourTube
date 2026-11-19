@@ -15937,13 +15937,12 @@ function mountWatchLibrary(parent) {
     _feedWatched = { at: 0, ids: null };
   async function Ir() {
     if (Pr || !Xt.visible) return;
-    const e = !!S.numberSearchResultsOn,
-      t = !!S.highlightLongVideosOn,
+    const t = !!S.highlightLongVideosOn,
       a = !!S.highlightShortVideosOn,
       n = !!S.hideLiveContentOn,
       r = !!S.hidePremieresOn,
       o = S.feedDimWatchedOn || S.feedHideWatchedOn;
-    if (e || t || a || n || r || o)
+    if (t || a || n || r || o)
       if (!liveApplyDepth && performance.now() - Zt < 250) ae(Ir, 400);
       else {
         Pr = !0;
@@ -15977,12 +15976,6 @@ function mountWatchLibrary(parent) {
           for (let l = 0; l < i.length; l++) {
             const p = i[l],
               u = fr(p);
-            if (e && S.numberSearchResultsOn && !p.querySelector(".ytb-extra-num")) {
-              const e = document.createElement("span");
-              ((e.className = "ytb-extra-num"),
-                (e.textContent = String(l + 1)),
-                (p.querySelector("#thumbnail") || p).prepend(e));
-            }
             const h = t || a ? br(p) : 0;
             p.classList.toggle("ytb-extra-long", S.highlightLongVideosOn && h >= c);
             p.classList.toggle("ytb-extra-short", S.highlightShortVideosOn && h > 0 && h <= s);
@@ -16135,94 +16128,8 @@ function mountWatchLibrary(parent) {
     }),
     (0),
 
-    xa.register({
-      id: "copy-timestamp-button",
-      name: "Copy Timestamp Link",
-      summary: "Player button: copies a link to the current playhead position.",
-      cat: "playback",
-      masterKey: "copyTimestampButtonOn",
-      keys: ["copyTimestampButtonOn"],
-      apply(e) {
-        if (!S.copyTimestampButtonOn) return void Lr(".ytb-extra-copy-time");
-        const t = () =>
-          Cr(
-            "ytb-extra-copy-time",
-            "Copy link to this moment",
-            '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/></svg>',
-            async () => {
-              try {
-                (await navigator.clipboard.writeText(Ar()),
-                  pe("Timestamp copied to clipboard.", 1200, "success"));
-              } catch (e) {
-                pe("Couldn’t copy.", 1200, "error");
-              }
-            },
-          );
-        (t(), Mr("copy-timestamp-button", t));
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "copy-video-info-button",
-      name: "Copy Video Info",
-      summary: "Player button: copies title, channel and canonical link.",
-      cat: "playback",
-      masterKey: "copyVideoInfoButtonOn",
-      keys: ["copyVideoInfoButtonOn"],
-      apply(e) {
-        if (!S.copyVideoInfoButtonOn) return void Lr(".ytb-extra-copy-info");
-        const t = () =>
-          Cr(
-            "ytb-extra-copy-info",
-            "Copy video title, channel, and link",
-            '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>',
-            async () => {
-              const e = ie.title() + "\n" + ie.channel() + "\n" + Ar();
-              try {
-                (await navigator.clipboard.writeText(e),
-                  pe("Video details copied to clipboard.", 1200, "success"));
-              } catch (e) {
-                pe("Copy failed", 1200, "error");
-              }
-            },
-          );
-        (t(), Mr("copy-video-info-button", t));
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "open-transcript-button",
-      name: "Transcript Shortcut",
-      summary: "Player button that opens the transcript panel directly.",
-      cat: "playback",
-      masterKey: "openTranscriptButtonOn",
-      keys: ["openTranscriptButtonOn"],
-      apply(e) {
-        if (!S.openTranscriptButtonOn) return void Lr(".ytb-extra-transcript");
-        const t = () => {
-            const e = Array.from(
-              document.querySelectorAll(
-                "button,yt-button-shape button,tp-yt-paper-item,ytd-menu-service-item-renderer",
-              ),
-            ).find((e) =>
-              !e.closest(".ytb-extra-transcript, #ytb-backdrop") && e.getClientRects().length &&
-              /transcript/i.test((e.textContent || "") + " " + (e.getAttribute("aria-label") || "")),
-            );
-            e
-              ? e.click()
-              : pe("No transcript available for this video.", 1500, "info");
-          },
-          a = () =>
-            Cr(
-              "ytb-extra-transcript",
-              "Show the transcript",
-              '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h5v7h7v9H6zm2-7h8v1.5H8V13zm0 3h5v1.5H8V16z"/></svg>',
-              t,
-            );
-        (a(), Mr("open-transcript-button", a));
-      },
-      settings() {},
-    }),
+
+
     xa.register({
       id: "video-notes",
       name: "Video Notes",
@@ -16304,20 +16211,6 @@ function mountWatchLibrary(parent) {
       settings() {},
     }),
 
-    xa.register({
-      id: "number-search-results",
-      name: "Number Results",
-      summary: "Indexes feed and search cards for quick reference.",
-      cat: "feed",
-      masterKey: "numberSearchResultsOn",
-      keys: ["numberSearchResultsOn"],
-      apply(e) {
-        S.numberSearchResultsOn
-          ? (Rr(), e.addInterval(Rr, 2500))
-          : Lr(".ytb-extra-num");
-      },
-      settings() {},
-    }),
     xa.register({
       id: "dense-video-grid",
       name: "Dense Grid",
@@ -16480,38 +16373,7 @@ ytd-video-renderer{margin:2px 0!important}
       },
       settings() {},
     }),
-    xa.register({
-      id: "shorts-auto-mute",
-      name: "Shorts Auto-Mute",
-      summary: "Shorts start muted until unmuted.",
-      cat: "audio",
-      masterKey: "shortsAutoMuteOn",
-      keys: ["shortsAutoMuteOn"],
-      apply(e) {
-        if (!S.shortsAutoMuteOn) return;
-        let lastVid = "", owner = null, previous = false;
-        const release = () => { if (owner && owner.muted) owner.muted = previous; owner = null; };
-        Yt["shorts-auto-mute"].push(release);
-        const t = () => {
-          if (!location.pathname.startsWith("/shorts/")) { release(); return; }
-          const vid = (ie.videoId && ie.videoId()) || "";
-          const v = ie.el();
-          if (!v || !vid || (vid === lastVid && owner === v)) return;
-          release(); lastVid = vid; owner = v; previous = v.muted; v.muted = true;
-        };
-        (t(),
-          e.onNav(() => {
-            lastVid = "";
-            (e.addTimeout(t, 300), e.addTimeout(t, 1e3));
-          }),
-          document.body &&
-            e.addObserver(document.body, e.debounce(t, 250), {
-              childList: !0,
-              subtree: !0,
-            }));
-      },
-      settings() {},
-    }),
+
     xa.register({
       id: "feed-watched",
       name: "Watched Feed Treatment",
@@ -16545,107 +16407,10 @@ ytd-video-renderer{margin:2px 0!important}
         );
       },
     }),
-    xa.register({
-      id: "shorts-hide-comments",
-      name: "Hide Shorts Comments",
-      summary: "Removes the comments drawer on Shorts.",
-      cat: "comments",
-      masterKey: "shortsHideCommentsOn",
-      keys: ["shortsHideCommentsOn"],
-      apply(e) {
-        S.shortsHideCommentsOn &&
-          e.addStyle(
-            "ytd-engagement-panel-section-list-renderer[target-id='shorts-engagement-panel-comments-section']{display:none!important}",
-          );
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "collapse-long-comments",
-      name: "Collapse Long Comments",
-      summary: "Clamps comments past a character limit behind an expand control.",
-      cat: "comments",
-      masterKey: "collapseLongCommentsOn",
-      keys: ["collapseLongCommentsOn", "collapseLongCommentChars"],
-      apply(e) {
-        const clean = () => {
-          Lr(".ytb-extra-expand-comment");
-          document.querySelectorAll("[data-ytb-clamped]").forEach(el => { delete el.dataset.ytbClamped; el.classList.remove("ytb-extra-comment-clamp"); });
-        };
-        clean();
-        if (!S.collapseLongCommentsOn) return;
-        Yt["collapse-long-comments"].push(clean);
-        const t = () =>
-          document
-            .querySelectorAll("ytd-comment-view-model #content-text, ytd-comment-thread-renderer #content-text, ytd-comment-renderer #content-text")
-            .forEach((e) => {
-              if (
-                e.dataset.ytbClamped ||
-                e.textContent.length <
-                  (Number(S.collapseLongCommentChars) || 1200)
-              )
-                return;
-              ((e.dataset.ytbClamped = "1"),
-                e.classList.add("ytb-extra-comment-clamp"));
-              const t = document.createElement("button");
-              ((t.type = "button"),
-                (t.className = "ytb-extra-expand-comment"),
-                (t.textContent = "Expand comment"),
-                (t.onclick = () => {
-                  (e.classList.toggle("ytb-extra-comment-clamp"),
-                    (t.textContent = e.classList.contains(
-                      "ytb-extra-comment-clamp",
-                    )
-                      ? "Expand comment"
-                      : "Collapse comment"));
-                }),
-                e.insertAdjacentElement("afterend", t));
-            });
-        (t(), e.addInterval(t, 2500));
-      },
-      settings(e) {
-        e.appendChild(
-          No(
-            "Clamp after",
-            "collapseLongCommentChars",
-            400,
-            5e3,
-            100,
-            (e) => e + " chars",
-          ),
-        );
-      },
-    }),
-    xa.register({
-      id: "highlight-creator-comments",
-      name: "Creator Highlight",
-      summary: "Highlights replies authored by the video's channel.",
-      cat: "comments",
-      masterKey: "highlightCreatorCommentsOn",
-      keys: ["highlightCreatorCommentsOn"],
-      apply(e) {
-        S.highlightCreatorCommentsOn &&
-          e.addStyle(
-            "ytd-comment-view-model:has(ytd-author-comment-badge-renderer),ytd-comment-view-model:has(#author-comment-badge),ytd-comment-renderer:has(ytd-author-comment-badge-renderer),ytd-comment-renderer:has(#author-comment-badge){box-shadow:inset 3px 0 0 #3ea6ff!important;background:rgba(62,166,255,.08)!important}",
-          );
-      },
-      settings() {},
-    }),
-    xa.register({
-      id: "highlight-timestamp-links",
-      name: "Timestamp Highlight",
-      summary: "Makes timestamp links in comments stand out.",
-      cat: "comments",
-      masterKey: "highlightTimestampLinksOn",
-      keys: ["highlightTimestampLinksOn"],
-      apply(e) {
-        S.highlightTimestampLinksOn &&
-          e.addStyle(
-            "a[href*='t='],a[href*='start=']{background:rgba(62,166,255,.14)!important;border-radius:4px!important;padding:0 3px!important;font-weight:700!important}",
-          );
-      },
-      settings() {},
-    }),
+
+
+
+
     xa.register({
       id: "end-soon-warning",
       name: "End-of-Video Warning",
@@ -27647,13 +27412,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       Ta(listKey, "");
     }
   };
-  const aioRows = (en, rows) => {
-    for (const row of rows) {
-      en.appendChild(typeof row === "function" ? row() : Io(row[0], row[1]));
-    }
-  };
-
-  const _playerTools = ["copyTimestampButtonOn", "copyVideoInfoButtonOn", "openTranscriptButtonOn", "videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
+  const _playerTools = ["videoNotesOn", "channelNotesOn", "chapterButtonsOn", "chapterHotkeysOn"];
   xa.register({
     id: "aio-player-tools", name: "Bundle: Player Tools",
     summary: "Group switch for the player-bar extras; members stay individually toggleable; OFF removes only what it enabled.",
@@ -27664,41 +27423,16 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     apply() { aioEnroll("aioPlayerToolsOn", _playerTools); },
     settings(en) {
       en.appendChild(Io("Turn on every player tool", "aioPlayerToolsOn"));
-      aioRows(en, [
-        ["Copy timestamp button", "copyTimestampButtonOn"],
-        ["Copy video info button", "copyVideoInfoButtonOn"],
-        ["Open transcript button", "openTranscriptButtonOn"],
-        ["Video notes", "videoNotesOn"],
-        ["Channel notes", "channelNotesOn"],
-        ["Chapter buttons", "chapterButtonsOn"],
-        ["Chapter hotkeys", "chapterHotkeysOn"],
-      ]);
     },
   });
 
-  const _shorts = ["redirectShortsOn", "shortsAutoMuteOn", "shortsHideCommentsOn"];
-  xa.register({
-    id: "aio-shorts-cleanup", name: "Bundle: Shorts Cleanup",
-    summary: "Group switch: Shorts in player, auto-mute, hide comments.",
-      cat: "bundles",
-    masterKey: "aioShortsCleanupOn",
-    settingsAlways: !0,
-    keys: ["aioShortsCleanupOn", "aioShortsCleanupOnEnrolled", ..._shorts],
-    apply() { aioEnroll("aioShortsCleanupOn", _shorts); },
-    settings(en) {
-      en.appendChild(Io("Turn on every Shorts cleanup", "aioShortsCleanupOn"));
-      aioRows(en, [
-        ["Open Shorts in the regular player", "redirectShortsOn"],
-        ["Mute Shorts", "shortsAutoMuteOn"],
-        ["Hide Shorts comments", "shortsHideCommentsOn"],
-      ]);
-    },
-  });
 
-  const _feed = ["hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn", "numberSearchResultsOn"];
+
+
+  const _feed = ["hideRecs", "hideLiveContentOn", "hidePremieresOn", "hideTopLiveGamesOn", "hideAutoDubbedOn"];
   xa.register({
     id: "aio-feed-cleanup", name: "Bundle: Feed Cleanup",
-    summary: "Group switch: hide recs/live/premieres/dubs, number cards.",
+    summary: "Group switch: hide recommendations, live streams, premieres and dubbed cards.",
       cat: "bundles",
     masterKey: "aioFeedCleanupOn",
     settingsAlways: !0,
@@ -27706,15 +27440,6 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     apply() { aioEnroll("aioFeedCleanupOn", _feed); },
     settings(en) {
       en.appendChild(Io("Hide extra feed shelves and live noise", "aioFeedCleanupOn"));
-      aioRows(en, [
-        ["Hide recommended shelves", "hideRecs"],
-        ["Hide live streams", "hideLiveContentOn"],
-        ["Hide premieres", "hidePremieresOn"],
-        ["Hide Top live games", "hideTopLiveGamesOn"],
-        ["Hide auto-dubbed cards", "hideAutoDubbedOn"],
-        ["Restore original audio on watch pages", "hideAutoDubbedPreferOriginal"],
-        ["Number video cards", "numberSearchResultsOn"],
-      ]);
     },
   });
 
@@ -27729,13 +27454,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     apply() { aioEnroll("aioCompactDenseOn", _dense); },
     settings(en) {
       en.appendChild(Io("Turn on all compact/density options", "aioCompactDenseOn"));
-      aioRows(en, [
-        ["Compact UI", "compactUI"],
-        ["Dense video grid", "denseVideoGridOn"],
-        ["Tighter theme spacing", "themeCompactOn"],
-        ["Compact playlists", "compactPlaylistOn"],
-        ["Auto-scroll playlist to current", "playlistAutoscrollOn"],
-      ]);
+      en.appendChild(Io("Tighter theme spacing", "themeCompactOn"));
     },
   });
 
@@ -27750,34 +27469,12 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
     apply() { aioEnroll("aioPrivacyShieldOn", _privacy); },
     settings(en) {
       en.appendChild(Io("Enable core privacy protections", "aioPrivacyShieldOn"));
-      aioRows(en, [
-        ["Privacy shield", "privacyShieldOn"],
-        ["Skip YouTube /redirect URLs", "removeRedirectUrlsOn"],
-        ["Shorten share URLs", "shortenShareUrlOn"],
-        ["Block YouTube AI features", "blockYTAIOn"],
-      ]);
+      en.appendChild(Io("Privacy shield", "privacyShieldOn"));
     },
   });
 
-  const _comments = ["collapseLongCommentsOn", "highlightCreatorCommentsOn", "highlightTimestampLinksOn"];
-  xa.register({
-    id: "aio-comment-cleanup", name: "Bundle: Comment Cleanup",
-    summary: "Group switch: clamp long comments, highlight creators/timestamps.",
-      cat: "bundles",
-    masterKey: "aioCommentCleanupOn",
-    settingsAlways: !0,
-    keys: ["aioCommentCleanupOn", "aioCommentCleanupOnEnrolled", ..._comments, "collapseLongCommentChars"],
-    apply() { aioEnroll("aioCommentCleanupOn", _comments); },
-    settings(en) {
-      en.appendChild(Io("Turn on every comment cleanup", "aioCommentCleanupOn"));
-      aioRows(en, [
-        ["Clamp long comments", "collapseLongCommentsOn"],
-        () => No("Clamp threshold (characters)", "collapseLongCommentChars", 400, 5000, 100, (v) => v + " chars"),
-        ["Highlight creator comments", "highlightCreatorCommentsOn"],
-        ["Highlight timestamp links", "highlightTimestampLinksOn"],
-      ]);
-    },
-  });
+
+
   // ---------------------------------------------------------------------------
   // Feed hygiene
   // ---------------------------------------------------------------------------
@@ -29236,11 +28933,32 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         save("yourtube-history-" + stamp() + ".csv", header + "\n" + body, "text/csv");
       }));
       row.appendChild(Oo("Notes & bookmarks", async () => {
-        const out = { notes: {}, bookmarks: {}, collections: [] };
-        try { out.notes = (await w("kv")).filter((r) => r && typeof r.k === "string" && r.k.startsWith("note:")); } catch (_) {}
-        try { out.bookmarks = (await v("kv", "__yourtube_bookmarks__")) || {}; } catch (_) {}
-        try { out.collections = (await v("kv", "__yourtube_collections__")) || []; } catch (_) {}
-        save("yourtube-notes-" + stamp() + ".json", JSON.stringify(out, null, 2));
+        try {
+          const database = await b();
+          if (!database) throw new Error("Local storage is unavailable");
+          // Flush pending edits before reading. Values are stored inside {k,v}
+          // records; exporting the wrappers omitted timestamped notes and made
+          // bookmark/collection imports ambiguous.
+          const stores = [
+            ["__yourtube_notes__", {}],
+            ["__yourtube_bookmarks__", {}],
+            ["__yourtube_collections__", []],
+          ].map(([key, initial]) => YourTubeEngine.createStore(key, initial));
+          await Promise.all(stores.map(async store => { await store.load(); await store.flush(); }));
+          const records = await w("kv");
+          const out = {
+            format: "yourtube-local-notes-v1",
+            exportedAt: new Date().toISOString(),
+            notes: records.filter(r => r && typeof r.k === "string" && r.k.startsWith("note:")),
+            timestampNotes: (await v("kv", "__yourtube_notes__"))?.v || {},
+            bookmarks: (await v("kv", "__yourtube_bookmarks__"))?.v || {},
+            collections: (await v("kv", "__yourtube_collections__"))?.v || [],
+          };
+          save("yourtube-notes-" + stamp() + ".json", JSON.stringify(out, null, 2));
+        } catch (error) {
+          m("notes export failed", error);
+          pe("Could not read local notes for export.", 2400, "error");
+        }
       }));
       row.appendChild(Oo("This playlist", () => {
         const items = [];

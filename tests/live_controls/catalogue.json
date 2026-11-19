@@ -659,36 +659,6 @@
   "summary": "Thin progress strip pinned to the viewport top during playback."
  },
  {
-  "id": "copy-timestamp-button",
-  "name": "Copy Timestamp Link",
-  "cat": "playback",
-  "master": "copyTimestampButtonOn",
-  "keys": [
-   "copyTimestampButtonOn"
-  ],
-  "summary": "Player button: copies a link to the current playhead position."
- },
- {
-  "id": "copy-video-info-button",
-  "name": "Copy Video Info",
-  "cat": "playback",
-  "master": "copyVideoInfoButtonOn",
-  "keys": [
-   "copyVideoInfoButtonOn"
-  ],
-  "summary": "Player button: copies title, channel and canonical link."
- },
- {
-  "id": "open-transcript-button",
-  "name": "Transcript Shortcut",
-  "cat": "playback",
-  "master": "openTranscriptButtonOn",
-  "keys": [
-   "openTranscriptButtonOn"
-  ],
-  "summary": "Player button that opens the transcript panel directly."
- },
- {
   "id": "video-notes",
   "name": "Video Notes",
   "cat": "data",
@@ -727,16 +697,6 @@
    "chapterButtonsOn"
   ],
   "summary": "Previous/next chapter controls in the player bar."
- },
- {
-  "id": "number-search-results",
-  "name": "Number Results",
-  "cat": "feed",
-  "master": "numberSearchResultsOn",
-  "keys": [
-   "numberSearchResultsOn"
-  ],
-  "summary": "Indexes feed and search cards for quick reference."
  },
  {
   "id": "dense-video-grid",
@@ -803,16 +763,6 @@
   "summary": "Denser rows in the playlist drawer."
  },
  {
-  "id": "shorts-auto-mute",
-  "name": "Shorts Auto-Mute",
-  "cat": "audio",
-  "master": "shortsAutoMuteOn",
-  "keys": [
-   "shortsAutoMuteOn"
-  ],
-  "summary": "Shorts start muted until unmuted."
- },
- {
   "id": "feed-watched",
   "name": "Watched Feed Treatment",
   "cat": "feed",
@@ -823,47 +773,6 @@
    "feedHideWatchedOn"
   ],
   "summary": "Dims or hides cards you've already watched."
- },
- {
-  "id": "shorts-hide-comments",
-  "name": "Hide Shorts Comments",
-  "cat": "comments",
-  "master": "shortsHideCommentsOn",
-  "keys": [
-   "shortsHideCommentsOn"
-  ],
-  "summary": "Removes the comments drawer on Shorts."
- },
- {
-  "id": "collapse-long-comments",
-  "name": "Collapse Long Comments",
-  "cat": "comments",
-  "master": "collapseLongCommentsOn",
-  "keys": [
-   "collapseLongCommentsOn",
-   "collapseLongCommentChars"
-  ],
-  "summary": "Clamps comments past a character limit behind an expand control."
- },
- {
-  "id": "highlight-creator-comments",
-  "name": "Creator Highlight",
-  "cat": "comments",
-  "master": "highlightCreatorCommentsOn",
-  "keys": [
-   "highlightCreatorCommentsOn"
-  ],
-  "summary": "Highlights replies authored by the video's channel."
- },
- {
-  "id": "highlight-timestamp-links",
-  "name": "Timestamp Highlight",
-  "cat": "comments",
-  "master": "highlightTimestampLinksOn",
-  "keys": [
-   "highlightTimestampLinksOn"
-  ],
-  "summary": "Makes timestamp links in comments stand out."
  },
  {
   "id": "end-soon-warning",
@@ -1209,20 +1118,6 @@
   "summary": "Group switch for the player-bar extras; members stay individually toggleable; OFF removes only what it enabled."
  },
  {
-  "id": "aio-shorts-cleanup",
-  "name": "Bundle: Shorts Cleanup",
-  "cat": "bundles",
-  "master": "aioShortsCleanupOn",
-  "keys": [
-   "aioShortsCleanupOn",
-   "aioShortsCleanupOnEnrolled",
-   "redirectShortsOn",
-   "shortsAutoMuteOn",
-   "shortsHideCommentsOn"
-  ],
-  "summary": "Group switch: Shorts in player, auto-mute, hide comments."
- },
- {
   "id": "aio-feed-cleanup",
   "name": "Bundle: Feed Cleanup",
   "cat": "bundles",
@@ -1270,21 +1165,6 @@
    "blockYTAIOn"
   ],
   "summary": "Group switch: redirect bypass, short shares, AI hiding."
- },
- {
-  "id": "aio-comment-cleanup",
-  "name": "Bundle: Comment Cleanup",
-  "cat": "bundles",
-  "master": "aioCommentCleanupOn",
-  "keys": [
-   "aioCommentCleanupOn",
-   "aioCommentCleanupOnEnrolled",
-   "collapseLongCommentsOn",
-   "highlightCreatorCommentsOn",
-   "highlightTimestampLinksOn",
-   "collapseLongCommentChars"
-  ],
-  "summary": "Group switch: clamp long comments, highlight creators/timestamps."
  },
  {
   "id": "hide-low-views",

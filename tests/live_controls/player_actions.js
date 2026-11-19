@@ -246,20 +246,5 @@ async () => {
     },
   );
   await set(ab, "abLoopOn", false);
-  scene(
-    "<ytd-reel-video-renderer><video></video></ytd-reel-video-renderer><ytd-reel-video-renderer is-active><video></video></ytd-reel-video-renderer>",
-    "/shorts/LabVideo001",
-  );
-  const [pre, active] = q("#stage").querySelectorAll("video");
-  await paired(
-    "shorts-auto-mute",
-    "shortsAutoMuteOn",
-    "Preloaded Short untouched; active Short mutes and unmutes",
-    false,
-    true,
-    () => [pre.muted, active.muted],
-    [false, false],
-    [false, true],
-  );
   return rows;
 };

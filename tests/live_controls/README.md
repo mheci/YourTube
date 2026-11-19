@@ -48,3 +48,5 @@ Where YouTube offers normal playback, enable only the candidate (disable duplica
 `theme_schedule` uses a controlled browser color-scheme event and actual mounted controls to verify automatic dark/light changes, both manual override policies, Resume, and OFF restoration. It checks browser attributes in a fixture, not every custom palette on live YouTube.
 
 `text_preview` verifies the retained text-scaling preview changes with the dashboard slider. Player action coverage excludes the retired Shorts speed card; the retained active-Short mute test is still separate until that bundle is redesigned.
+
+`bundle_dedup` verifies bundle cards no longer repeat member settings that remain on individual cards. `export_data` exercises the actual browser download and checks saved video notes, timestamp notes, bookmarks and collections in the resulting JSON. Retired cards remain absent even if their historical configuration values are still stored.

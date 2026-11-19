@@ -844,8 +844,8 @@ for id, doc, measure, expect, cfg in [
     (
         "aio-player-tools",
         player,
-        "qa('.ytb-extra-copy-time,.ytb-extra-copy-info,.ytb-extra-next-ch').length",
-        "x===3",
+        "qa('.ytb-extra-next-ch').length",
+        "x===1",
         {},
     ),
     (

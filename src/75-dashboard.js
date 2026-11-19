@@ -177,7 +177,7 @@
     el(brand, "span", "", "YourTube");
     el(brand, "span", "yj-brand-sep", "/");
     el(brand, "span", "", "Local settings");
-    el(heading, "h1", "ytb-dtitle", "Settings journal");
+    el(heading, "h1", "ytb-dtitle", "Settings");
     const tools = el(header, "div", "yj-head-tools");
     el(tools, "span", "ytb-dver", "v" + n);
     button(
@@ -454,6 +454,7 @@
         "ytb-danger",
       ),
     );
+    const guided = mountGuidedSetup({shell, main, foot, el, button, setQuery, setCat});
     const moveToTopLayer = () => {
       const host = document.fullscreenElement || document.body;
       if (shell.parentNode !== host) host.appendChild(shell);
@@ -477,7 +478,7 @@
           Ko();
         }
       } else if (
-        ev.key === "/" &&
+        !guided.visible() && ev.key === "/" &&
         !editing &&
         !ev.ctrlKey &&
         !ev.metaKey &&

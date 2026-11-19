@@ -22,10 +22,10 @@ Latest release: [github.com/mheci/YourTube/releases](https://github.com/mheci/Yo
 - A theme engine that rewrites YouTube's design tokens rather than patching
   individual elements; text and icon colors are contrast-checked against every
   surface they sit on.
-- The settings dashboard uses Watch Journal’s paper, forest-green controls,
-  serif headings and ruled lists. This is its only skin; older dashboard look
-  preferences are ignored. YouTube’s page themes and resume prompt layouts
-  remain separate settings.
+- **Find my preset** asks three questions about distractions, playback quality and local
+  session history. Review the exact changes, uncheck any you don’t want, then apply once.
+  **All features** stays accessible; manual edits take precedence and mark the preset
+  **Customized**. The dashboard follows YouTube’s light/dark appearance.
 - Static header, unclamped titles, fixed player heights, a custom description
   width and fixed thumbnail sizes for search, the watch sidebar and channel
   grids, each behind its own toggle.

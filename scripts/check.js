@@ -199,8 +199,8 @@ for (const file of files) {
     const source = part('31-journal-design.js') + '\n' + part('76-journal-dashboard.js');
     const css = vm.runInNewContext(source + '\nJOURNAL_DASHBOARD_CSS');
     const shell = part('75-dashboard.js'), widget = part('35-watch-library.js');
-    if (!css.includes('.ytb-dash[data-skin="journal"]') || !css.includes('--j-paper:#fffbef') ||
-        !css.includes('--j-green:#225b48') || !widget.includes('${JOURNAL_PROPERTIES}') ||
+    if (!css.includes('.ytb-dash[data-skin="journal"]') || !css.includes('--yt-spec-base-background') ||
+        !css.includes('--yt-spec-call-to-action') || !widget.includes('${JOURNAL_PROPERTIES}') ||
         !/shell\.dataset\.skin\s*=\s*['"]journal['"]/.test(shell) || /YT_DASH_LOOKS|YT_applyDashLook|ytb-looksel/.test(shell)) {
       throw Error('dashboard and watch library must share the single journal skin');
     }

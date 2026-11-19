@@ -1,0 +1,22 @@
+const skins = [
+ ['Signal Desk','#161a1a','#e8b15a','Mix playback, sound, and visibility on independent channel strips.'],
+ ['The Cutting Room','#171826','#b6a8fb','Scrub a multitrack edit timeline to inspect a chapter or skip segment.'],
+ ['Orbital','#111722','#a6d9f2','Steer a radial controller around the currently playing video.'],
+ ['One Question','#151e17','#d4ee9c','Build a watch preset through a three-step interview.'],
+ ['Command Line','#071613','#7de6b0','Type a command or recall one from a shell transcript.'],
+ ['Pocket Remote','#202026','#e4aa9e','Operate the player one-handed with a tactile directional pad.'],
+ ['The Morning Edition','#201d1b','#e1b887','Read your watch history as an editorial front page.'],
+ ['Switchyard','#151a21','#f2c779','Assemble a viewing rule by connecting a trigger, condition, and action.'],
+ ['Projection Wall','#11151b','#f4ceb0','Keep the video full-screen and summon a contextual control sheet.'],
+ ['Frequency Map','#171725','#d5b6ec','Explore watch habits by selecting a day on an activity calendar.'],
+ ['Departure Board','#171916','#e2c476','Board a saved session from a station-style departures display.'],
+ ['The Workbench','#181c20','#a3caec','Arrange viewing tasks across a three-stage kanban board.'],
+ ['Soundstage','#17151b','#edb4c4','Place the listener in a spatial sound field instead of editing sliders.'],
+ ['Watchmaker','#1b1d19','#e0d5aa','Wind a session timer using a graduated instrument dial.'],
+ ['Light Table','#1d1c1d','#e2d3b9','Pick up a contact print to inspect and pin a saved video.'],
+ ['Expedition','#101d1c','#a4dfba','Navigate a map of viewing checkpoints and resume at a waypoint.'],
+ ['Split Decision','#151c22','#abe4df','Compare two competing playback presets and adopt one.'],
+ ['Stack Reader','#1f1922','#efc3c0','Triage saved videos one card at a time: archive or keep.'],
+ ['House Plan','#151c23','#a3cce5','Enter rooms of a floor plan to adjust different parts of YourTube.'],
+ ['Quick Dial','#191921','#e8d383','Trigger a personalized keypad of actions without navigating menus.']
+];

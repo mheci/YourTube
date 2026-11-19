@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.12.8
+// @version      1.13.0
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.12.8", // stamped at build time; was a drifting hard-coded literal
+      "1.13.0", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -1156,6 +1156,7 @@ algoBlockChannels: "",
         dashY: -1,
         dashW: -1,
         dashCat: "all",
+        guidedPreset: null,
         dashH: -1,
         netMonitorOn: !1,
         netMonitorRange: "day",
@@ -4570,15 +4571,17 @@ algoBlockChannels: "",
   };
 
 
-// These custom properties are declared on the dashboard root and the journal's
-// shadow host, never on the page. YouTube's own palette is independent.
+// YouTube semantic colors when available; standalone fixtures follow color-scheme.
 const JOURNAL_PROPERTIES = `
-  --j-paper:#fffbef; --j-field:#fffdf5; --j-tint:#f2f3e8; --j-wash:#e8eee1;
-  --j-ink:#1a302b; --j-heading:#1d3c32; --j-muted:#4e665a; --j-green:#225b48;
-  --j-rule:#c4cebc; --j-field-rule:#beccba; --j-hair:#d7dfce; --j-rail:#d6decd;
-  --j-fill:#336b52; --j-danger:#913d27; --j-focus:#c56422;
-  --j-serif:Georgia,"Times New Roman",serif; --j-ui:system-ui,-apple-system,"Segoe UI",sans-serif;
-  --j-mono:ui-monospace,SFMono-Regular,Consolas,monospace;`;
+  --j-paper:var(--yt-spec-base-background,light-dark(#fff,#0f0f0f));
+  --j-field:var(--yt-spec-raised-background,light-dark(#fff,#212121));
+  --j-tint:light-dark(#f8f8f8,#181818); --j-wash:light-dark(#ededed,#343434);
+  --j-ink:var(--yt-spec-text-primary,light-dark(#0f0f0f,#f1f1f1));--j-heading:var(--j-ink);
+  --j-muted:var(--yt-spec-text-secondary,light-dark(#606060,#aaa));
+  --j-green:var(--yt-spec-call-to-action,light-dark(#065fd4,#3ea6ff));
+  --j-rule:light-dark(#dcdcdc,#414141);--j-field-rule:var(--j-rule);--j-hair:var(--j-rule);--j-rail:var(--j-rule);
+  --j-fill:var(--j-green);--j-danger:light-dark(#a61919,#ffa5a5);--j-focus:var(--j-green);
+  --j-ui:Roboto,Arial,sans-serif;--j-serif:var(--j-ui);--j-mono:ui-monospace,monospace;`;
 
 // The existing yourtube_v2/history schema stays authoritative. A small, synchronous
 // write-ahead record bridges the interval between pagehide and an IndexedDB commit.
@@ -6011,7 +6014,7 @@ function mountWatchLibrary(parent) {
   parent.append(host);
   const root = host.attachShadow({ mode: 'open' }),
     css = document.createElement('style');
-  css.textContent = `:host{${JOURNAL_PROPERTIES}display:block;margin:12px 0;color:var(--j-ink);font:13px/1.4 var(--j-ui);color-scheme:light}*{box-sizing:border-box}[hidden]{display:none!important}.book{background:var(--j-paper);border:1px solid var(--j-rule);padding:15px;border-radius:9px}h3{font:normal 27px/1.1 var(--j-serif);letter-spacing:-.04em;margin:4px 0 11px}.cap,.meta{font:600 10px/1.4 var(--j-mono);color:var(--j-muted)}.cap{text-transform:uppercase;letter-spacing:.12em}.toolbar,.actions,.meta,.row,.tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}button,input,select,a{font:inherit;color:inherit}.toolbar input,.toolbar select,button,a{border:1px solid var(--j-field-rule);background:var(--j-field);border-radius:4px;padding:5px 8px}.toolbar input{min-width:80px;flex:1}.toolbar select{max-width:100%}.list{max-height:330px;overflow:auto;margin:8px 0}.row{padding:10px 0;border-bottom:1px solid var(--j-hair)}.details{flex:1;min-width:130px}.name{font-weight:650;color:var(--j-heading)}.meta{font-weight:450;margin:3px 0}.rail{height:3px;max-width:180px;background:var(--j-rail)}.rail span{display:block;background:var(--j-fill);height:100%}.actions{gap:4px}button,a{cursor:pointer;font-size:11px;text-decoration:none}.go{background:var(--j-green);color:white;border-color:var(--j-green)}.actions button{border:0;background:transparent;text-decoration:underline;text-underline-offset:2px}.tools{border-top:1px solid var(--j-rule);padding-top:9px}.msg{color:#3f5e50;min-height:1.4em;margin:6px 0 0}.danger{color:var(--j-danger)}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--j-focus);outline-offset:2px}`;
+  css.textContent = `:host{${JOURNAL_PROPERTIES}display:block;margin:12px 0;color:var(--j-ink);font:13px/1.4 var(--j-ui);color-scheme:inherit}*{box-sizing:border-box}[hidden]{display:none!important}.book{background:var(--j-paper);border:1px solid var(--j-rule);padding:15px;border-radius:9px}h3{font:normal 27px/1.1 var(--j-serif);letter-spacing:-.04em;margin:4px 0 11px}.cap,.meta{font:600 10px/1.4 var(--j-mono);color:var(--j-muted)}.cap{text-transform:uppercase;letter-spacing:.12em}.toolbar,.actions,.meta,.row,.tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}button,input,select,a{font:inherit;color:inherit}.toolbar input,.toolbar select,button,a{border:1px solid var(--j-field-rule);background:var(--j-field);border-radius:4px;padding:5px 8px}.toolbar input{min-width:80px;flex:1}.toolbar select{max-width:100%}.list{max-height:330px;overflow:auto;margin:8px 0}.row{padding:10px 0;border-bottom:1px solid var(--j-hair)}.details{flex:1;min-width:130px}.name{font-weight:650;color:var(--j-heading)}.meta{font-weight:450;margin:3px 0}.rail{height:3px;max-width:180px;background:var(--j-rail)}.rail span{display:block;background:var(--j-fill);height:100%}.actions{gap:4px}button,a{cursor:pointer;font-size:11px;text-decoration:none}.go{background:var(--j-ink);color:var(--j-paper);border-color:var(--j-green)}.actions button{border:0;background:transparent;text-decoration:underline;text-underline-offset:2px}.tools{border-top:1px solid var(--j-rule);padding-top:9px}.msg{color:var(--j-muted);min-height:1.4em;margin:6px 0 0}.danger{color:var(--j-danger)}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--j-focus);outline-offset:2px}`;
   root.append(css);
   const add = (p, t, c, txt) => {
     const n = document.createElement(t);
@@ -22133,7 +22136,7 @@ body.ytb-silent #ytb-toast,body.ytb-silent #ytb-sb-hud,body.ytb-silent #ytb-sb-o
     el(brand, "span", "", "YourTube");
     el(brand, "span", "yj-brand-sep", "/");
     el(brand, "span", "", "Local settings");
-    el(heading, "h1", "ytb-dtitle", "Settings journal");
+    el(heading, "h1", "ytb-dtitle", "Settings");
     const tools = el(header, "div", "yj-head-tools");
     el(tools, "span", "ytb-dver", "v" + n);
     button(
@@ -22410,6 +22413,7 @@ body.ytb-silent #ytb-toast,body.ytb-silent #ytb-sb-hud,body.ytb-silent #ytb-sb-o
         "ytb-danger",
       ),
     );
+    const guided = mountGuidedSetup({shell, main, foot, el, button, setQuery, setCat});
     const moveToTopLayer = () => {
       const host = document.fullscreenElement || document.body;
       if (shell.parentNode !== host) host.appendChild(shell);
@@ -22433,7 +22437,7 @@ body.ytb-silent #ytb-toast,body.ytb-silent #ytb-sb-hud,body.ytb-silent #ytb-sb-o
           Ko();
         }
       } else if (
-        ev.key === "/" &&
+        !guided.visible() && ev.key === "/" &&
         !editing &&
         !ev.ctrlKey &&
         !ev.metaKey &&
@@ -23683,12 +23687,12 @@ const JOURNAL_DASHBOARD_CSS = `
   --panel:var(--j-paper);--panel2:var(--j-tint);--panel3:var(--j-field);--card:var(--j-field);--card-hi:var(--j-tint);--card-lo:var(--j-hair);
   --line:var(--j-hair);--line2:var(--j-rule);--ink:var(--j-ink);--ink2:var(--j-muted);--ink3:var(--j-muted);--ok:var(--j-fill);--crit:var(--j-danger);--mono:var(--j-mono);
   position:fixed;z-index:2147483646;display:flex;flex-direction:column;isolation:isolate;overflow:hidden;box-sizing:border-box;
-  max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);color-scheme:light;background:var(--j-paper);color:var(--j-ink);
+  max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);color-scheme:light dark;background:var(--j-paper);color:var(--j-ink);
   border:1px solid var(--j-rule);border-radius:13px;box-shadow:0 18px 64px #122c2636,0 2px 10px #122c2614;
   font:13px/1.45 var(--j-ui);text-align:left;letter-spacing:normal;opacity:0;transition:opacity .12s;
 }
 .ytb-dash.open{opacity:1}.ytb-dash *, .ytb-dash *::before,.ytb-dash *::after{box-sizing:border-box}
-.ytb-dash [hidden]{display:none!important}.ytb-dash button{cursor:pointer}.ytb-dash button,.ytb-dash input,.ytb-dash select,.ytb-dash textarea{font-family:var(--j-ui);color-scheme:light;accent-color:var(--j-green)}
+.ytb-dash [hidden]{display:none!important}.ytb-dash button{cursor:pointer}.ytb-dash button,.ytb-dash input,.ytb-dash select,.ytb-dash textarea{font-family:var(--j-ui);color-scheme:light dark;accent-color:var(--j-green)}
 .ytb-dash :is(button,a,input,select,textarea,[tabindex]):focus-visible{outline:2px solid var(--j-focus);outline-offset:2px}
 .ytb-dash .ytb-dhdr{margin:0;width:auto;height:auto;align-self:stretch;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:17px 22px 15px;border-top:3px solid var(--j-green);border-bottom:1px solid var(--j-rule);background:var(--j-paper);flex:none;touch-action:none;cursor:grab;user-select:none}
 .ytb-dash.dragging .ytb-dhdr{cursor:grabbing}.ytb-dash.dragging,.ytb-dash.resizing{user-select:none}
@@ -23720,7 +23724,86 @@ const JOURNAL_DASHBOARD_CSS = `
 .ytb-dash.ytb-narrow .ytb-dhdr{padding:11px 14px 10px}.ytb-dash.ytb-narrow .ytb-dtitle{font-size:27px}.ytb-dash.ytb-narrow .ytb-dver{display:none}.ytb-dash.ytb-narrow .ytb-main{flex-direction:column}.ytb-dash.ytb-narrow .ytb-nav{display:block;flex:0 0 auto;border:0;border-bottom:1px solid var(--j-rule);padding:6px 14px;overflow:visible}.ytb-dash.ytb-narrow .ytb-nav>:not(.yj-mobile-nav){display:none}.ytb-dash.ytb-narrow .yj-mobile-nav{display:flex;align-items:center;gap:12px;justify-content:space-between}.ytb-dash .yj-cat-picker{max-width:70%}.ytb-dash.ytb-narrow .yj-searchbar{padding:4px 12px}.ytb-dash.ytb-narrow .ytb-body{padding:13px 14px 18px}.ytb-dash.ytb-narrow .ytb-key{max-width:22%}.ytb-dash.ytb-narrow .yj-meta{max-width:45%}.ytb-dash.ytb-narrow .yj-view-title{font-size:24px}.ytb-dash.ytb-narrow .ytb-foot{padding:7px 13px;gap:3px 5px}.ytb-dash.ytb-narrow .ytb-core{gap:5px;margin-bottom:10px}.ytb-dash.ytb-narrow .ytb-corecell{flex-basis:100%}.ytb-dash.ytb-narrow .ytb-foot .ytb-btn{font-size:10px;padding:5px 6px}
 @media(prefers-reduced-motion:reduce){.ytb-dash,.ytb-dash *{transition:none!important;animation:none!important}}
 @media(forced-colors:active){.ytb-dash{border-color:CanvasText}.ytb-dash .ytb-nav-item[aria-current="true"]{border:2px solid Highlight}.ytb-dash .ytb-sw .ytb-track,.ytb-dash .ytb-knob{forced-color-adjust:none}.ytb-dash .ytb-sw .ytb-track{background:Canvas;border-color:ButtonText}.ytb-dash .ytb-sw .ytb-knob{background:ButtonText}.ytb-dash .ytb-sw input:checked~.ytb-track{background:Highlight;border-color:Highlight}.ytb-dash .ytb-sw input:checked~.ytb-knob{background:HighlightText}}
+html[dark] .ytb-dash[data-skin="journal"]{color-scheme:dark}
+html:not([dark]):has(ytd-app) .ytb-dash[data-skin="journal"]{color-scheme:light}
+.ytb-dash :is(button,input,select,textarea){color-scheme:inherit}
+.ytb-dash .ytb-dhdr{border-top:0}.ytb-dash .yj-mark{background:#f03;border-radius:4px;clip-path:none;width:19px;height:14px}.ytb-dash .yj-mark::before{background:white;clip-path:polygon(0 0,100% 50%,0 100%);width:6px;height:8px;margin:0}
+.ytb-dash :is(.ytb-dtitle,.yj-view-title){font-family:var(--j-ui);font-weight:600;letter-spacing:-.025em}.ytb-dash .ytb-dtitle{font-size:24px}
+.ytb-dash .ytb-nav-item[aria-current=true]{background:var(--j-wash);border-color:transparent;color:var(--j-ink)}.ytb-dash .ytb-nav-item[aria-current=true] .ytb-nav-count{color:var(--j-muted)}
+.ytb-dash .ytb-btn.primary{background:var(--j-ink);color:var(--j-paper);border-color:transparent}.ytb-dash .ytb-btn{border-radius:20px}
+.ytg-tabs{display:flex;gap:6px;align-items:center;padding:7px 16px;border-bottom:1px solid var(--j-rule);flex:none}.ytg-tabs button[aria-pressed=true]{background:var(--j-ink);color:var(--j-paper)}.ytg-invite{margin-left:auto;color:var(--j-green);border:0;background:none}.ytg-badge{font-size:11px;color:var(--j-muted)}
+.ytg-panel{flex:1;overflow:auto;min-height:0}.ytg-stage{max-width:600px;margin:auto;padding:clamp(18px,4vw,44px)}.ytg-stage h2{font:600 clamp(22px,3vw,30px)/1.2 var(--j-ui);margin:8px 0;color:var(--j-ink)}.ytg-stage p{color:var(--j-muted);font-size:14px;margin:8px 0 20px}.ytg-step{font-size:12px;color:var(--j-muted)}.ytg-options{margin:12px 0 22px;border:0;padding:0}.ytg-choice{display:flex;gap:12px;align-items:center;padding:12px 4px;font-size:15px}.ytg-options .ytg-choice{border-bottom:1px solid var(--j-rule);cursor:pointer}.ytg-review{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--j-rule)}.ytg-review:last-of-type{margin-bottom:18px}.ytg-review .ytb-btn{flex:none}.ytg-stage>.ytb-btn{margin:8px 6px 0 0;padding:8px 16px}.ytg-stage button:disabled{opacity:.45;cursor:default}
 `;
+
+// A recipe is a one-time patch, never a policy that runs on navigation or boot.
+const guidedQuestions = [
+  ['What would you like to see less of?', 'Choose what changes on the watch page.', [
+    ['Keep my current layout', {}], ['Recommendations', {hideRecs:true}],
+    ['Recommendations and end screens', {hideRecs:true, hideEndscreen:true}],
+  ]],
+  ['How should videos start?', 'Quality is a preference. The player may not offer every resolution.', [
+    ['Let YouTube decide', {autoHD:false}], ['Prefer 720p', {autoHD:true, qualityPref:'hd720'}],
+    ['Prefer 1080p', {autoHD:true, qualityPref:'hd1080'}],
+  ]],
+  ['When you return to a video…', 'Session History stores progress in this browser. Turning it off keeps existing entries.', [
+    ['Leave it to YouTube', {sessionRestoreOn:false}], ['Ask where to start', {sessionRestoreOn:true, sessionResumeMode:'ask'}],
+    ['Record progress without asking', {sessionRestoreOn:true, sessionResumeMode:'record'}],
+  ]],
+];
+const guidedFields = {
+  hideRecs:['Hide recommendations','hide-recs'], hideEndscreen:['Hide end screens','hide-endscreen'],
+  autoHD:['Quality lock','auto-hd'], qualityPref:['Preferred quality','auto-hd'],
+  sessionRestoreOn:['Session History','session-restore'], sessionResumeMode:['Resume behavior','session-restore'],
+};
+function mountGuidedSetup({shell, main, foot, el, button, setQuery, setCat}) {
+  const tabs = el(shell,'div','ytg-tabs'); shell.insertBefore(tabs,main);
+  const panel = el(shell,'section','ytg-panel'); shell.insertBefore(panel,main);
+  panel.setAttribute('aria-label','Guided setup'); panel.hidden=true;
+  let step=-1, answers=[], excluded=new Set(), invite;
+  const all=button(tabs,'ytb-btn','All features',()=>{show(false);setCat('all');setQuery('')});
+  const guide=button(tabs,'ytb-btn','Presets',()=>{show(true);draw()});
+  const badge=el(tabs,'span','ytg-badge');
+  function updateBadge(){
+    const saved=S.guidedPreset;
+    const keys=Object.keys(guidedFields).filter(k=>saved && Object.hasOwn(saved,k));
+    badge.textContent=keys.length ? (keys.some(k=>S[k]!==saved[k])?'Customized':'Preset applied') : '';
+  }
+  So('cfg.changed',updateBadge); updateBadge();
+  function show(open){ if(invite)invite.hidden=open||!!S.guidedPreset; panel.hidden=!open; main.hidden=foot.hidden=open; all.setAttribute('aria-pressed',String(!open));guide.setAttribute('aria-pressed',String(open)); }
+  const display=v=>({true:'On',false:'Off',hd720:'720p',hd1080:'1080p',ask:'Ask where to start',record:'Record only'}[String(v)]??String(v));
+  function draw(){
+    panel.replaceChildren(); const card=el(panel,'div','ytg-stage');
+    const heading=(over,title,note)=>{el(card,'span','ytg-step',over);const h=el(card,'h2','',title);h.tabIndex=-1;el(card,'p','',note);h.focus({preventScroll:true})};
+    if(step<0){
+      heading('Guided setup','Make YouTube yours','Answer three questions, then choose which settings to apply. You can change every setting later.');
+      button(card,'ytb-btn primary','Find my preset',()=>{step=0;draw()});
+      button(card,'ytb-btn','Browse all features',()=>{show(false);setCat('all');setQuery('')}); return;
+    }
+    if(step<3){
+      const [title,note,options]=guidedQuestions[step];heading(`Step ${step+1} of 3`,title,note);
+      const group=el(card,'fieldset','ytg-options');group.setAttribute('aria-label',title);
+      options.forEach(([text],i)=>{const label=el(group,'label','ytg-choice');const radio=el(label,'input','');radio.type='radio';radio.name='ytg-answer';radio.checked=answers[step]===i;el(label,'span','',text);radio.onchange=()=>{answers[step]=i;excluded.clear();next.disabled=false}});
+      button(card,'ytb-btn','Back',()=>{step--;draw()});const next=button(card,'ytb-btn primary',step===2?'Review changes':'Next',()=>{step++;draw()});next.disabled=answers[step]===undefined;return;
+    }
+    heading('Step 3 of 3 · Review','Review changes','Only checked changes will be applied. Unrelated settings stay as they are.');
+    const patch=Object.assign({},...guidedQuestions.map((q,i)=>q[2][answers[i]][1]));
+    const changes=Object.keys(patch).filter(k=>S[k]!==patch[k]);
+    const selected=()=>changes.filter(k=>!excluded.has(k)&&S[k]!==patch[k]);
+    const refresh=()=>{const count=selected().length;apply.textContent=`Apply ${count} change${count===1?'':'s'}`;apply.disabled=!count};
+    if(!changes.length)el(card,'p','','Your settings already match these answers.');
+    for(const k of changes){const row=el(card,'div','ytg-review');const label=el(row,'label','ytg-choice');const check=el(label,'input','');check.type='checkbox';check.checked=!excluded.has(k);el(label,'span','',guidedFields[k][0]+': '+display(S[k])+' → '+display(patch[k]));check.onchange=()=>{check.checked?excluded.delete(k):excluded.add(k);refresh()};button(row,'ytb-btn','View feature',()=>{show(false);setQuery(guidedFields[k][1])});}
+    button(card,'ytb-btn','Back',()=>{step--;draw()});const apply=button(card,'ytb-btn primary','Apply',()=>{
+      const keys=selected();if(!keys.length)return;
+      const delta=Object.fromEntries(keys.map(k=>[k,patch[k]]));
+      const baseline=Object.fromEntries(Object.entries(patch).filter(([k])=>!excluded.has(k)));
+      Oa({...delta,guidedPreset:baseline});step=-1;answers=[];excluded.clear();show(false);setCat('all');setQuery('');pe('Preset applied. You can edit any feature.',2000,'success');
+    });refresh();
+  }
+  show(false);
+  // A compact invitation, never a forced first-run modal. Existing configurations stay intact.
+  if(!badge.textContent){invite=button(tabs,'ytg-invite','Find my preset',()=>{show(true);step=0;draw()});So('cfg.changed',()=>{invite.hidden=!!S.guidedPreset})}
+  return {visible:()=>!panel.hidden};
+}
 
   //  YourTubeEngine Ecosystem v3.0
   const ytbEscapeHtml = (value) => String(value == null ? "" : value).replace(/[&<>\"']/g, (char) => ({

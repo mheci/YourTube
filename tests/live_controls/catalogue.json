@@ -330,13 +330,13 @@
  },
  {
   "id": "diag-console",
-  "name": "Activity Console",
+  "name": "Integration Debug Console",
   "cat": "tools",
   "master": "diagConsole",
   "keys": [
    "diagConsole"
   ],
-  "summary": "Live log of what YourTube is applying and why."
+  "summary": "Local integration status, failures and observed YouTube client changes."
  },
  {
   "id": "remove-redirect-urls",

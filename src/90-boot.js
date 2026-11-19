@@ -3,6 +3,8 @@
       z();
       // Arm before the asynchronous config/DOM hydration and chunked card apply.
       WatchSessions.configure();
+      IntegrationDiagnostics.checkClient();
+      g.on('nav.changed', () => IntegrationDiagnostics.checkClient());
       // Expired history-trash entries are removed even if the panel is never
       // opened. Restore also checks the deadline atomically before writing.
       const cleanTrash = () => CheckpointStore.trash().catch((error) => m('history trash cleanup', error));

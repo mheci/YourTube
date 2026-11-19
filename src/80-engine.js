@@ -3507,7 +3507,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       );
       const cache = new YourTubeResources.BoundedCache(64, "ytb-ryd", { ttlMs: 6 * 60 * 60 * 1000 });
       const failed = new YourTubeResources.BoundedCache(64, "ytb-ryd-fail", { ttlMs: 10 * 60 * 1000 });
-      let inFlight = 0;
+      let inFlight = 0, integrationAlive = true;
+      const pendingRyd = new Set();
       const format = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n));
       const dislikeButton = () => {
         try {
@@ -3569,18 +3570,22 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const cached = cache.get(videoId);
         if (cached) { render(videoId, cached); return; }
         if (failed.has(videoId)) return;
-        if (inFlight >= 2) return;
-        inFlight++;
-        YourTubeEngine.fetchJson("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId))
+        if (inFlight >= 2 || pendingRyd.has(videoId)) return;
+        inFlight++; pendingRyd.add(videoId);
+        IntegrationDiagnostics.request("Return YouTube Dislike", "https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId), () => integrationAlive && S.returnDislikeOn)
           .then((result) => {
             const data = result && result.ok ? result.json : null;
-            if (!data || typeof data.dislikes !== "number") { failed.set(videoId, 1); return; }
+            if (result?.cancelled) return;
+            if (!data || typeof data.dislikes !== "number") {
+              if (result?.ok) IntegrationDiagnostics.report("Return YouTube Dislike", "error", "Unexpected response format");
+              failed.set(videoId, 1); return;
+            }
             cache.set(videoId, data);
             failed.delete(videoId);
             if (S.returnDislikeOn && videoId === (ie.videoId && ie.videoId())) render(videoId, data);
           })
           .catch(() => { failed.set(videoId, 1); })
-          .then(() => { inFlight--; });
+          .then(() => { inFlight--; pendingRyd.delete(videoId); });
       };
       const tick = () => {
         if (!location.pathname.startsWith("/watch")) return;
@@ -3596,10 +3601,12 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       ctx.addInterval(tick, 2500);
       ctx.onNav(() => ctx.addTimeout(tick, 1200));
       Yt["return-dislike"].push(() => {
+        integrationAlive = false;
         document.querySelectorAll(".ytb-ui-ryd-count, .ytb-ui-ryd-bar").forEach((el) => el.remove());
       });
     },
     settings(en) {
+      IntegrationDiagnostics.mount(en, "Return YouTube Dislike");
       en.appendChild(Io("Show dislike counts", "returnDislikeOn"));
       en.appendChild(Io("Show the like/dislike ratio bar", "returnDislikeBar"));
       en.appendChild(To("div", "ytb-hist-note",
@@ -3642,6 +3649,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
       let revertedFor = "";
       let applyAlive = true;
+      const pendingBranding = new Map();
       const thumbOriginals = new Map();
       const applyTitle = (videoId, data) => {
         // Never write a late response into a different video (or after teardown).
@@ -3697,13 +3705,16 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const cached = cache.get(videoId);
         if (cached) return Promise.resolve(cached);
         if (failed.has(videoId)) return Promise.resolve(null);
-        return YourTubeEngine.fetchJson("https://sponsor.ajay.app/api/branding?videoID=" + encodeURIComponent(videoId))
+        if (pendingBranding.has(videoId)) return pendingBranding.get(videoId);
+        const promise = IntegrationDiagnostics.request("DeArrow", "https://sponsor.ajay.app/api/branding?videoID=" + encodeURIComponent(videoId), () => applyAlive && S.deArrowOn)
           .then((result) => {
             const data = result && result.ok && result.json && typeof result.json === "object" ? result.json : null;
+            if (result?.cancelled) return null;
             if (data) {
               cache.set(videoId, data);
               failed.delete(videoId);
             } else {
+              if (result?.ok) IntegrationDiagnostics.report("DeArrow", "error", "Unexpected response format");
               failed.set(videoId, 1);
             }
             return data;
@@ -3711,7 +3722,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           .catch(() => {
             failed.set(videoId, 1);
             return null;
-          });
+          }).finally(() => pendingBranding.delete(videoId));
+        pendingBranding.set(videoId, promise);
+        return promise;
       };
       const watchTick = () => {
         if (!location.pathname.startsWith("/watch")) return;
@@ -3774,6 +3787,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       });
     },
     settings(en) {
+      IntegrationDiagnostics.mount(en, "DeArrow");
       en.appendChild(Io("Use community titles and thumbnails", "deArrowOn"));
       en.appendChild(Io("Replace watch-page titles", "deArrowTitles"));
       en.appendChild(Io("Replace card thumbnails", "deArrowThumbs"));

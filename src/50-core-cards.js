@@ -2496,6 +2496,7 @@
         });
       },
       settings(e) {
+        IntegrationDiagnostics.mount(e, "SponsorBlock");
         e.appendChild(
           Io("Privacy mode (hide video IDs from database server)", "sbPrivacy")
         );

@@ -6113,6 +6113,69 @@ const WatchAnalytics = (() => {
   return { summarize };
 })();
 
+// Lightweight, local diagnostics: no payloads, authentication material or
+// response bodies are collected. Errors are reported once per status change.
+const IntegrationDiagnostics = (() => {
+  const entries = [], states = new Map(), limit = 500;
+  function report(integration, state, detail = '') {
+    const name = String(integration), message = String(detail), old = states.get(name);
+    const item = { at: Date.now(), integration: name, state: String(state), detail: message };
+    entries.push(item);
+    if (entries.length > limit) entries.splice(0, entries.length - limit);
+    states.set(name, item);
+    g.emit('integration.status', item);
+    if (state === 'error' && (!old || old.state !== 'error' || old.detail !== message))
+      try { pe(name + ': ' + message, 4000, 'error'); } catch (_) {}
+    return item;
+  }
+  async function request(name, url, active) {
+    let result;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (active && !active()) return { ok: false, cancelled: true, status: 0 };
+      result = await YourTubeEngine.fetchJson(url);
+      if (active && !active()) return { ok: false, cancelled: true, status: 0 };
+      if (result?.ok) {
+        report(name, 'ok', 'Request succeeded on attempt ' + attempt);
+        return result;
+      }
+      if (result?.blocked) {
+        report(name, 'unavailable', 'Blocked by privacy settings');
+        return result;
+      }
+      const code = Number(result?.status) || 0;
+      const transient = code === 0 || code >= 500;
+      if (attempt < 3 && transient) {
+        report(name, 'retrying', 'Attempt ' + attempt + ' failed' + (code ? ' (HTTP ' + code + ')' : ' (network)'));
+        await new Promise(resolve => setTimeout(resolve, attempt === 1 ? 500 : 1500));
+        continue;
+      }
+      report(name, 'error', code ? 'Request failed (HTTP ' + code + ')' : 'Network request failed');
+      return result || { ok: false, status: 0 };
+    }
+    return result;
+  }
+  function status(name) { return states.get(name) || null; }
+  function mount(panel, name) {
+    const node = To('div', 'ytb-hist-note');
+    node.setAttribute('role', 'status');
+    const render = () => { const s = status(name); node.textContent = name + ': ' + (s ? s.state + (s.detail ? ' — ' + s.detail : '') : 'No request in this session'); };
+    render(); panel.appendChild(node);
+    So('integration.status', item => { if (item.integration === name) render(); });
+  }
+  function checkClient() {
+    try {
+      const version = e.ytcfg?.get?.('INNERTUBE_CLIENT_VERSION');
+      if (typeof version !== 'string' || !version || version.length > 100) return;
+      const key = 'yourtube.youtube-client-version', previous = localStorage.getItem(key);
+      if (previous !== version) {
+        localStorage.setItem(key, version);
+        report('YouTube client', previous ? 'changed' : 'detected', previous ? previous + ' → ' + version : version);
+      }
+    } catch (_) {}
+  }
+  return { report, request, status, mount, checkClient, entries: () => entries.slice(), clear: () => { entries.length = 0; g.emit('integration.cleared'); } };
+})();
+
   //  SponsorBlock Engine v2 (YourTube)
   const SponsorBlockEngine = (() => {
     "use strict";
@@ -8798,7 +8861,10 @@ const WatchAnalytics = (() => {
       try {
         const segments = await API.fetchWithRetry(videoId, abortSignal);
         const privacySkip = typeof API.takePrivacyUnavailable === "function" && API.takePrivacyUnavailable();
-        if (!privacySkip) await Cache.set(videoId, configKey, segments);
+        if (!privacySkip) {
+          await Cache.set(videoId, configKey, segments);
+          IntegrationDiagnostics.report("SponsorBlock", "ok", segments.length + " segments returned");
+        } else IntegrationDiagnostics.report("SponsorBlock", "unavailable", "Privacy lookup could not run");
         State.lastFailedLookupVideoId = "";
         return segments;
       } catch (err) {
@@ -8807,6 +8873,7 @@ const WatchAnalytics = (() => {
         // can report it instead of "0 segments" as a success.
         State.lastFailedLookupVideoId = videoId;
         State.lastFailedLookupAt = Date.now();
+        IntegrationDiagnostics.report("SponsorBlock", "error", "Lookup failed" + (err?.status ? " (HTTP " + err.status + ")" : " (network or compatibility error)"));
         try {
           const fallback = await Cache.get(videoId, configKey, true);
           return fallback && Array.isArray(fallback.data) ? fallback.data : [];
@@ -11736,6 +11803,7 @@ const WatchAnalytics = (() => {
         });
       },
       settings(e) {
+        IntegrationDiagnostics.mount(e, "SponsorBlock");
         e.appendChild(
           Io("Privacy mode (hide video IDs from database server)", "sbPrivacy")
         );
@@ -13894,37 +13962,31 @@ const WatchAnalytics = (() => {
 
     xa.register({
       id: "diag-console",
-      name: "Activity Console",
-      summary: "Live log of what YourTube is applying and why.",
+      name: "Integration Debug Console",
+      summary: "Local integration status, failures and observed YouTube client changes.",
       cat: "tools",
       masterKey: "diagConsole",
       keys: ["diagConsole"],
-      apply(e) {
+      apply(ctx) {
         if (!S.diagConsole) return;
-        const t = document.createElement("pre");
-        ((t.id = "ytb-diag"), document.body && document.body.appendChild(t));
-        let a = 0,
-          n = "";
-        (e.addInterval(() => {
-          const e = y();
-          if (e.length === a) return !1;
-          a = e.length;
-          const r = e
-            .slice(-25)
-            .map((e) => "[" + e.level + "] " + e.msg)
-            .join("\n");
-          return (
-            r !== n &&
-            ((n = r),
-            pa(() => {
-              t.textContent = r;
-            }),
-            !0)
-          );
-        }, 1e3),
-          Yt["diag-console"].push(() => t.remove()));
+        const host = document.createElement("pre");
+        host.id = "ytb-diag";
+        host.setAttribute("aria-label", "Integration debug console");
+        document.body?.appendChild(host);
+        const render = () => {
+          host.textContent = IntegrationDiagnostics.entries().map(item =>
+            new Date(item.at).toLocaleTimeString() + " [" + item.integration + "] " + item.state + (item.detail ? " — " + item.detail : "")
+          ).join("\n") || "No integration events yet.";
+        };
+        ctx.addListener(document, "visibilitychange", render);
+        const offStatus = g.on("integration.status", render), offClear = g.on("integration.cleared", render);
+        render();
+        Yt["diag-console"].push(() => { offStatus(); offClear(); host.remove(); });
       },
-      settings() {},
+      settings(panel) {
+        panel.appendChild(To("div", "ytb-hist-note", "Reports integration status and observed YouTube client versions in this browser. Version changes are not proof that an API changed."));
+        panel.appendChild(Oo("Clear session log", () => IntegrationDiagnostics.clear()));
+      },
     }),
 
 
@@ -26783,7 +26845,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       );
       const cache = new YourTubeResources.BoundedCache(64, "ytb-ryd", { ttlMs: 6 * 60 * 60 * 1000 });
       const failed = new YourTubeResources.BoundedCache(64, "ytb-ryd-fail", { ttlMs: 10 * 60 * 1000 });
-      let inFlight = 0;
+      let inFlight = 0, integrationAlive = true;
+      const pendingRyd = new Set();
       const format = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n));
       const dislikeButton = () => {
         try {
@@ -26845,18 +26908,22 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const cached = cache.get(videoId);
         if (cached) { render(videoId, cached); return; }
         if (failed.has(videoId)) return;
-        if (inFlight >= 2) return;
-        inFlight++;
-        YourTubeEngine.fetchJson("https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId))
+        if (inFlight >= 2 || pendingRyd.has(videoId)) return;
+        inFlight++; pendingRyd.add(videoId);
+        IntegrationDiagnostics.request("Return YouTube Dislike", "https://returnyoutubedislikeapi.com/votes?videoId=" + encodeURIComponent(videoId), () => integrationAlive && S.returnDislikeOn)
           .then((result) => {
             const data = result && result.ok ? result.json : null;
-            if (!data || typeof data.dislikes !== "number") { failed.set(videoId, 1); return; }
+            if (result?.cancelled) return;
+            if (!data || typeof data.dislikes !== "number") {
+              if (result?.ok) IntegrationDiagnostics.report("Return YouTube Dislike", "error", "Unexpected response format");
+              failed.set(videoId, 1); return;
+            }
             cache.set(videoId, data);
             failed.delete(videoId);
             if (S.returnDislikeOn && videoId === (ie.videoId && ie.videoId())) render(videoId, data);
           })
           .catch(() => { failed.set(videoId, 1); })
-          .then(() => { inFlight--; });
+          .then(() => { inFlight--; pendingRyd.delete(videoId); });
       };
       const tick = () => {
         if (!location.pathname.startsWith("/watch")) return;
@@ -26872,10 +26939,12 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       ctx.addInterval(tick, 2500);
       ctx.onNav(() => ctx.addTimeout(tick, 1200));
       Yt["return-dislike"].push(() => {
+        integrationAlive = false;
         document.querySelectorAll(".ytb-ui-ryd-count, .ytb-ui-ryd-bar").forEach((el) => el.remove());
       });
     },
     settings(en) {
+      IntegrationDiagnostics.mount(en, "Return YouTube Dislike");
       en.appendChild(Io("Show dislike counts", "returnDislikeOn"));
       en.appendChild(Io("Show the like/dislike ratio bar", "returnDislikeBar"));
       en.appendChild(To("div", "ytb-hist-note",
@@ -26918,6 +26987,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       };
       let revertedFor = "";
       let applyAlive = true;
+      const pendingBranding = new Map();
       const thumbOriginals = new Map();
       const applyTitle = (videoId, data) => {
         // Never write a late response into a different video (or after teardown).
@@ -26973,13 +27043,16 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         const cached = cache.get(videoId);
         if (cached) return Promise.resolve(cached);
         if (failed.has(videoId)) return Promise.resolve(null);
-        return YourTubeEngine.fetchJson("https://sponsor.ajay.app/api/branding?videoID=" + encodeURIComponent(videoId))
+        if (pendingBranding.has(videoId)) return pendingBranding.get(videoId);
+        const promise = IntegrationDiagnostics.request("DeArrow", "https://sponsor.ajay.app/api/branding?videoID=" + encodeURIComponent(videoId), () => applyAlive && S.deArrowOn)
           .then((result) => {
             const data = result && result.ok && result.json && typeof result.json === "object" ? result.json : null;
+            if (result?.cancelled) return null;
             if (data) {
               cache.set(videoId, data);
               failed.delete(videoId);
             } else {
+              if (result?.ok) IntegrationDiagnostics.report("DeArrow", "error", "Unexpected response format");
               failed.set(videoId, 1);
             }
             return data;
@@ -26987,7 +27060,9 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
           .catch(() => {
             failed.set(videoId, 1);
             return null;
-          });
+          }).finally(() => pendingBranding.delete(videoId));
+        pendingBranding.set(videoId, promise);
+        return promise;
       };
       const watchTick = () => {
         if (!location.pathname.startsWith("/watch")) return;
@@ -27050,6 +27125,7 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       });
     },
     settings(en) {
+      IntegrationDiagnostics.mount(en, "DeArrow");
       en.appendChild(Io("Use community titles and thumbnails", "deArrowOn"));
       en.appendChild(Io("Replace watch-page titles", "deArrowTitles"));
       en.appendChild(Io("Replace card thumbnails", "deArrowThumbs"));
@@ -28400,6 +28476,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       z();
       // Arm before the asynchronous config/DOM hydration and chunked card apply.
       WatchSessions.configure();
+      IntegrationDiagnostics.checkClient();
+      g.on('nav.changed', () => IntegrationDiagnostics.checkClient());
       // Expired history-trash entries are removed even if the panel is never
       // opened. Restore also checks the deadline atomically before writing.
       const cleanTrash = () => CheckpointStore.trash().catch((error) => m('history trash cleanup', error));

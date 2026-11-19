@@ -1538,37 +1538,31 @@
 
     xa.register({
       id: "diag-console",
-      name: "Activity Console",
-      summary: "Live log of what YourTube is applying and why.",
+      name: "Integration Debug Console",
+      summary: "Local integration status, failures and observed YouTube client changes.",
       cat: "tools",
       masterKey: "diagConsole",
       keys: ["diagConsole"],
-      apply(e) {
+      apply(ctx) {
         if (!S.diagConsole) return;
-        const t = document.createElement("pre");
-        ((t.id = "ytb-diag"), document.body && document.body.appendChild(t));
-        let a = 0,
-          n = "";
-        (e.addInterval(() => {
-          const e = y();
-          if (e.length === a) return !1;
-          a = e.length;
-          const r = e
-            .slice(-25)
-            .map((e) => "[" + e.level + "] " + e.msg)
-            .join("\n");
-          return (
-            r !== n &&
-            ((n = r),
-            pa(() => {
-              t.textContent = r;
-            }),
-            !0)
-          );
-        }, 1e3),
-          Yt["diag-console"].push(() => t.remove()));
+        const host = document.createElement("pre");
+        host.id = "ytb-diag";
+        host.setAttribute("aria-label", "Integration debug console");
+        document.body?.appendChild(host);
+        const render = () => {
+          host.textContent = IntegrationDiagnostics.entries().map(item =>
+            new Date(item.at).toLocaleTimeString() + " [" + item.integration + "] " + item.state + (item.detail ? " — " + item.detail : "")
+          ).join("\n") || "No integration events yet.";
+        };
+        ctx.addListener(document, "visibilitychange", render);
+        const offStatus = g.on("integration.status", render), offClear = g.on("integration.cleared", render);
+        render();
+        Yt["diag-console"].push(() => { offStatus(); offClear(); host.remove(); });
       },
-      settings() {},
+      settings(panel) {
+        panel.appendChild(To("div", "ytb-hist-note", "Reports integration status and observed YouTube client versions in this browser. Version changes are not proof that an API changed."));
+        panel.appendChild(Oo("Clear session log", () => IntegrationDiagnostics.clear()));
+      },
     }),
 
 

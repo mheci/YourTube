@@ -2683,7 +2683,10 @@
       try {
         const segments = await API.fetchWithRetry(videoId, abortSignal);
         const privacySkip = typeof API.takePrivacyUnavailable === "function" && API.takePrivacyUnavailable();
-        if (!privacySkip) await Cache.set(videoId, configKey, segments);
+        if (!privacySkip) {
+          await Cache.set(videoId, configKey, segments);
+          IntegrationDiagnostics.report("SponsorBlock", "ok", segments.length + " segments returned");
+        } else IntegrationDiagnostics.report("SponsorBlock", "unavailable", "Privacy lookup could not run");
         State.lastFailedLookupVideoId = "";
         return segments;
       } catch (err) {
@@ -2692,6 +2695,7 @@
         // can report it instead of "0 segments" as a success.
         State.lastFailedLookupVideoId = videoId;
         State.lastFailedLookupAt = Date.now();
+        IntegrationDiagnostics.report("SponsorBlock", "error", "Lookup failed" + (err?.status ? " (HTTP " + err.status + ")" : " (network or compatibility error)"));
         try {
           const fallback = await Cache.get(videoId, configKey, true);
           return fallback && Array.isArray(fallback.data) ? fallback.data : [];

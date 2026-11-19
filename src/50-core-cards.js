@@ -2665,7 +2665,7 @@
         panel.appendChild(Ro("When returning to a video", "sessionResumeMode", {ask:"Pause and ask (recommended)",record:"Record only · use YouTube playback"}));
         panel.appendChild(Ro("Resume prompt", "sessionResumeDesign", {folio:"Folio · reading card",signal:"Signal · time display",dock:"Dock · compact bar"}));
         panel.appendChild(No("Combine visits within", "sessionGapMinutes", 0, 240, 5, v => v + " min"));
-        panel.appendChild(To("div","ytb-hist-note","Visit groups are calculated from individual sessions, which remain separate in local storage."));
+        panel.appendChild(To("div","ytb-hist-note","Dated visits within this gap are grouped. Three calendar months after a group ends it expires. It can be recovered from history trash for seven days from expiry; if cleanup first runs after that window, it is discarded. Restored visits are exempt. Undated legacy data is kept, and the currently open video is skipped until a later cleanup. A one-time migration backup is kept separately."));
         panel.appendChild(To("div","ytb-hist-note","A timestamped link takes precedence. Ads and live streams are not saved. Minimize keeps a saved video paused; it does not make the choice for you."));
         mountWatchLibrary(panel);
       },

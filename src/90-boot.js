@@ -13,7 +13,16 @@
       g.on('nav.changed', () => IntegrationDiagnostics.checkClient());
       // Expired history-trash entries are removed even if the panel is never
       // opened. Restore also checks the deadline atomically before writing.
-      const cleanTrash = () => CheckpointStore.trash().catch((error) => m('history trash cleanup', error));
+      let cleaningHistory = false;
+      const cleanTrash = async () => {
+        if (cleaningHistory) return;
+        cleaningHistory = true;
+        try {
+          await CheckpointStore.expireSessions();
+          await CheckpointStore.trash();
+        } catch (error) { m('history retention or trash cleanup', error); }
+        finally { cleaningHistory = false; }
+      };
       setTimeout(cleanTrash, 15000);
       setInterval(cleanTrash, 6 * 60 * 60 * 1000);
       g.on('cfg.changed', ({key}) => {if (['sessionRestoreOn','sessionResumeMode','sessionResumeDesign'].includes(key)) WatchSessions.configure();});

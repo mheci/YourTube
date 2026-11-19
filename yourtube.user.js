@@ -4447,28 +4447,8 @@ algoBlockChannels: "",
   }
   async function Ge() {
     await CheckpointStore.pruneTickets();
-    const e = await Ie(),
-      t = e
-        .slice()
-        .sort(
-          (e, t) =>
-            (t.pinned || 0) - (e.pinned || 0) ||
-            (t.lastWatched || 0) - (e.lastWatched || 0),
-        );
-    if (t.length > 500)
-      for (const e of t.slice(500))
-        if (!e.pinned)
-          try {
-            await Pe(e.videoId);
-          } catch (e) {}
-    {
-      const t = Date.now() - 5184e6;
-      for (const a of e)
-        if (!a.pinned && (a.lastWatched || 0) < t)
-          try {
-            await Pe(a.videoId);
-          } catch (e) {}
-    }
+    // History is retained per dated session, not by a 500-row cap or the
+    // former 60-day whole-video prune. Session retention owns expiry/trash.
     (await (async function (e) {
       try {
         const t = await w("thumbCache", "ts", "next");
@@ -4492,7 +4472,12 @@ algoBlockChannels: "",
       if (Number.isFinite(meta.duration) && meta.duration>0) r.duration=meta.duration;
       r.title ||= id; r.thumbnail ||= ie.thumb(id,'mqdefault');
       r.completed=true; r.lastPosition=0; r.progress=100; r.remaining=0; r.lastWatched=now;
-      r.watchCount=(Number(r.watchCount)||0)+1; r.sessions=(Array.isArray(r.sessions)?r.sessions:[]).slice(-49).concat({start:now,kind:'forced'});
+      let sessions = Array.isArray(r.sessions) ? r.sessions : [];
+      if (r.retentionExempt) {
+        sessions = sessions.map(s => s && typeof s === 'object' ? {...s, retentionExempt:true} : s);
+        r.retentionExempt = false;
+      }
+      r.watchCount=(Number(r.watchCount)||0)+1; r.sessions=sessions.concat({start:now,kind:'forced'});
       r._checkpoint={start:Math.max(now,(r._checkpoint?.start||0)+1),sid:CheckpointStore.nonce(),seq:1};
       return r;
     });
@@ -4574,6 +4559,7 @@ algoBlockChannels: "",
     pin: async id => { await CheckpointStore.edit(id,r => r && {...r,pinned:Date.now()});g.emit('history.updated',{videoId:id}); },
     unpin: async id => { await CheckpointStore.edit(id,r => r && {...r,pinned:0});g.emit('history.updated',{videoId:id}); },
     prune: Ge,
+    retentionSweep: () => CheckpointStore.expireSessions(),
     saveNow: () => WatchSessions.flush(),
     recorderState: () => WatchSessions.status(),
     forceWatched: Xe,
@@ -4721,6 +4707,12 @@ const CheckpointStore = (() => {
       if (!old?._checkpoint && old && (old.lastWatched || 0) > s.at) return false;
       const row = old || blank(s.id, s.start),
         visits = Array.isArray(row.sessions) ? row.sessions.slice() : [];
+      // Older restored history used a row-level exemption. Convert it to
+      // per-session exemptions before adding an unrelated future visit.
+      if (row.retentionExempt && !visits.some(v => v?.sid === s.sid)) {
+        for (let i = 0; i < visits.length; i++) if (visits[i] && typeof visits[i] === 'object') visits[i] = {...visits[i], retentionExempt:true};
+        row.retentionExempt = false;
+      }
       const previous = visits.find((v) => v?.sid === s.sid);
       row.totalWatchTime =
         (Number(row.totalWatchTime) || 0) + Math.max(0, s.played - (previous?.played || 0));
@@ -4840,6 +4832,72 @@ const CheckpointStore = (() => {
       tx.onerror = tx.onabort = () => reject(tx.error || new Error('Trash lookup failed'));
     });
   }
+  // Expire dated watch-session groups atomically with their trash records.
+  // Legacy undated/unallocated data is deliberately kept rather than guessed.
+  async function expireSessions(now = Date.now(), gapMinutes = S.sessionGapMinutes) {
+    if (!Number.isFinite(now)) throw new Error('Invalid retention time');
+    // Never delete anything unless a durable backup exists.
+    await MigrationBackup.ensure();
+    const db = await b();
+    if (!db) throw new Error('History storage unavailable');
+    const currentId = WatchSessions.status().videoId;
+    const counts = await new Promise((resolve, reject) => {
+      const tx = db.transaction(['history', 'kv'], 'readwrite');
+      const history = tx.objectStore('history'), kv = tx.objectStore('kv');
+      const cursor = history.openCursor();
+      let moved = 0, discarded = 0, changed = 0;
+      cursor.onsuccess = () => {
+        try {
+          const c = cursor.result;
+          if (!c) return;
+          const row = c.value;
+          if (!row || !validId(row.videoId) || row.videoId === currentId || row.retentionExempt === true || !Array.isArray(row.sessions)) { c.continue(); return; }
+          const decision = RetentionPolicy.classify(row.sessions, now, gapMinutes);
+          const expired = [...decision.trash, ...decision.discard];
+          if (!expired.length) { c.continue(); return; }
+          const expiredSessions = expired.flatMap(group => group.sessions);
+          const removed = new Set(expiredSessions);
+          const retained = row.sessions.filter(session => !removed.has(session));
+          const played = sessions => sessions.reduce((sum, session) => {
+            const value = Number(session?.played);
+            return sum + (Number.isFinite(value) && value >= 0 ? value : 0);
+          }, 0);
+          const oldTime = Math.max(0, Number(row.totalWatchTime) || 0), removedTime = played(expiredSessions);
+          const remainingTime = Math.max(0, oldTime - removedTime);
+          const oldCount = Math.max(0, Number(row.watchCount) || 0);
+          const remainingCount = Math.max(0, oldCount - expiredSessions.length);
+          const latestEnd = row.sessions.reduce((latest,v) => Math.max(latest, Number(v?.end) || Number(v?.start) || 0), 0);
+          for (const group of decision.trash) {
+            const newest = group.end === latestEnd;
+            const snapshot = {...row, sessions:group.sessions, watchCount:group.sessions.length,
+              totalWatchTime:played(group.sessions), firstWatched:group.start, lastWatched:group.end};
+            // A past group cannot restore another, more recent group's resume.
+            if (!newest) Object.assign(snapshot, {lastPosition:0, progress:0, remaining:0, completed:false});
+            delete snapshot._checkpoint; delete snapshot._checkpointLife;
+            kv.put({k:trashPrefix + nonce(), v:{kind:'history', scope:'sessions', deletedAt:group.expiresAt,
+              expiresAt:group.trashExpiresAt, row:snapshot}});
+            moved++;
+          }
+          discarded += decision.discard.length;
+          const residual = remainingTime > 0.001 || remainingCount > retained.length || decision.undated.length > 0;
+          // Preserve unknown legacy totals and any more-recent undated resume.
+          const rowDate = Number(row.lastWatched) || 0;
+          const resumeStillCurrent = rowDate > 0 && RetentionPolicy.plusMonths(rowDate) > now;
+          if (!retained.length && !residual && !resumeStillCurrent) {
+            c.delete(); kv.delete(tickets + row.videoId);
+          } else {
+            c.update({...row, sessions:retained, totalWatchTime:remainingTime, watchCount:remainingCount});
+          }
+          changed++;
+          c.continue();
+        } catch (error) { try { tx.abort(); } catch (_) {} reject(error); }
+      };
+      tx.oncomplete = () => resolve({moved, discarded, changed});
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('History retention transaction failed'));
+    });
+    if (counts.changed) g.emit('history.updated', {retention:true});
+    return counts;
+  }
   async function restoreTrash(key) {
     if (typeof key !== 'string' || !key.startsWith(trashPrefix)) throw new Error('Invalid trash key');
     const db = await b();
@@ -4857,11 +4915,30 @@ const CheckpointStore = (() => {
         }
         const existing = history.get(value.row.videoId);
         existing.onsuccess = () => {
-          // Never overwrite a newer recording or another restored item.
-          if (existing.result) { outcome = 'conflict'; return; }
-          const row = { ...value.row, retentionExempt: true,
-            _checkpointLife: nonce(), _checkpoint: { start: Date.now(), sid: nonce(), seq: 0 } };
-          history.put(row);
+          const prior = existing.result;
+          if (value.scope === 'sessions') {
+            const restored = Array.isArray(value.row.sessions) ? value.row.sessions : [];
+            if (!restored.length || restored.some(session => !session || typeof session !== 'object' || !Number.isFinite(session.start) || session.start <= 0)) { outcome = 'invalid'; return; }
+            const current = Array.isArray(prior?.sessions) ? prior.sessions : [];
+            const signature = session => session?.sid ? 'sid:' + session.sid : JSON.stringify([session?.start, session?.end, session?.played, session?.kind]);
+            const ids = new Set(current.map(signature));
+            if (restored.some(session => ids.has(signature(session)))) { outcome = 'conflict'; return; }
+            const sessions = restored.map(session => ({...session, retentionExempt:true}));
+            const target = prior ? {...prior,
+              sessions:[...current,...sessions],
+              totalWatchTime:(Number(prior.totalWatchTime)||0)+(Number(value.row.totalWatchTime)||0),
+              watchCount:(Number(prior.watchCount)||0)+(Number(value.row.watchCount)||0),
+              firstWatched:Math.min(Number(prior.firstWatched)||Number(value.row.firstWatched)||Date.now(),Number(value.row.firstWatched)||Number(prior.firstWatched)||Date.now()),
+            } : {...value.row, sessions, retentionExempt:true,
+              _checkpointLife:nonce(), _checkpoint:{start:Date.now(),sid:nonce(),seq:0}};
+            history.put(target);
+          } else {
+            // Whole-record manual restore never overwrites a newer recording.
+            if (prior) { outcome = 'conflict'; return; }
+            const sessions = Array.isArray(value.row.sessions) ? value.row.sessions.map(s => s && typeof s === 'object' ? {...s, retentionExempt:true} : s) : [];
+            history.put({ ...value.row, sessions, retentionExempt: true,
+              _checkpointLife: nonce(), _checkpoint: { start: Date.now(), sid: nonce(), seq: 0 } });
+          }
           kv.delete(key);
           outcome = 'restored';
         };
@@ -4891,6 +4968,7 @@ const CheckpointStore = (() => {
         }
         for (const item of entries) {
           if (!item || item.kind !== 'history' || !validId(item.row?.videoId) ||
+              (item.scope === 'sessions' && (!Array.isArray(item.row.sessions) || !item.row.sessions.length || item.row.sessions.some(s => !s || typeof s !== 'object' || !Number.isFinite(s.start) || s.start <= 0))) ||
               !Number.isFinite(item.deletedAt) || item.deletedAt <= 0 || item.deletedAt > now ||
               !Number.isFinite(item.expiresAt) || item.expiresAt <= now ||
               item.expiresAt > item.deletedAt + trashWindow) { discarded++; continue; }
@@ -4898,7 +4976,7 @@ const CheckpointStore = (() => {
           if (known.has(fingerprint)) { discarded++; continue; }
           known.add(fingerprint);
           store.put({ k: trashPrefix + nonce(), v: {
-            kind: 'history', deletedAt: item.deletedAt, expiresAt: item.expiresAt, row: item.row,
+            kind: 'history', ...(item.scope === 'sessions' ? {scope:'sessions'} : {}), deletedAt: item.deletedAt, expiresAt: item.expiresAt, row: item.row,
           }});
           imported++;
         }
@@ -4919,7 +4997,7 @@ const CheckpointStore = (() => {
       cur.continue();
     };
   }
-  return { load, commit, edit, erase, trash, restoreTrash, importTrash, blank, nonce, validId, pruneTickets };
+  return { load, commit, edit, erase, trash, restoreTrash, importTrash, expireSessions, blank, nonce, validId, pruneTickets };
 })();
 
 // One accessible decision surface, three layouts. Shadow DOM isolates the controls
@@ -6108,7 +6186,7 @@ function mountWatchLibrary(parent) {
       const line = add(trashPanel, 'div', 'row');
       const detail = add(line, 'div', 'details');
       add(detail, 'div', 'name', entry.row.title || entry.row.videoId);
-      add(detail, 'div', 'meta', 'Expires ' + new Date(entry.expiresAt).toLocaleString());
+      add(detail, 'div', 'meta', (entry.scope === 'sessions' ? 'Watch session · ' : '') + 'Expires ' + new Date(entry.expiresAt).toLocaleString());
       button(line, 'Restore', async () => {
         const result = await CheckpointStore.restoreTrash(entry.key);
         await refresh();
@@ -6201,10 +6279,19 @@ const MigrationBackup = (() => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(['history','kv'], 'readwrite');
       const kv = tx.objectStore('kv'), history = tx.objectStore('history');
-      const existing = kv.get(key), rows = history.getAll(), values = kv.getAll();
+      const existing = kv.get(key);
       let made = false;
-      values.onsuccess = () => {
-        if (existing.result) return;
+      existing.onsuccess = () => {
+        if (existing.result) {
+          const saved = existing.result.v;
+          if (!saved || saved.format !== 'yourtube-migration-backup-v1' || !Array.isArray(saved.history) || !Array.isArray(saved.records) || !saved.settings || typeof saved.settings !== 'object') {
+            try { tx.abort(); } catch (_) {}
+            reject(new Error('Existing migration backup is invalid; no retention changes were made'));
+          }
+          return;
+        }
+        const rows = history.getAll(), values = kv.getAll();
+        values.onsuccess = () => {
         const records = values.result.filter(row => row && typeof row.k === 'string' &&
           (selected.has(row.k) || row.k.startsWith('note:video:')));
         // z() only hydrates synchronous mirrors. IndexedDB may contain a newer
@@ -6224,6 +6311,7 @@ const MigrationBackup = (() => {
         kv.put({k:key, v:{format:'yourtube-migration-backup-v1', createdAt:Date.now(),
           settings, settingsSources:candidates, history:rows.result || [], records}});
         made = true;
+        };
       };
       tx.oncomplete = () => resolve(made);
       tx.onerror = tx.onabort = () => reject(tx.error || new Error('Migration backup failed'));
@@ -12122,7 +12210,7 @@ const IntegrationDiagnostics = (() => {
         panel.appendChild(Ro("When returning to a video", "sessionResumeMode", {ask:"Pause and ask (recommended)",record:"Record only · use YouTube playback"}));
         panel.appendChild(Ro("Resume prompt", "sessionResumeDesign", {folio:"Folio · reading card",signal:"Signal · time display",dock:"Dock · compact bar"}));
         panel.appendChild(No("Combine visits within", "sessionGapMinutes", 0, 240, 5, v => v + " min"));
-        panel.appendChild(To("div","ytb-hist-note","Visit groups are calculated from individual sessions, which remain separate in local storage."));
+        panel.appendChild(To("div","ytb-hist-note","Dated visits within this gap are grouped. Three calendar months after a group ends it expires. It can be recovered from history trash for seven days from expiry; if cleanup first runs after that window, it is discarded. Restored visits are exempt. Undated legacy data is kept, and the currently open video is skipped until a later cleanup. A one-time migration backup is kept separately."));
         panel.appendChild(To("div","ytb-hist-note","A timestamped link takes precedence. Ads and live streams are not saved. Minimize keeps a saved video paused; it does not make the choice for you."));
         mountWatchLibrary(panel);
       },
@@ -28602,7 +28690,16 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       g.on('nav.changed', () => IntegrationDiagnostics.checkClient());
       // Expired history-trash entries are removed even if the panel is never
       // opened. Restore also checks the deadline atomically before writing.
-      const cleanTrash = () => CheckpointStore.trash().catch((error) => m('history trash cleanup', error));
+      let cleaningHistory = false;
+      const cleanTrash = async () => {
+        if (cleaningHistory) return;
+        cleaningHistory = true;
+        try {
+          await CheckpointStore.expireSessions();
+          await CheckpointStore.trash();
+        } catch (error) { m('history retention or trash cleanup', error); }
+        finally { cleaningHistory = false; }
+      };
       setTimeout(cleanTrash, 15000);
       setInterval(cleanTrash, 6 * 60 * 60 * 1000);
       g.on('cfg.changed', ({key}) => {if (['sessionRestoreOn','sessionResumeMode','sessionResumeDesign'].includes(key)) WatchSessions.configure();});

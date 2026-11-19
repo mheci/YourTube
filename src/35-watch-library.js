@@ -264,7 +264,7 @@ function mountWatchLibrary(parent) {
       const line = add(trashPanel, 'div', 'row');
       const detail = add(line, 'div', 'details');
       add(detail, 'div', 'name', entry.row.title || entry.row.videoId);
-      add(detail, 'div', 'meta', 'Expires ' + new Date(entry.expiresAt).toLocaleString());
+      add(detail, 'div', 'meta', (entry.scope === 'sessions' ? 'Watch session · ' : '') + 'Expires ' + new Date(entry.expiresAt).toLocaleString());
       button(line, 'Restore', async () => {
         const result = await CheckpointStore.restoreTrash(entry.key);
         await refresh();

@@ -1160,6 +1160,127 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
 
             case("history-trash-import-retains-window", history_trash_import)
 
+            def history_session_retention():
+                init([])
+                watch()
+                row=p.evaluate("""id=>{const now=Date.now(),d=new Date(now);d.setUTCMonth(d.getUTCMonth()-3);const boundary=d.getTime();return {videoId:id,title:'Session retention film',channel:'Archive',firstWatched:boundary-10*86400000,lastWatched:now-3600000,lastPosition:29,duration:120,progress:24,watchCount:3,totalWatchTime:60,sessions:[{sid:'discard',start:boundary-10*86400000,end:boundary-10*86400000,played:10},{sid:'recover',start:boundary-2*86400000,end:boundary-2*86400000,played:20},{sid:'recent',start:now-3600000,end:now-3600000,played:30}],notes:'keep metadata',tags:[],pinned:0}}""",C)
+                p.evaluate("async row=>YourTube.history.put(row)",row)
+                sweep=p.evaluate('async()=>YourTube.history.retentionSweep()')
+                assert sweep=={'moved':1,'discarded':1,'changed':1},sweep
+                left=data(C)
+                assert [s['sid'] for s in left['sessions']]==['recent'] and left['totalWatchTime']==30 and left['lastPosition']==29
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');panel.get_by_text('History trash',exact=True).click()
+                item=panel.locator('.row').filter(has_text='Session retention film')
+                item.get_by_text('Watch session',exact=False).wait_for()
+                item.get_by_text('Restore',exact=True).click()
+                waitrow("r?.sessions?.length===2&&r.sessions.some(s=>s.sid==='recover'&&s.retentionExempt===true)",C)
+                restored=data(C);assert restored['totalWatchTime']==50 and restored['watchCount']==2 and restored['lastPosition']==29 and restored['notes']=='keep metadata'
+                assert p.evaluate('async()=>YourTube.history.retentionSweep()')['changed']==0
+                return {'expiredSessionTrashed':True,'pastWindowDiscarded':True,'recentVisitRetained':True,'sessionRestoredWithoutOverwriting':True,'onlyRestoredSessionExempt':True}
+
+            case("history-session-retention-and-restore", history_session_retention)
+
+            def history_session_retention_failure():
+                init([])
+                watch()
+                row=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const old=d.getTime()-86400000;return {videoId:id,title:'Atomic retention',lastWatched:old,firstWatched:old,lastPosition:19,duration:120,watchCount:1,totalWatchTime:10,sessions:[{sid:'old',start:old,end:old,played:10}]}}""",C)
+                p.evaluate("async row=>YourTube.history.put(row)",row)
+                outcome=p.evaluate("""async()=>{const orig=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,...args){if(this.name==='kv'&&v?.k?.startsWith('yourtube/trash/history/'))throw new DOMException('Injected quota failure','QuotaExceededError');return orig.call(this,v,...args)};try{await YourTube.history.retentionSweep();return 'unexpected-success'}catch(e){return 'rejected'}finally{IDBObjectStore.prototype.put=orig}}""")
+                assert outcome=='rejected' and data(C)==row
+                result=p.evaluate('async()=>YourTube.history.retentionSweep()')
+                assert result['moved']==1 and data(C) is None
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');panel.get_by_text('History trash',exact=True).click()
+                panel.locator('.row').filter(has_text='Atomic retention').get_by_text('Restore',exact=True).click()
+                waitrow("r?.sessions?.[0]?.retentionExempt===true&&r.lastPosition===19",C)
+                p.evaluate('async id=>YourTube.history.forceWatched(id)',C)
+                after=data(C)
+                assert after['retentionExempt'] is False and after['sessions'][0]['retentionExempt'] is True
+                assert after['sessions'][-1]['kind']=='forced' and not after['sessions'][-1].get('retentionExempt',False)
+                return {'failedArchiveDidNotRemoveHistory':True,'fullRowRestored':True,'newForcedVisitNotExempt':True}
+
+            case("history-session-retention-is-atomic", history_session_retention_failure)
+
+            def history_retention_background():
+                init([])
+                row=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const old=d.getTime()-86400000;return {videoId:id,title:'Background expiry',lastWatched:old,firstWatched:old,lastPosition:19,duration:120,watchCount:1,totalWatchTime:10,sessions:[{sid:'old',start:old,end:old,played:10}]}}""",C)
+                p.evaluate("async row=>YourTube.history.put(row)",row)
+                assert data(C) is not None
+                watch()
+                p.wait_for_timeout(16000)
+                assert data(C) is None, 'Automatic session sweep did not run'
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal');panel.get_by_text('History trash',exact=True).click()
+                line=panel.locator('.row').filter(has_text='Background expiry')
+                line.get_by_text('Watch session',exact=False).wait_for()
+                line.get_by_text('Restore',exact=True).wait_for()
+                return {'automaticExpiry':True,'recoverableSessionTrash':True}
+
+            case("history-session-retention-runs-automatically", history_retention_background)
+
+            def history_no_legacy_prune():
+                init([])
+                p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('history','readwrite'),store=tx.objectStore('history'),then=Date.now()-65*86400000;for(let i=0;i<501;i++){const id='Old'+String(i).padStart(8,'0');store.put({videoId:id,title:'65 days old',lastWatched:then,firstWatched:then,watchCount:1,totalWatchTime:1,sessions:[{sid:'visit-'+i,start:then,end:then,played:1}]})}tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close()}""")
+                watch()
+                await_count=p.evaluate("async()=>{await YourTube.history.prune();return (await YourTube.history.all()).filter(r=>r.title==='65 days old').length}")
+                assert await_count==501,await_count
+                r=record(C,10,title='Many visits',sessions=[{'sid':'visit-'+str(i),'start':int(time.time()*1000)-i*1000,'played':1} for i in range(100)])
+                p.evaluate('async row=>YourTube.history.put(row)',r)
+                p.evaluate('async id=>YourTube.history.forceWatched(id)',C)
+                assert len(data(C)['sessions'])==101
+                return {'historyRowsKept':501,'forceWatchedKeptExistingSessions':100}
+
+            case("history-no-old-cap-or-60-day-prune", history_no_legacy_prune)
+
+            def history_retention_requires_backup():
+                init([])
+                row=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const old=d.getTime()-86400000;return {videoId:id,title:'Backup gate',lastWatched:old,watchCount:1,totalWatchTime:2,sessions:[{start:old,end:old,played:2}]}}""",C)
+                p.evaluate("async row=>YourTube.history.put(row)",row)
+                watch()
+                result=p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});await new Promise((ok,no)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').delete('yourtube/migration-backup/v1');tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close();const orig=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,...args){if(v?.k==='yourtube/migration-backup/v1')throw new DOMException('Backup denied','QuotaExceededError');return orig.call(this,v,...args)};try{await YourTube.history.retentionSweep();return 'bad'}catch(e){return 'rejected'}finally{IDBObjectStore.prototype.put=orig}}""")
+                assert result=='rejected' and data(C)==row
+                return {'backupFailurePreventedExpiry':True}
+
+            case("history-retention-requires-durable-backup", history_retention_requires_backup)
+
+            def history_retention_corrupt_backup():
+                init([])
+                row=p.evaluate("""id=>{const d=new Date();d.setUTCMonth(d.getUTCMonth()-3);const old=d.getTime()-86400000;return {videoId:id,title:'Corrupt backup gate',lastWatched:old,watchCount:1,totalWatchTime:2,sessions:[{start:old,end:old,played:2}]}}""",C)
+                p.evaluate('async row=>YourTube.history.put(row)',row)
+                watch()
+                p.evaluate("async()=>YourTube.storage.set('yourtube/migration-backup/v1',{format:'broken'})")
+                result=p.evaluate("async()=>{try{await YourTube.history.retentionSweep();return 'bad'}catch(e){return 'rejected'}}")
+                assert result=='rejected' and data(C)==row
+                assert p.evaluate("async()=>await YourTube.storage.get('yourtube/migration-backup/v1')")=={'format':'broken'}
+                return {'invalidBackupDoesNotAuthorizeDeletion':True,'corruptBackupNotOverwritten':True}
+
+            case("history-retention-rejects-invalid-backup", history_retention_corrupt_backup)
+
+            def import_session_trash():
+                init([])
+                watch()
+                now=int(time.time()*1000)
+                active=record(C,29,title='Active during import',sessions=[{'sid':'recent','start':now-3600000,'end':now-3600000,'played':30}],watchCount=1,totalWatchTime=30)
+                p.evaluate('async row=>YourTube.history.put(row)',active)
+                expired=row=record(C,0,title='Imported old session',sessions=[{'sid':'old-import','start':now-100*86400000,'end':now-100*86400000,'played':10}],watchCount=1,totalWatchTime=10)
+                payload={'format':'yourtube-history-trash-v1','entries':[{'kind':'history','scope':'sessions','deletedAt':now-86400000,'expiresAt':now+6*86400000,'row':expired}]}
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel=p.locator('.ytb-watch-journal')
+                panel.locator('input[type=file]').nth(1).set_input_files({'name':'trash.json','mimeType':'application/json','buffer':json.dumps(payload).encode()})
+                panel.get_by_text('Imported 1 history trash items; skipped 0.').wait_for()
+                panel.get_by_text('History trash',exact=True).click()
+                line=panel.locator('.row').filter(has_text='Imported old session')
+                line.get_by_text('Watch session',exact=False).wait_for()
+                line.get_by_text('Restore',exact=True).click()
+                p.wait_for_timeout(250)
+                saved=data(C)
+                assert saved['title']=='Active during import' and saved['lastPosition']==29 and saved['totalWatchTime']==40
+                assert any(s.get('sid')=='old-import' and s.get('retentionExempt') for s in saved['sessions'])
+                return {'importPreservedScopeAndDeadline':True,'restoredAlongsideActiveVideo':True}
+
+            case("history-imported-session-trash-restores-into-active-row", import_session_trash)
+
             def quality_migration():
                 init([], {"autoHD":False,"stickyQualityOn":True,"qualityLockMigrated":False,"videoCodecPref":"vp9"})
                 watch()

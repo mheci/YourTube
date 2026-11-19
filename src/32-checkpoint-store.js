@@ -129,6 +129,12 @@ const CheckpointStore = (() => {
       if (!old?._checkpoint && old && (old.lastWatched || 0) > s.at) return false;
       const row = old || blank(s.id, s.start),
         visits = Array.isArray(row.sessions) ? row.sessions.slice() : [];
+      // Older restored history used a row-level exemption. Convert it to
+      // per-session exemptions before adding an unrelated future visit.
+      if (row.retentionExempt && !visits.some(v => v?.sid === s.sid)) {
+        for (let i = 0; i < visits.length; i++) if (visits[i] && typeof visits[i] === 'object') visits[i] = {...visits[i], retentionExempt:true};
+        row.retentionExempt = false;
+      }
       const previous = visits.find((v) => v?.sid === s.sid);
       row.totalWatchTime =
         (Number(row.totalWatchTime) || 0) + Math.max(0, s.played - (previous?.played || 0));
@@ -248,6 +254,72 @@ const CheckpointStore = (() => {
       tx.onerror = tx.onabort = () => reject(tx.error || new Error('Trash lookup failed'));
     });
   }
+  // Expire dated watch-session groups atomically with their trash records.
+  // Legacy undated/unallocated data is deliberately kept rather than guessed.
+  async function expireSessions(now = Date.now(), gapMinutes = S.sessionGapMinutes) {
+    if (!Number.isFinite(now)) throw new Error('Invalid retention time');
+    // Never delete anything unless a durable backup exists.
+    await MigrationBackup.ensure();
+    const db = await b();
+    if (!db) throw new Error('History storage unavailable');
+    const currentId = WatchSessions.status().videoId;
+    const counts = await new Promise((resolve, reject) => {
+      const tx = db.transaction(['history', 'kv'], 'readwrite');
+      const history = tx.objectStore('history'), kv = tx.objectStore('kv');
+      const cursor = history.openCursor();
+      let moved = 0, discarded = 0, changed = 0;
+      cursor.onsuccess = () => {
+        try {
+          const c = cursor.result;
+          if (!c) return;
+          const row = c.value;
+          if (!row || !validId(row.videoId) || row.videoId === currentId || row.retentionExempt === true || !Array.isArray(row.sessions)) { c.continue(); return; }
+          const decision = RetentionPolicy.classify(row.sessions, now, gapMinutes);
+          const expired = [...decision.trash, ...decision.discard];
+          if (!expired.length) { c.continue(); return; }
+          const expiredSessions = expired.flatMap(group => group.sessions);
+          const removed = new Set(expiredSessions);
+          const retained = row.sessions.filter(session => !removed.has(session));
+          const played = sessions => sessions.reduce((sum, session) => {
+            const value = Number(session?.played);
+            return sum + (Number.isFinite(value) && value >= 0 ? value : 0);
+          }, 0);
+          const oldTime = Math.max(0, Number(row.totalWatchTime) || 0), removedTime = played(expiredSessions);
+          const remainingTime = Math.max(0, oldTime - removedTime);
+          const oldCount = Math.max(0, Number(row.watchCount) || 0);
+          const remainingCount = Math.max(0, oldCount - expiredSessions.length);
+          const latestEnd = row.sessions.reduce((latest,v) => Math.max(latest, Number(v?.end) || Number(v?.start) || 0), 0);
+          for (const group of decision.trash) {
+            const newest = group.end === latestEnd;
+            const snapshot = {...row, sessions:group.sessions, watchCount:group.sessions.length,
+              totalWatchTime:played(group.sessions), firstWatched:group.start, lastWatched:group.end};
+            // A past group cannot restore another, more recent group's resume.
+            if (!newest) Object.assign(snapshot, {lastPosition:0, progress:0, remaining:0, completed:false});
+            delete snapshot._checkpoint; delete snapshot._checkpointLife;
+            kv.put({k:trashPrefix + nonce(), v:{kind:'history', scope:'sessions', deletedAt:group.expiresAt,
+              expiresAt:group.trashExpiresAt, row:snapshot}});
+            moved++;
+          }
+          discarded += decision.discard.length;
+          const residual = remainingTime > 0.001 || remainingCount > retained.length || decision.undated.length > 0;
+          // Preserve unknown legacy totals and any more-recent undated resume.
+          const rowDate = Number(row.lastWatched) || 0;
+          const resumeStillCurrent = rowDate > 0 && RetentionPolicy.plusMonths(rowDate) > now;
+          if (!retained.length && !residual && !resumeStillCurrent) {
+            c.delete(); kv.delete(tickets + row.videoId);
+          } else {
+            c.update({...row, sessions:retained, totalWatchTime:remainingTime, watchCount:remainingCount});
+          }
+          changed++;
+          c.continue();
+        } catch (error) { try { tx.abort(); } catch (_) {} reject(error); }
+      };
+      tx.oncomplete = () => resolve({moved, discarded, changed});
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('History retention transaction failed'));
+    });
+    if (counts.changed) g.emit('history.updated', {retention:true});
+    return counts;
+  }
   async function restoreTrash(key) {
     if (typeof key !== 'string' || !key.startsWith(trashPrefix)) throw new Error('Invalid trash key');
     const db = await b();
@@ -265,11 +337,30 @@ const CheckpointStore = (() => {
         }
         const existing = history.get(value.row.videoId);
         existing.onsuccess = () => {
-          // Never overwrite a newer recording or another restored item.
-          if (existing.result) { outcome = 'conflict'; return; }
-          const row = { ...value.row, retentionExempt: true,
-            _checkpointLife: nonce(), _checkpoint: { start: Date.now(), sid: nonce(), seq: 0 } };
-          history.put(row);
+          const prior = existing.result;
+          if (value.scope === 'sessions') {
+            const restored = Array.isArray(value.row.sessions) ? value.row.sessions : [];
+            if (!restored.length || restored.some(session => !session || typeof session !== 'object' || !Number.isFinite(session.start) || session.start <= 0)) { outcome = 'invalid'; return; }
+            const current = Array.isArray(prior?.sessions) ? prior.sessions : [];
+            const signature = session => session?.sid ? 'sid:' + session.sid : JSON.stringify([session?.start, session?.end, session?.played, session?.kind]);
+            const ids = new Set(current.map(signature));
+            if (restored.some(session => ids.has(signature(session)))) { outcome = 'conflict'; return; }
+            const sessions = restored.map(session => ({...session, retentionExempt:true}));
+            const target = prior ? {...prior,
+              sessions:[...current,...sessions],
+              totalWatchTime:(Number(prior.totalWatchTime)||0)+(Number(value.row.totalWatchTime)||0),
+              watchCount:(Number(prior.watchCount)||0)+(Number(value.row.watchCount)||0),
+              firstWatched:Math.min(Number(prior.firstWatched)||Number(value.row.firstWatched)||Date.now(),Number(value.row.firstWatched)||Number(prior.firstWatched)||Date.now()),
+            } : {...value.row, sessions, retentionExempt:true,
+              _checkpointLife:nonce(), _checkpoint:{start:Date.now(),sid:nonce(),seq:0}};
+            history.put(target);
+          } else {
+            // Whole-record manual restore never overwrites a newer recording.
+            if (prior) { outcome = 'conflict'; return; }
+            const sessions = Array.isArray(value.row.sessions) ? value.row.sessions.map(s => s && typeof s === 'object' ? {...s, retentionExempt:true} : s) : [];
+            history.put({ ...value.row, sessions, retentionExempt: true,
+              _checkpointLife: nonce(), _checkpoint: { start: Date.now(), sid: nonce(), seq: 0 } });
+          }
           kv.delete(key);
           outcome = 'restored';
         };
@@ -299,6 +390,7 @@ const CheckpointStore = (() => {
         }
         for (const item of entries) {
           if (!item || item.kind !== 'history' || !validId(item.row?.videoId) ||
+              (item.scope === 'sessions' && (!Array.isArray(item.row.sessions) || !item.row.sessions.length || item.row.sessions.some(s => !s || typeof s !== 'object' || !Number.isFinite(s.start) || s.start <= 0))) ||
               !Number.isFinite(item.deletedAt) || item.deletedAt <= 0 || item.deletedAt > now ||
               !Number.isFinite(item.expiresAt) || item.expiresAt <= now ||
               item.expiresAt > item.deletedAt + trashWindow) { discarded++; continue; }
@@ -306,7 +398,7 @@ const CheckpointStore = (() => {
           if (known.has(fingerprint)) { discarded++; continue; }
           known.add(fingerprint);
           store.put({ k: trashPrefix + nonce(), v: {
-            kind: 'history', deletedAt: item.deletedAt, expiresAt: item.expiresAt, row: item.row,
+            kind: 'history', ...(item.scope === 'sessions' ? {scope:'sessions'} : {}), deletedAt: item.deletedAt, expiresAt: item.expiresAt, row: item.row,
           }});
           imported++;
         }
@@ -327,5 +419,5 @@ const CheckpointStore = (() => {
       cur.continue();
     };
   }
-  return { load, commit, edit, erase, trash, restoreTrash, importTrash, blank, nonce, validId, pruneTickets };
+  return { load, commit, edit, erase, trash, restoreTrash, importTrash, expireSessions, blank, nonce, validId, pruneTickets };
 })();

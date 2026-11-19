@@ -9,10 +9,19 @@ const MigrationBackup = (() => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(['history','kv'], 'readwrite');
       const kv = tx.objectStore('kv'), history = tx.objectStore('history');
-      const existing = kv.get(key), rows = history.getAll(), values = kv.getAll();
+      const existing = kv.get(key);
       let made = false;
-      values.onsuccess = () => {
-        if (existing.result) return;
+      existing.onsuccess = () => {
+        if (existing.result) {
+          const saved = existing.result.v;
+          if (!saved || saved.format !== 'yourtube-migration-backup-v1' || !Array.isArray(saved.history) || !Array.isArray(saved.records) || !saved.settings || typeof saved.settings !== 'object') {
+            try { tx.abort(); } catch (_) {}
+            reject(new Error('Existing migration backup is invalid; no retention changes were made'));
+          }
+          return;
+        }
+        const rows = history.getAll(), values = kv.getAll();
+        values.onsuccess = () => {
         const records = values.result.filter(row => row && typeof row.k === 'string' &&
           (selected.has(row.k) || row.k.startsWith('note:video:')));
         // z() only hydrates synchronous mirrors. IndexedDB may contain a newer
@@ -32,6 +41,7 @@ const MigrationBackup = (() => {
         kv.put({k:key, v:{format:'yourtube-migration-backup-v1', createdAt:Date.now(),
           settings, settingsSources:candidates, history:rows.result || [], records}});
         made = true;
+        };
       };
       tx.oncomplete = () => resolve(made);
       tx.onerror = tx.onabort = () => reject(tx.error || new Error('Migration backup failed'));

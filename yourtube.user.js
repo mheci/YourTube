@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YourTube
 // @namespace    https://github.com/mheci/YourTube
-// @version      1.13.0
+// @version      1.13.1
 // @description  Clean, lightweight, and customizable client-side interface for YouTube with SponsorBlock integration, session history, playback controls, feed filtering, and a full settings dashboard.
 // @author       mheci
 // @license      MIT
@@ -834,7 +834,7 @@
       ("undefined" != typeof GM_info &&
         GM_info.script &&
         GM_info.script.version) ||
-      "1.13.0", // stamped at build time; was a drifting hard-coded literal
+      "1.13.1", // stamped at build time; was a drifting hard-coded literal
     o = (() => {
       try {
         return CSS.supports("selector(:has(*))");
@@ -3922,13 +3922,37 @@ algoBlockChannels: "",
     }
     return _ttp && _ttp.createHTML ? _ttp.createHTML(html) : html;
   }
+  const playerContainers = '#movie_player,#shorts-player,.html5-video-player';
+  const previewContainers = '[hidden],ytd-miniplayer,ytd-video-preview,ytd-moving-thumbnail-renderer';
+  function playerVideo(host) {
+    // During player swaps the outgoing video can still be the first main-video.
+    const videos = host.querySelectorAll('video');
+    if (videos.length === 1) return videos[0].closest(previewContainers) ? null : videos[0];
+    const visible = Array.from(videos).filter(v => !v.closest(previewContainers) &&
+      v.getClientRects().length && getComputedStyle(v).visibility !== 'hidden');
+    return visible.find(v => v.matches('.html5-main-video')) || visible[0] || null;
+  }
+  function mainMedia() {
+    if (location.pathname.startsWith('/shorts/')) {
+      const reel = document.querySelector('ytd-reel-video-renderer[is-active],ytd-reel-video-renderer[active]');
+      if (reel) return playerVideo(reel);
+    }
+    const players = document.querySelectorAll(playerContainers);
+    for (const host of players) {
+      if (host.closest(previewContainers) || (players.length > 1 && !host.getClientRects().length)) continue;
+      const video = playerVideo(host);
+      if (video) return video;
+    }
+    if (players.length) return null;
+    return Array.from(document.querySelectorAll('video')).find(v=>!v.closest(previewContainers)) || null;
+  }
+  function visibleLiveBadge(host) {
+    return !!host && Array.from(host.querySelectorAll('.ytp-live-badge')).some(badge =>
+      badge.getClientRects().length && !badge.closest('[hidden]') && getComputedStyle(badge).visibility === 'visible');
+  }
   const ie = {
-      el: () =>
-        (location.pathname.startsWith("/shorts/") && document.querySelector("ytd-reel-video-renderer[is-active] video,ytd-reel-video-renderer[active] video")) ||
-        document.querySelector("video.html5-main-video") ||
-        document.querySelector("#movie_player video") ||
-        document.querySelector("video"),
-      api: () => (location.pathname.startsWith("/shorts/") && ie.el()?.closest(".html5-video-player,#movie_player")) || document.querySelector("#movie_player"),
+      el: mainMedia,
+      api: () => mainMedia()?.closest(playerContainers) || document.querySelector('#movie_player:not([hidden])'),
       isReady: () => !(!ie.el() || !ie.api()),
       videoId() {
         if (void 0 !== oe.vid && oe.vidHref === location.href) return oe.vid;
@@ -4049,37 +4073,37 @@ algoBlockChannels: "",
         const t = ie.el();
         t && (t.playbackRate = e);
       },
-      setQuality(e) {
-        const t = ie.api();
-        if (t && t.setPlaybackQualityRange)
+      qualityApi(video) {
+        // The nearest visual shell is not necessarily the player API owner.
+        for (let host = video?.closest(playerContainers); host; host = host.parentElement?.closest(playerContainers)) {
+          if (typeof host.setPlaybackQualityRange === 'function' || typeof host.setPlaybackQuality === 'function') return host;
+        }
+        return null;
+      },
+      setQuality(api, target) {
+        let range = false, legacy = false;
+        try { if (typeof api.setPlaybackQualityRange === 'function') { api.setPlaybackQualityRange(target, target); range = true; } } catch (_) {}
+        try { if (typeof api.setPlaybackQuality === 'function') { api.setPlaybackQuality(target); legacy = true; } } catch (_) {}
+        return range ? 'range' : legacy ? 'legacy' : '';
+      },
+      levels(api) {
+        for (const method of ['getAvailableQualityLevels', 'getAvailableQualityData']) {
           try {
-            t.setPlaybackQualityRange(e, e);
-          } catch (e) {}
-        if (t && t.setPlaybackQuality)
-          try {
-            t.setPlaybackQuality(e);
-          } catch (e) {}
+            const list = api?.[method]?.();
+            if (!Array.isArray(list)) continue;
+            const ids = list.map(item => typeof item === 'string' ? item : item?.quality)
+              .filter(id => typeof id === 'string' && id && id !== 'auto');
+            if (ids.length) return ids;
+          } catch (_) {}
+        }
+        return [];
       },
-      levels() {
-        try {
-          const api = ie.api();
-          const levels = api && typeof api.getAvailableQualityLevels === "function"
-            ? api.getAvailableQualityLevels() : null;
-          return Array.isArray(levels) ? levels : [];
-        } catch (_) { return []; }
+      currentQuality(api) {
+        try { return String(api?.getPlaybackQuality?.() || ''); } catch (_) { return ''; }
       },
-      currentQuality() {
-        try {
-          const p = ie.api();
-          return p && typeof p.getPlaybackQuality === "function"
-            ? String(p.getPlaybackQuality() || "")
-            : "";
-        } catch (_) { return ""; }
-      },
-      qualityTarget(want) {
+      qualityTarget(want, levels) {
         const wanted = String(want || "") === "highres" ? "hd2160" : String(want || "");
         if (!wanted || wanted === "auto") return "";
-        const levels = ie.levels().filter((level) => level && level !== "auto");
         if (!levels.length) return "";
         const pairs = levels.map((label, index) => ({
           label,
@@ -4365,8 +4389,7 @@ algoBlockChannels: "",
     } catch (e) {}
     try {
 
-      const b = document.querySelector(".ytp-live-badge");
-      if (b && b.getClientRects().length > 0) return true;
+      if (visibleLiveBadge(ie.api())) return true;
     } catch (e) {}
     return false;
   }
@@ -5373,7 +5396,7 @@ const WatchSessions = (() => {
   const finite = Number.isFinite,
     noop = () => {},
     tick = () => performance.now();
-  const mainSelector = '#movie_player, #shorts-player, .html5-video-player';
+  const mainSelector = playerContainers;
   function route() {
     const u = new URL(location.href),
       part = u.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]{11})(?:\/|$)/);
@@ -5421,9 +5444,9 @@ const WatchSessions = (() => {
   }
   function candidate(s) {
     for (const p of document.querySelectorAll(mainSelector)) {
-      if (p.closest('[hidden], ytd-miniplayer, ytd-video-preview, ytd-moving-thumbnail-renderer'))
+      if (p.closest(previewContainers))
         continue;
-      const video = p.querySelector('video.html5-main-video') || p.querySelector('video');
+      const video = playerVideo(p);
       if (!video || !p.getClientRects().length) continue;
       const data = provider(p),
         owner = p.closest('ytd-watch-flexy,ytd-watch-grid,ytm-watch,ytd-reel-video-renderer');
@@ -5441,7 +5464,7 @@ const WatchSessions = (() => {
       const live =
         video.duration === Infinity ||
         data.isLive === true ||
-        !!Array.from(p.querySelectorAll('.ytp-live-badge')).find((n) => n.getClientRects().length);
+        visibleLiveBadge(p);
       if (
         live ||
         p.matches('.ad-showing,.ad-interrupting,.ytp-error') ||
@@ -5528,22 +5551,20 @@ const WatchSessions = (() => {
   }
   function metadata(s) {
     const data = provider(s.p);
-    let details;
+    // The boot response can belong to the previous SPA route. Prefer a matching
+    // response on the bound player and never consume unqualified page metadata.
+    let pd = {};
     try {
-      details = e.ytInitialPlayerResponse?.videoDetails;
+      const current = s.p?.getPlayerResponse?.()?.videoDetails;
+      if (current?.videoId === s.id) pd = current;
+      else if (e.ytInitialPlayerResponse?.videoDetails?.videoId === s.id) pd = e.ytInitialPlayerResponse.videoDetails;
     } catch (_) {}
-    const pd = details?.videoId === s.id ? details : {};
+    const scope = s.p?.closest('ytd-watch-flexy,ytd-watch-grid,ytm-watch,ytd-reel-video-renderer') ||
+      document.querySelector(`ytd-watch-flexy[video-id="${s.id}"],ytd-watch-grid[video-id="${s.id}"]`);
+    const text = selector => scope?.querySelector(selector)?.textContent?.trim() || '';
     return {
-      title:
-        data.title ||
-        pd.title ||
-        document.querySelector('ytd-watch-metadata h1, h1.title')?.textContent?.trim() ||
-        '',
-      channel:
-        data.author ||
-        pd.author ||
-        document.querySelector('#owner ytd-channel-name a,#owner-name a')?.textContent?.trim() ||
-        '',
+      title: data.title || pd.title || text('ytd-watch-metadata h1,#title h1,h1.title,ytm-slim-video-metadata-section-renderer h1'),
+      channel: data.author || pd.author || text('#owner ytd-channel-name,#owner-name a,#owner #channel-name a,ytm-slim-owner-renderer .slim-owner-channel-name'),
       channelId: data.channel_id || pd.channelId || '',
     };
   }
@@ -5594,7 +5615,7 @@ const WatchSessions = (() => {
     if (!s?.last || !s.sid || s.readOnly || (s.phase !== 'active' && s.phase !== 'play-blocked'))
       return Promise.resolve(false);
     const z = s.last,
-      signature = [z.pos, z.dur, z.done, Math.floor(s.played * 10)].join('/');
+      signature = JSON.stringify([z.pos, z.dur, z.done, Math.floor(s.played * 10), z.meta.title, z.meta.channel, z.meta.channelId]);
     if (signature === s.sent || (!force && tick() - s.lastWrite < 3500))
       return s.job || Promise.resolve(false);
     s.sent = signature;
@@ -6002,6 +6023,9 @@ const WatchSessions = (() => {
       videoId: current?.id || null,
       held: !!current?.v && locked(current),
       readOnly: !!current?.readOnly,
+      playerAttached: !!current?.v,
+      resumeMode: S.sessionResumeMode,
+      explicitTimestamp: !!current?.explicit,
     }),
   };
 })();
@@ -6065,7 +6089,7 @@ function mountWatchLibrary(parent) {
     const a = add(p, 'a', 'go', label);
     const u = new URL('/watch', location.origin);
     u.searchParams.set('v', id);
-    u.searchParams.set('t', Math.floor(time) + 's');
+    if (time != null) u.searchParams.set('t', Math.floor(time) + 's');
     a.href = u.href;
   };
   function render() {
@@ -6107,6 +6131,11 @@ function mountWatchLibrary(parent) {
       const progress = add(add(d, 'div', 'rail'), 'span', '');
       progress.style.width = Math.max(0, Math.min(100, Number(r.progress) || 0)) + '%';
       const acts = add(item, 'div', 'actions');
+      // Resume is an explicit seek. Offer a normal watch URL as well: an
+      // explicit t= otherwise bypasses the user's Ask prompt by design.
+      if (S.sessionRestoreOn && S.sessionResumeMode === 'ask' && !r.completed &&
+          r.lastPosition >= 5 && (!r.duration || r.lastPosition < r.duration - .5))
+        link(acts, 'Choose position', r.videoId, null);
       link(
         acts,
         r.completed ? 'Rewatch' : r.lastPosition > 0 ? 'Resume ' + ce(r.lastPosition) : 'Play',
@@ -6305,6 +6334,7 @@ function mountWatchLibrary(parent) {
   };
   button(tools, 'Clear history', () => confirmDelete(null, 'all local watch history'), 'danger');
   So('history.updated', refresh);
+  So('cfg.changed', ({key}) => { if (key === 'sessionRestoreOn' || key === 'sessionResumeMode') render(); });
   refresh();
 }
 
@@ -11083,6 +11113,10 @@ const IntegrationDiagnostics = (() => {
   // Session memory belongs to the tab. Disabling the controller gives the
   // current player back its native rate without changing an unrelated user edit.
   let lastSpeedDefault, rememberedSpeed, speedOwners = new Map();
+  let qualityStatus = 'Quality lock is off.';
+  function reportQuality(text) {
+    if (text !== qualityStatus) { qualityStatus = text; g.emit('quality.status', text); }
+  }
   (xa.register({
     id: "speed-controller",
     name: "Playback Speed",
@@ -11329,32 +11363,39 @@ const IntegrationDiagnostics = (() => {
       keys: ["autoHD", "qualityPref"],
       apply(ctx) {
         if (!S.autoHD) return;
-        let qualityOwner = null, written = "";
+        let owner = null, written = '', method = '', source = '';
         const bound = new WeakSet();
-        Yt["auto-hd"].push(() => {
+        const release = () => {
           try {
-            if (qualityOwner && written && (qualityOwner.getPlaybackQuality?.() === written || !qualityOwner.getPlaybackQuality))
-              qualityOwner.setPlaybackQualityRange?.("auto", "auto");
+            // The range is ours even when the decoder is still showing an older rendition.
+            if (method === 'range') owner.setPlaybackQualityRange('auto', 'auto');
+            else if (method === 'legacy' && (!ie.currentQuality(owner) || ie.currentQuality(owner) === written)) owner.setPlaybackQuality('auto');
           } catch (_) {}
-        });
+          owner = null; written = method = source = '';
+        };
+        Yt['auto-hd'].push(() => { release(); reportQuality('Quality lock is off.'); });
         const enforce = () => {
-          if (!S.autoHD || ie.isAd()) return;
-          const target = ie.qualityTarget(S.qualityPref);
+          if (!S.autoHD) return;
+          const video = ie.el(), api = ie.qualityApi(video);
+          if (video?.closest('.ad-showing,.ad-interrupting')) return reportQuality('Waiting for the ad to finish.');
+          const id = ie.videoId();
+          if (owner && (owner !== api || source !== id)) release();
+          if (!api) return reportQuality('Waiting for a player with quality controls.');
+          const levels = ie.levels(api), target = ie.qualityTarget(S.qualityPref, levels);
           if (!target) {
-            // Do not leave a higher previously locked quality in place when no
-            // permitted fallback exists for the current stream.
-            try {
-              if (qualityOwner && written && qualityOwner.getPlaybackQuality?.() === written)
-                qualityOwner.setPlaybackQualityRange?.("auto", "auto");
-            } catch (_) {}
-            qualityOwner = null; written = "";
-            return;
+            release();
+            return reportQuality(S.qualityPref === 'auto' ? 'YouTube is choosing the quality.' :
+              levels.length ? 'No offered resolution at or below your preference.' : 'Waiting for available resolutions.');
           }
-          if (ie.currentQuality() === target) return;
-          const api = ie.api();
-          if (!api || (typeof api.setPlaybackQualityRange !== "function" && typeof api.setPlaybackQuality !== "function")) return;
-          qualityOwner = api; written = target;
-          ie.setQuality(target);
+          // Auto can temporarily display the requested quality with no range lock.
+          if (owner !== api || written !== target || ie.currentQuality(api) !== target) {
+            const applied = ie.setQuality(api, target);
+            if (!applied) return reportQuality('The player rejected the quality request.');
+            owner = api; written = target; method = applied; source = id;
+          }
+          const reported = ie.currentQuality(api);
+          reportQuality(`Requested: ${d[target] || target} · Player reports: ${d[reported] || reported || 'unknown'}` +
+            (video.videoWidth && video.videoHeight ? ` · Video: ${video.videoWidth} × ${video.videoHeight}` : ''));
         };
         const bind = () => {
           const video = ie.el();
@@ -11369,6 +11410,9 @@ const IntegrationDiagnostics = (() => {
       },
       settings(panel) {
         panel.appendChild(Ro("Preferred quality", "qualityPref", d));
+        const status = To('div','ytb-hist-note',qualityStatus);
+        panel.appendChild(status);
+        So('quality.status', text => { status.textContent = text; });
         panel.appendChild(To("div", "ytb-hist-note", "Changes use the current player's quality API when available. The nearest lower quality is used if the preference is unavailable, and the preference is retried while visible. YouTube may reject a request."));
         panel.appendChild(To("div", "ytb-hist-note", "Codec choices are unavailable: no immediate codec switch has been verified for this player. Existing codec preferences remain saved but are not applied."));
       },

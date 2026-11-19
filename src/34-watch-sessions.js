@@ -12,7 +12,7 @@ const WatchSessions = (() => {
   const finite = Number.isFinite,
     noop = () => {},
     tick = () => performance.now();
-  const mainSelector = '#movie_player, #shorts-player, .html5-video-player';
+  const mainSelector = playerContainers;
   function route() {
     const u = new URL(location.href),
       part = u.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]{11})(?:\/|$)/);
@@ -60,9 +60,9 @@ const WatchSessions = (() => {
   }
   function candidate(s) {
     for (const p of document.querySelectorAll(mainSelector)) {
-      if (p.closest('[hidden], ytd-miniplayer, ytd-video-preview, ytd-moving-thumbnail-renderer'))
+      if (p.closest(previewContainers))
         continue;
-      const video = p.querySelector('video.html5-main-video') || p.querySelector('video');
+      const video = playerVideo(p);
       if (!video || !p.getClientRects().length) continue;
       const data = provider(p),
         owner = p.closest('ytd-watch-flexy,ytd-watch-grid,ytm-watch,ytd-reel-video-renderer');
@@ -80,7 +80,7 @@ const WatchSessions = (() => {
       const live =
         video.duration === Infinity ||
         data.isLive === true ||
-        !!Array.from(p.querySelectorAll('.ytp-live-badge')).find((n) => n.getClientRects().length);
+        visibleLiveBadge(p);
       if (
         live ||
         p.matches('.ad-showing,.ad-interrupting,.ytp-error') ||
@@ -167,22 +167,20 @@ const WatchSessions = (() => {
   }
   function metadata(s) {
     const data = provider(s.p);
-    let details;
+    // The boot response can belong to the previous SPA route. Prefer a matching
+    // response on the bound player and never consume unqualified page metadata.
+    let pd = {};
     try {
-      details = e.ytInitialPlayerResponse?.videoDetails;
+      const current = s.p?.getPlayerResponse?.()?.videoDetails;
+      if (current?.videoId === s.id) pd = current;
+      else if (e.ytInitialPlayerResponse?.videoDetails?.videoId === s.id) pd = e.ytInitialPlayerResponse.videoDetails;
     } catch (_) {}
-    const pd = details?.videoId === s.id ? details : {};
+    const scope = s.p?.closest('ytd-watch-flexy,ytd-watch-grid,ytm-watch,ytd-reel-video-renderer') ||
+      document.querySelector(`ytd-watch-flexy[video-id="${s.id}"],ytd-watch-grid[video-id="${s.id}"]`);
+    const text = selector => scope?.querySelector(selector)?.textContent?.trim() || '';
     return {
-      title:
-        data.title ||
-        pd.title ||
-        document.querySelector('ytd-watch-metadata h1, h1.title')?.textContent?.trim() ||
-        '',
-      channel:
-        data.author ||
-        pd.author ||
-        document.querySelector('#owner ytd-channel-name a,#owner-name a')?.textContent?.trim() ||
-        '',
+      title: data.title || pd.title || text('ytd-watch-metadata h1,#title h1,h1.title,ytm-slim-video-metadata-section-renderer h1'),
+      channel: data.author || pd.author || text('#owner ytd-channel-name,#owner-name a,#owner #channel-name a,ytm-slim-owner-renderer .slim-owner-channel-name'),
       channelId: data.channel_id || pd.channelId || '',
     };
   }
@@ -233,7 +231,7 @@ const WatchSessions = (() => {
     if (!s?.last || !s.sid || s.readOnly || (s.phase !== 'active' && s.phase !== 'play-blocked'))
       return Promise.resolve(false);
     const z = s.last,
-      signature = [z.pos, z.dur, z.done, Math.floor(s.played * 10)].join('/');
+      signature = JSON.stringify([z.pos, z.dur, z.done, Math.floor(s.played * 10), z.meta.title, z.meta.channel, z.meta.channelId]);
     if (signature === s.sent || (!force && tick() - s.lastWrite < 3500))
       return s.job || Promise.resolve(false);
     s.sent = signature;
@@ -641,6 +639,9 @@ const WatchSessions = (() => {
       videoId: current?.id || null,
       held: !!current?.v && locked(current),
       readOnly: !!current?.readOnly,
+      playerAttached: !!current?.v,
+      resumeMode: S.sessionResumeMode,
+      explicitTimestamp: !!current?.explicit,
     }),
   };
 })();

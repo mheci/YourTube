@@ -104,7 +104,7 @@ Open the dashboard from the guide menu, the player button or the keyboard
 shortcut. Changes apply immediately; nothing needs a reload. Settings export to
 a file and import back.
 
-### Session History (1.12.5-rc.3 candidate)
+### Session History
 
 Turn on **Session History** and select **Pause and ask**. Watch past five seconds,
 pause and leave the video, then reopen its ordinary watch URL. **Resume at …**
@@ -120,7 +120,9 @@ save; an already-known stopping point has no automatic timeout. If a browser
 requires another playback gesture, use the **Play at …** button.
 
 The journal lives in this browser's existing history database. Search by title or
-channel, filter, pin, follow a timestamp, or export/import a local JSON backup.
+channel, filter, pin, or export/import a local JSON backup. On an unfinished entry,
+**Choose position** opens an untimestamped video so **Pause and ask** can show the
+prompt; **Resume** deliberately links straight to the saved timestamp.
 Removal and clearing require confirmation. This journal is separate from your
 YouTube account's history and the Session Replay diagnostic feature. The regular
 stable release is not changed by a candidate commit.

@@ -19,13 +19,37 @@
     }
     return _ttp && _ttp.createHTML ? _ttp.createHTML(html) : html;
   }
+  const playerContainers = '#movie_player,#shorts-player,.html5-video-player';
+  const previewContainers = '[hidden],ytd-miniplayer,ytd-video-preview,ytd-moving-thumbnail-renderer';
+  function playerVideo(host) {
+    // During player swaps the outgoing video can still be the first main-video.
+    const videos = host.querySelectorAll('video');
+    if (videos.length === 1) return videos[0].closest(previewContainers) ? null : videos[0];
+    const visible = Array.from(videos).filter(v => !v.closest(previewContainers) &&
+      v.getClientRects().length && getComputedStyle(v).visibility !== 'hidden');
+    return visible.find(v => v.matches('.html5-main-video')) || visible[0] || null;
+  }
+  function mainMedia() {
+    if (location.pathname.startsWith('/shorts/')) {
+      const reel = document.querySelector('ytd-reel-video-renderer[is-active],ytd-reel-video-renderer[active]');
+      if (reel) return playerVideo(reel);
+    }
+    const players = document.querySelectorAll(playerContainers);
+    for (const host of players) {
+      if (host.closest(previewContainers) || (players.length > 1 && !host.getClientRects().length)) continue;
+      const video = playerVideo(host);
+      if (video) return video;
+    }
+    if (players.length) return null;
+    return Array.from(document.querySelectorAll('video')).find(v=>!v.closest(previewContainers)) || null;
+  }
+  function visibleLiveBadge(host) {
+    return !!host && Array.from(host.querySelectorAll('.ytp-live-badge')).some(badge =>
+      badge.getClientRects().length && !badge.closest('[hidden]') && getComputedStyle(badge).visibility === 'visible');
+  }
   const ie = {
-      el: () =>
-        (location.pathname.startsWith("/shorts/") && document.querySelector("ytd-reel-video-renderer[is-active] video,ytd-reel-video-renderer[active] video")) ||
-        document.querySelector("video.html5-main-video") ||
-        document.querySelector("#movie_player video") ||
-        document.querySelector("video"),
-      api: () => (location.pathname.startsWith("/shorts/") && ie.el()?.closest(".html5-video-player,#movie_player")) || document.querySelector("#movie_player"),
+      el: mainMedia,
+      api: () => mainMedia()?.closest(playerContainers) || document.querySelector('#movie_player:not([hidden])'),
       isReady: () => !(!ie.el() || !ie.api()),
       videoId() {
         if (void 0 !== oe.vid && oe.vidHref === location.href) return oe.vid;
@@ -146,37 +170,37 @@
         const t = ie.el();
         t && (t.playbackRate = e);
       },
-      setQuality(e) {
-        const t = ie.api();
-        if (t && t.setPlaybackQualityRange)
+      qualityApi(video) {
+        // The nearest visual shell is not necessarily the player API owner.
+        for (let host = video?.closest(playerContainers); host; host = host.parentElement?.closest(playerContainers)) {
+          if (typeof host.setPlaybackQualityRange === 'function' || typeof host.setPlaybackQuality === 'function') return host;
+        }
+        return null;
+      },
+      setQuality(api, target) {
+        let range = false, legacy = false;
+        try { if (typeof api.setPlaybackQualityRange === 'function') { api.setPlaybackQualityRange(target, target); range = true; } } catch (_) {}
+        try { if (typeof api.setPlaybackQuality === 'function') { api.setPlaybackQuality(target); legacy = true; } } catch (_) {}
+        return range ? 'range' : legacy ? 'legacy' : '';
+      },
+      levels(api) {
+        for (const method of ['getAvailableQualityLevels', 'getAvailableQualityData']) {
           try {
-            t.setPlaybackQualityRange(e, e);
-          } catch (e) {}
-        if (t && t.setPlaybackQuality)
-          try {
-            t.setPlaybackQuality(e);
-          } catch (e) {}
+            const list = api?.[method]?.();
+            if (!Array.isArray(list)) continue;
+            const ids = list.map(item => typeof item === 'string' ? item : item?.quality)
+              .filter(id => typeof id === 'string' && id && id !== 'auto');
+            if (ids.length) return ids;
+          } catch (_) {}
+        }
+        return [];
       },
-      levels() {
-        try {
-          const api = ie.api();
-          const levels = api && typeof api.getAvailableQualityLevels === "function"
-            ? api.getAvailableQualityLevels() : null;
-          return Array.isArray(levels) ? levels : [];
-        } catch (_) { return []; }
+      currentQuality(api) {
+        try { return String(api?.getPlaybackQuality?.() || ''); } catch (_) { return ''; }
       },
-      currentQuality() {
-        try {
-          const p = ie.api();
-          return p && typeof p.getPlaybackQuality === "function"
-            ? String(p.getPlaybackQuality() || "")
-            : "";
-        } catch (_) { return ""; }
-      },
-      qualityTarget(want) {
+      qualityTarget(want, levels) {
         const wanted = String(want || "") === "highres" ? "hd2160" : String(want || "");
         if (!wanted || wanted === "auto") return "";
-        const levels = ie.levels().filter((level) => level && level !== "auto");
         if (!levels.length) return "";
         const pairs = levels.map((label, index) => ({
           label,
@@ -462,8 +486,7 @@
     } catch (e) {}
     try {
 
-      const b = document.querySelector(".ytp-live-badge");
-      if (b && b.getClientRects().length > 0) return true;
+      if (visibleLiveBadge(ie.api())) return true;
     } catch (e) {}
     return false;
   }

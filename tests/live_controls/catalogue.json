@@ -170,7 +170,9 @@
    "sessionRestoreOn",
    "sessionResumeMode",
    "sessionResumeDesign",
-   "sessionGapMinutes"
+   "sessionGapMinutes",
+   "stripResumeTimesOn",
+   "resumeBarStyle"
   ],
   "summary": "A private watch journal. Choose your saved time or start fresh before playback."
  },
@@ -1245,17 +1247,6 @@
    "hideVideoShelvesOn"
   ],
   "summary": "Removes Shorts shelves that appear around a video."
- },
- {
-  "id": "resume-timestamps",
-  "name": "Resume Timestamps",
-  "cat": "privacy",
-  "master": "resumeBarStyle",
-  "keys": [
-   "stripResumeTimesOn",
-   "resumeBarStyle"
-  ],
-  "summary": "Strips YouTube's resume timestamps from links and can restyle the red resume bar."
  },
  {
   "id": "thumbnail-sizes",

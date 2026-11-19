@@ -2659,12 +2659,16 @@
     xa.register({
       id: "session-restore", name: "Session History",
       summary: "A private watch journal. Choose your saved time or start fresh before playback.",
-      cat: "data", masterKey: "sessionRestoreOn", keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign", "sessionGapMinutes"],
-      apply() { WatchSessions.configure(); },
+      cat: "data", masterKey: "sessionRestoreOn", settingsAlways: true,
+      keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign", "sessionGapMinutes", "stripResumeTimesOn", "resumeBarStyle"],
+      apply(ctx) { WatchSessions.configure(); applyResumeLinkSettings(ctx); },
       settings(panel) {
         panel.appendChild(Ro("When returning to a video", "sessionResumeMode", {ask:"Pause and ask (recommended)",record:"Record only · use YouTube playback"}));
         panel.appendChild(Ro("Resume prompt", "sessionResumeDesign", {folio:"Folio · reading card",signal:"Signal · time display",dock:"Dock · compact bar"}));
         panel.appendChild(No("Combine visits within", "sessionGapMinutes", 0, 240, 5, v => v + " min"));
+        panel.appendChild(Io("Remove resume timestamps from video links", "stripResumeTimesOn"));
+        panel.appendChild(Ro("Resume bar", "resumeBarStyle", {default:"Default",full:"Full thumbnail width",hide:"Hide it"}));
+        panel.appendChild(To("div", "ytb-hist-note", "Timestamps in the address bar and shared links are untouched; only link targets on the page are rewritten."));
         panel.appendChild(To("div","ytb-hist-note","Dated visits within this gap are grouped. Three calendar months after a group ends it expires. It can be recovered from history trash for seven days from expiry; if cleanup first runs after that window, it is discarded. Restored visits are exempt. Undated legacy data is kept, and the currently open video is skipped until a later cleanup. A one-time migration backup is kept separately."));
         panel.appendChild(To("div","ytb-hist-note","A timestamped link takes precedence. Ads and live streams are not saved. Minimize keeps a saved video paused; it does not make the choice for you."));
         mountWatchLibrary(panel);

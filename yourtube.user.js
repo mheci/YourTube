@@ -12278,12 +12278,16 @@ const IntegrationDiagnostics = (() => {
     xa.register({
       id: "session-restore", name: "Session History",
       summary: "A private watch journal. Choose your saved time or start fresh before playback.",
-      cat: "data", masterKey: "sessionRestoreOn", keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign", "sessionGapMinutes"],
-      apply() { WatchSessions.configure(); },
+      cat: "data", masterKey: "sessionRestoreOn", settingsAlways: true,
+      keys: ["sessionRestoreOn", "sessionResumeMode", "sessionResumeDesign", "sessionGapMinutes", "stripResumeTimesOn", "resumeBarStyle"],
+      apply(ctx) { WatchSessions.configure(); applyResumeLinkSettings(ctx); },
       settings(panel) {
         panel.appendChild(Ro("When returning to a video", "sessionResumeMode", {ask:"Pause and ask (recommended)",record:"Record only · use YouTube playback"}));
         panel.appendChild(Ro("Resume prompt", "sessionResumeDesign", {folio:"Folio · reading card",signal:"Signal · time display",dock:"Dock · compact bar"}));
         panel.appendChild(No("Combine visits within", "sessionGapMinutes", 0, 240, 5, v => v + " min"));
+        panel.appendChild(Io("Remove resume timestamps from video links", "stripResumeTimesOn"));
+        panel.appendChild(Ro("Resume bar", "resumeBarStyle", {default:"Default",full:"Full thumbnail width",hide:"Hide it"}));
+        panel.appendChild(To("div", "ytb-hist-note", "Timestamps in the address bar and shared links are untouched; only link targets on the page are rewritten."));
         panel.appendChild(To("div","ytb-hist-note","Dated visits within this gap are grouped. Three calendar months after a group ends it expires. It can be recovered from history trash for seven days from expiry; if cleanup first runs after that window, it is discarded. Restored visits are exempt. Undated legacy data is kept, and the currently open video is skipped until a later cleanup. A one-time migration backup is kept separately."));
         panel.appendChild(To("div","ytb-hist-note","A timestamped link takes precedence. Ads and live streams are not saved. Minimize keeps a saved video paused; it does not make the choice for you."));
         mountWatchLibrary(panel);
@@ -28639,16 +28643,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
 
 
 
-  xa.register({
-    id: "resume-timestamps",
-    name: "Resume Timestamps",
-    summary: "Strips YouTube's resume timestamps from links and can restyle the red resume bar.",
-    cat: "privacy",
-    masterKey: "resumeBarStyle",
-    settingsAlways: true,
-    isOn: () => !!S.stripResumeTimesOn || String(S.resumeBarStyle || "default") !== "default",
-    keys: ["stripResumeTimesOn", "resumeBarStyle"],
-    apply(ctx) {
+  // Shared implementation for the consolidated Session History controls.
+  function applyResumeLinkSettings(ctx) {
       const bar = String(S.resumeBarStyle || "default");
       if ("full" === bar) {
         ctx.addStyle(
@@ -28663,30 +28659,55 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       }
       if (!S.stripResumeTimesOn) return;
 
+      const changed = new Map();
       const clean = (anchor) => {
         if (!anchor || anchor.tagName !== "A") return;
         const href = anchor.getAttribute("href") || "";
         if (!/\/watch\?/.test(href) || !/[?&]t=/.test(href)) return;
         try {
           const url = new URL(href, location.origin);
+          if (url.origin !== location.origin || url.pathname !== "/watch") return;
           url.searchParams.delete("t");
-          anchor.setAttribute("href", url.pathname + url.search + url.hash);
-        } catch (_) {}
-        // Polymer keeps its own copy of the endpoint, so the DOM href alone is
-        // not enough on soft navigation. Both shapes are guarded.
-        try {
+          const cleanHref = url.pathname + url.search + url.hash;
           const data = anchor.data || (anchor.__data && anchor.__data.data);
           const web = data && data.commandMetadata && data.commandMetadata.webCommandMetadata;
-          if (web && typeof web.url === "string") {
-            web.url = web.url.replace(/([?&])t=\d+s?&?/, "$1").replace(/[?&]$/, "");
-          }
           const endpoint = data && data.watchEndpoint;
-          if (endpoint && endpoint.startTimeSeconds) delete endpoint.startTimeSeconds;
+          const priorWeb = typeof web?.url === "string" ? web.url : null;
+          const hadEndpoint = !!endpoint && Object.prototype.hasOwnProperty.call(endpoint, "startTimeSeconds");
+          const priorStart = hadEndpoint ? endpoint.startTimeSeconds : undefined;
+          let cleanWeb = priorWeb;
+          if (priorWeb !== null) {
+            try {
+              const webUrl = new URL(priorWeb, location.origin);
+              if (webUrl.origin === location.origin && webUrl.pathname === "/watch") {
+                webUrl.searchParams.delete("t");
+                cleanWeb = /^https?:/i.test(priorWeb) ? webUrl.href : webUrl.pathname + webUrl.search + webUrl.hash;
+                web.url = cleanWeb;
+              }
+            } catch (_) {}
+          }
+          if (hadEndpoint) delete endpoint.startTimeSeconds;
+          changed.set(anchor, {href, cleanHref, web, priorWeb, cleanWeb, endpoint, hadEndpoint, priorStart});
+          anchor.setAttribute("href", cleanHref);
         } catch (_) {}
       };
+      Yt["session-restore"].push(() => {
+        for (const [anchor, rec] of changed) {
+          try {
+            // Do not overwrite links YouTube or another extension has changed.
+            if (anchor.getAttribute("href") !== rec.cleanHref) continue;
+            anchor.setAttribute("href", rec.href);
+            if (rec.web && rec.priorWeb !== null && rec.web.url === rec.cleanWeb) rec.web.url = rec.priorWeb;
+            if (rec.hadEndpoint && rec.endpoint && !Object.prototype.hasOwnProperty.call(rec.endpoint,"startTimeSeconds"))
+              rec.endpoint.startTimeSeconds = rec.priorStart;
+          } catch (_) {}
+        }
+        changed.clear();
+      });
 
       const scan = () => {
         document.querySelectorAll('a[href*="/watch?"][href*="t="]').forEach(clean);
+        for (const anchor of changed.keys()) if (!anchor.isConnected) changed.delete(anchor);
       };
       scan();
       ctx.addObserver(document.body, ctx.debounce(scan, 400), {
@@ -28697,16 +28718,8 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       });
       ctx.addInterval(scan, 4000);
       ctx.onNav(() => ctx.addTimeout(scan, 700));
-    },
-    settings(en) {
-      en.appendChild(Io("Remove resume timestamps from video links", "stripResumeTimesOn"));
-      en.appendChild(Ro("Resume bar", "resumeBarStyle", {
-        default: "Default", full: "Full thumbnail width", hide: "Hide it",
-      }));
-      en.appendChild(To("div", "ytb-hist-note",
-        "Timestamps in the address bar and shared links are untouched; only link targets on the page are rewritten."));
-    },
-  });
+  }
+
 
   xa.register({
     id: "thumbnail-sizes",

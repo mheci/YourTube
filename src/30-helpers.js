@@ -170,37 +170,37 @@
         const t = ie.el();
         t && (t.playbackRate = e);
       },
-      setQuality(e) {
-        const t = ie.api();
-        if (t && t.setPlaybackQualityRange)
+      qualityApi(video) {
+        // The nearest visual shell is not necessarily the player API owner.
+        for (let host = video?.closest(playerContainers); host; host = host.parentElement?.closest(playerContainers)) {
+          if (typeof host.setPlaybackQualityRange === 'function' || typeof host.setPlaybackQuality === 'function') return host;
+        }
+        return null;
+      },
+      setQuality(api, target) {
+        let range = false, legacy = false;
+        try { if (typeof api.setPlaybackQualityRange === 'function') { api.setPlaybackQualityRange(target, target); range = true; } } catch (_) {}
+        try { if (typeof api.setPlaybackQuality === 'function') { api.setPlaybackQuality(target); legacy = true; } } catch (_) {}
+        return range ? 'range' : legacy ? 'legacy' : '';
+      },
+      levels(api) {
+        for (const method of ['getAvailableQualityLevels', 'getAvailableQualityData']) {
           try {
-            t.setPlaybackQualityRange(e, e);
-          } catch (e) {}
-        if (t && t.setPlaybackQuality)
-          try {
-            t.setPlaybackQuality(e);
-          } catch (e) {}
+            const list = api?.[method]?.();
+            if (!Array.isArray(list)) continue;
+            const ids = list.map(item => typeof item === 'string' ? item : item?.quality)
+              .filter(id => typeof id === 'string' && id && id !== 'auto');
+            if (ids.length) return ids;
+          } catch (_) {}
+        }
+        return [];
       },
-      levels() {
-        try {
-          const api = ie.api();
-          const levels = api && typeof api.getAvailableQualityLevels === "function"
-            ? api.getAvailableQualityLevels() : null;
-          return Array.isArray(levels) ? levels : [];
-        } catch (_) { return []; }
+      currentQuality(api) {
+        try { return String(api?.getPlaybackQuality?.() || ''); } catch (_) { return ''; }
       },
-      currentQuality() {
-        try {
-          const p = ie.api();
-          return p && typeof p.getPlaybackQuality === "function"
-            ? String(p.getPlaybackQuality() || "")
-            : "";
-        } catch (_) { return ""; }
-      },
-      qualityTarget(want) {
+      qualityTarget(want, levels) {
         const wanted = String(want || "") === "highres" ? "hd2160" : String(want || "");
         if (!wanted || wanted === "auto") return "";
-        const levels = ie.levels().filter((level) => level && level !== "auto");
         if (!levels.length) return "";
         const pairs = levels.map((label, index) => ({
           label,

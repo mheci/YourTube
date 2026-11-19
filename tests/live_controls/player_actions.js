@@ -216,6 +216,32 @@ async () => {
     r.range = level;
     r.pass = r.range === "auto";
   });
+  await trial("auto-hd", "active-host-range", "Nested video shell, unrelated ad, matching adaptive quality and modern level data", async r => {
+    const shell = document.createElement('div'), ad = document.createElement('div');
+    shell.className='html5-video-player'; ad.className='ad-showing';
+    v.before(shell); shell.append(v); document.body.append(ad);
+    const list=mp.getAvailableQualityLevels, setter=mp.setPlaybackQualityRange, legacy=mp.setPlaybackQuality;
+    let range='auto'; level='hd720';
+    delete mp.getAvailableQualityLevels;
+    mp.getAvailableQualityData=()=>[{quality:'hd1080'},{quality:'hd720'}];
+    mp.setPlaybackQualityRange=(lo,hi)=>{if(lo===hi)range=lo;};
+    try {
+      await set('auto-hd','autoHD',true);
+      await equal(()=>range,'hd720');
+      await set('auto-hd','qualityPref','hd1080');
+      await equal(()=>range,'hd1080');
+      await equal(()=>level,'hd1080');
+      // An accepted request is not evidence that the decoder changed streams.
+      mp.setPlaybackQuality=()=>{}; level='small'; v.dispatchEvent(new Event('playing'));
+      await equal(()=>pane('auto-hd').textContent.includes('Requested: 1080p · Player reports: 240p'),true);
+      await set('auto-hd','autoHD',false);
+      await equal(()=>range,'auto'); r.pass=true;
+    } finally {
+      await set('auto-hd','autoHD',false);
+      shell.replaceWith(v);ad.remove();delete mp.getAvailableQualityData;
+      mp.getAvailableQualityLevels=list;mp.setPlaybackQualityRange=setter;mp.setPlaybackQuality=legacy;
+    }
+  });
   const ab = "ab-repeat";
   await trial(
     ab,

@@ -1450,6 +1450,10 @@
   // Session memory belongs to the tab. Disabling the controller gives the
   // current player back its native rate without changing an unrelated user edit.
   let lastSpeedDefault, rememberedSpeed, speedOwners = new Map();
+  let qualityStatus = 'Quality lock is off.';
+  function reportQuality(text) {
+    if (text !== qualityStatus) { qualityStatus = text; g.emit('quality.status', text); }
+  }
   (xa.register({
     id: "speed-controller",
     name: "Playback Speed",
@@ -1696,32 +1700,39 @@
       keys: ["autoHD", "qualityPref"],
       apply(ctx) {
         if (!S.autoHD) return;
-        let qualityOwner = null, written = "";
+        let owner = null, written = '', method = '', source = '';
         const bound = new WeakSet();
-        Yt["auto-hd"].push(() => {
+        const release = () => {
           try {
-            if (qualityOwner && written && (qualityOwner.getPlaybackQuality?.() === written || !qualityOwner.getPlaybackQuality))
-              qualityOwner.setPlaybackQualityRange?.("auto", "auto");
+            // The range is ours even when the decoder is still showing an older rendition.
+            if (method === 'range') owner.setPlaybackQualityRange('auto', 'auto');
+            else if (method === 'legacy' && (!ie.currentQuality(owner) || ie.currentQuality(owner) === written)) owner.setPlaybackQuality('auto');
           } catch (_) {}
-        });
+          owner = null; written = method = source = '';
+        };
+        Yt['auto-hd'].push(() => { release(); reportQuality('Quality lock is off.'); });
         const enforce = () => {
-          if (!S.autoHD || ie.isAd()) return;
-          const target = ie.qualityTarget(S.qualityPref);
+          if (!S.autoHD) return;
+          const video = ie.el(), api = ie.qualityApi(video);
+          if (video?.closest('.ad-showing,.ad-interrupting')) return reportQuality('Waiting for the ad to finish.');
+          const id = ie.videoId();
+          if (owner && (owner !== api || source !== id)) release();
+          if (!api) return reportQuality('Waiting for a player with quality controls.');
+          const levels = ie.levels(api), target = ie.qualityTarget(S.qualityPref, levels);
           if (!target) {
-            // Do not leave a higher previously locked quality in place when no
-            // permitted fallback exists for the current stream.
-            try {
-              if (qualityOwner && written && qualityOwner.getPlaybackQuality?.() === written)
-                qualityOwner.setPlaybackQualityRange?.("auto", "auto");
-            } catch (_) {}
-            qualityOwner = null; written = "";
-            return;
+            release();
+            return reportQuality(S.qualityPref === 'auto' ? 'YouTube is choosing the quality.' :
+              levels.length ? 'No offered resolution at or below your preference.' : 'Waiting for available resolutions.');
           }
-          if (ie.currentQuality() === target) return;
-          const api = ie.api();
-          if (!api || (typeof api.setPlaybackQualityRange !== "function" && typeof api.setPlaybackQuality !== "function")) return;
-          qualityOwner = api; written = target;
-          ie.setQuality(target);
+          // Auto can temporarily display the requested quality with no range lock.
+          if (owner !== api || written !== target || ie.currentQuality(api) !== target) {
+            const applied = ie.setQuality(api, target);
+            if (!applied) return reportQuality('The player rejected the quality request.');
+            owner = api; written = target; method = applied; source = id;
+          }
+          const reported = ie.currentQuality(api);
+          reportQuality(`Requested: ${d[target] || target} · Player reports: ${d[reported] || reported || 'unknown'}` +
+            (video.videoWidth && video.videoHeight ? ` · Video: ${video.videoWidth} × ${video.videoHeight}` : ''));
         };
         const bind = () => {
           const video = ie.el();
@@ -1736,6 +1747,9 @@
       },
       settings(panel) {
         panel.appendChild(Ro("Preferred quality", "qualityPref", d));
+        const status = To('div','ytb-hist-note',qualityStatus);
+        panel.appendChild(status);
+        So('quality.status', text => { status.textContent = text; });
         panel.appendChild(To("div", "ytb-hist-note", "Changes use the current player's quality API when available. The nearest lower quality is used if the preference is unavailable, and the preference is retried while visible. YouTube may reject a request."));
         panel.appendChild(To("div", "ytb-hist-note", "Codec choices are unavailable: no immediate codec switch has been verified for this player. Existing codec preferences remain saved but are not applied."));
       },

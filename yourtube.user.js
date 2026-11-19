@@ -4073,37 +4073,37 @@ algoBlockChannels: "",
         const t = ie.el();
         t && (t.playbackRate = e);
       },
-      setQuality(e) {
-        const t = ie.api();
-        if (t && t.setPlaybackQualityRange)
+      qualityApi(video) {
+        // The nearest visual shell is not necessarily the player API owner.
+        for (let host = video?.closest(playerContainers); host; host = host.parentElement?.closest(playerContainers)) {
+          if (typeof host.setPlaybackQualityRange === 'function' || typeof host.setPlaybackQuality === 'function') return host;
+        }
+        return null;
+      },
+      setQuality(api, target) {
+        let range = false, legacy = false;
+        try { if (typeof api.setPlaybackQualityRange === 'function') { api.setPlaybackQualityRange(target, target); range = true; } } catch (_) {}
+        try { if (typeof api.setPlaybackQuality === 'function') { api.setPlaybackQuality(target); legacy = true; } } catch (_) {}
+        return range ? 'range' : legacy ? 'legacy' : '';
+      },
+      levels(api) {
+        for (const method of ['getAvailableQualityLevels', 'getAvailableQualityData']) {
           try {
-            t.setPlaybackQualityRange(e, e);
-          } catch (e) {}
-        if (t && t.setPlaybackQuality)
-          try {
-            t.setPlaybackQuality(e);
-          } catch (e) {}
+            const list = api?.[method]?.();
+            if (!Array.isArray(list)) continue;
+            const ids = list.map(item => typeof item === 'string' ? item : item?.quality)
+              .filter(id => typeof id === 'string' && id && id !== 'auto');
+            if (ids.length) return ids;
+          } catch (_) {}
+        }
+        return [];
       },
-      levels() {
-        try {
-          const api = ie.api();
-          const levels = api && typeof api.getAvailableQualityLevels === "function"
-            ? api.getAvailableQualityLevels() : null;
-          return Array.isArray(levels) ? levels : [];
-        } catch (_) { return []; }
+      currentQuality(api) {
+        try { return String(api?.getPlaybackQuality?.() || ''); } catch (_) { return ''; }
       },
-      currentQuality() {
-        try {
-          const p = ie.api();
-          return p && typeof p.getPlaybackQuality === "function"
-            ? String(p.getPlaybackQuality() || "")
-            : "";
-        } catch (_) { return ""; }
-      },
-      qualityTarget(want) {
+      qualityTarget(want, levels) {
         const wanted = String(want || "") === "highres" ? "hd2160" : String(want || "");
         if (!wanted || wanted === "auto") return "";
-        const levels = ie.levels().filter((level) => level && level !== "auto");
         if (!levels.length) return "";
         const pairs = levels.map((label, index) => ({
           label,
@@ -11113,6 +11113,10 @@ const IntegrationDiagnostics = (() => {
   // Session memory belongs to the tab. Disabling the controller gives the
   // current player back its native rate without changing an unrelated user edit.
   let lastSpeedDefault, rememberedSpeed, speedOwners = new Map();
+  let qualityStatus = 'Quality lock is off.';
+  function reportQuality(text) {
+    if (text !== qualityStatus) { qualityStatus = text; g.emit('quality.status', text); }
+  }
   (xa.register({
     id: "speed-controller",
     name: "Playback Speed",
@@ -11359,32 +11363,39 @@ const IntegrationDiagnostics = (() => {
       keys: ["autoHD", "qualityPref"],
       apply(ctx) {
         if (!S.autoHD) return;
-        let qualityOwner = null, written = "";
+        let owner = null, written = '', method = '', source = '';
         const bound = new WeakSet();
-        Yt["auto-hd"].push(() => {
+        const release = () => {
           try {
-            if (qualityOwner && written && (qualityOwner.getPlaybackQuality?.() === written || !qualityOwner.getPlaybackQuality))
-              qualityOwner.setPlaybackQualityRange?.("auto", "auto");
+            // The range is ours even when the decoder is still showing an older rendition.
+            if (method === 'range') owner.setPlaybackQualityRange('auto', 'auto');
+            else if (method === 'legacy' && (!ie.currentQuality(owner) || ie.currentQuality(owner) === written)) owner.setPlaybackQuality('auto');
           } catch (_) {}
-        });
+          owner = null; written = method = source = '';
+        };
+        Yt['auto-hd'].push(() => { release(); reportQuality('Quality lock is off.'); });
         const enforce = () => {
-          if (!S.autoHD || ie.isAd()) return;
-          const target = ie.qualityTarget(S.qualityPref);
+          if (!S.autoHD) return;
+          const video = ie.el(), api = ie.qualityApi(video);
+          if (video?.closest('.ad-showing,.ad-interrupting')) return reportQuality('Waiting for the ad to finish.');
+          const id = ie.videoId();
+          if (owner && (owner !== api || source !== id)) release();
+          if (!api) return reportQuality('Waiting for a player with quality controls.');
+          const levels = ie.levels(api), target = ie.qualityTarget(S.qualityPref, levels);
           if (!target) {
-            // Do not leave a higher previously locked quality in place when no
-            // permitted fallback exists for the current stream.
-            try {
-              if (qualityOwner && written && qualityOwner.getPlaybackQuality?.() === written)
-                qualityOwner.setPlaybackQualityRange?.("auto", "auto");
-            } catch (_) {}
-            qualityOwner = null; written = "";
-            return;
+            release();
+            return reportQuality(S.qualityPref === 'auto' ? 'YouTube is choosing the quality.' :
+              levels.length ? 'No offered resolution at or below your preference.' : 'Waiting for available resolutions.');
           }
-          if (ie.currentQuality() === target) return;
-          const api = ie.api();
-          if (!api || (typeof api.setPlaybackQualityRange !== "function" && typeof api.setPlaybackQuality !== "function")) return;
-          qualityOwner = api; written = target;
-          ie.setQuality(target);
+          // Auto can temporarily display the requested quality with no range lock.
+          if (owner !== api || written !== target || ie.currentQuality(api) !== target) {
+            const applied = ie.setQuality(api, target);
+            if (!applied) return reportQuality('The player rejected the quality request.');
+            owner = api; written = target; method = applied; source = id;
+          }
+          const reported = ie.currentQuality(api);
+          reportQuality(`Requested: ${d[target] || target} · Player reports: ${d[reported] || reported || 'unknown'}` +
+            (video.videoWidth && video.videoHeight ? ` · Video: ${video.videoWidth} × ${video.videoHeight}` : ''));
         };
         const bind = () => {
           const video = ie.el();
@@ -11399,6 +11410,9 @@ const IntegrationDiagnostics = (() => {
       },
       settings(panel) {
         panel.appendChild(Ro("Preferred quality", "qualityPref", d));
+        const status = To('div','ytb-hist-note',qualityStatus);
+        panel.appendChild(status);
+        So('quality.status', text => { status.textContent = text; });
         panel.appendChild(To("div", "ytb-hist-note", "Changes use the current player's quality API when available. The nearest lower quality is used if the preference is unavailable, and the preference is retried while visible. YouTube may reject a request."));
         panel.appendChild(To("div", "ytb-hist-note", "Codec choices are unavailable: no immediate codec switch has been verified for this player. Existing codec preferences remain saved but are not applied."));
       },

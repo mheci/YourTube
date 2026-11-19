@@ -146,7 +146,7 @@ function mountWatchLibrary(parent) {
         box.remove();
         pendingDelete = null;
         await refresh();
-        msg.textContent = 'Removed from this browser.';
+        msg.textContent = 'Moved to history trash for seven days.';
       },
       'danger',
     );
@@ -252,6 +252,54 @@ function mountWatchLibrary(parent) {
     } finally {
       input.value = '';
     }
+  };
+  const trashPanel = add(book, 'div', 'list');
+  trashPanel.hidden = true;
+  async function showTrash() {
+    trashPanel.hidden = false;
+    trashPanel.replaceChildren();
+    const entries = await CheckpointStore.trash();
+    add(trashPanel, 'div', 'cap', 'History trash  /  Recoverable for seven days');
+    if (!entries.length) add(trashPanel, 'p', 'meta', 'No recoverable history.');
+    for (const entry of entries) {
+      const line = add(trashPanel, 'div', 'row');
+      const detail = add(line, 'div', 'details');
+      add(detail, 'div', 'name', entry.row.title || entry.row.videoId);
+      add(detail, 'div', 'meta', 'Expires ' + new Date(entry.expiresAt).toLocaleString());
+      button(line, 'Restore', async () => {
+        const result = await CheckpointStore.restoreTrash(entry.key);
+        await refresh();
+        await showTrash();
+        msg.textContent = result === 'restored'
+          ? 'Restored. This item is exempt from automatic expiry.'
+          : result === 'conflict'
+            ? 'An active entry exists for this video. It was not overwritten.'
+            : 'This item is no longer recoverable.';
+      });
+    }
+  }
+  button(tools, 'History trash', async () => {
+    if (!trashPanel.hidden) { trashPanel.hidden = true; return; }
+    await showTrash();
+  });
+  const trashInput = add(tools, 'input', '');
+  trashInput.type = 'file';
+  trashInput.accept = '.json,application/json';
+  trashInput.hidden = true;
+  button(tools, 'Import history trash', () => trashInput.click());
+  trashInput.onchange = async () => {
+    try {
+      const file = trashInput.files?.[0];
+      if (!file) return;
+      if (file.size > 8 * 1024 * 1024) throw Error('File too large');
+      const backup = JSON.parse(await file.text());
+      if (backup?.format !== 'yourtube-history-trash-v1') throw Error('Wrong format');
+      const result = await CheckpointStore.importTrash(backup.entries);
+      if (!trashPanel.hidden) await showTrash();
+      msg.textContent = 'Imported ' + result.imported + ' history trash items; skipped ' + result.discarded + '.';
+    } catch (_) {
+      msg.textContent = 'Could not import this history trash file.';
+    } finally { trashInput.value = ''; }
   };
   button(tools, 'Clear history', () => confirmDelete(null, 'all local watch history'), 'danger');
   So('history.updated', refresh);

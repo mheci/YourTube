@@ -4575,7 +4575,9 @@ const JOURNAL_PROPERTIES = `
 const CheckpointStore = (() => {
   const prefix = 'yourtube.checkpoint.v1:',
     resetKey = 'checkpoint/erase-generation',
-    tickets = 'checkpoint/open/';
+    tickets = 'checkpoint/open/',
+    trashPrefix = 'yourtube/trash/history/',
+    trashWindow = 7 * 86400000;
   const validId = (id) => typeof id === 'string' && /^[\w-]{11}$/.test(id);
   const finite = (x) => typeof x === 'number' && Number.isFinite(x);
   const compare = (a, b) =>
@@ -4763,13 +4765,29 @@ const CheckpointStore = (() => {
       const tx = db.transaction(['history', 'kv'], 'readwrite'),
         store = tx.objectStore('history');
       const kv = tx.objectStore('kv');
+      const deletedAt = Date.now();
+      const saveToTrash = (row) => {
+        if (!row) return;
+        kv.put({ k: trashPrefix + nonce(), v: {
+          kind: 'history', deletedAt, expiresAt: deletedAt + trashWindow, row,
+        }});
+      };
       if (id == null) {
         kv.put({ k: resetKey, v: nonce() });
         kv.delete(IDBKeyRange.bound(tickets, tickets + '\uffff'));
-        store.clear();
+        // Copy and delete atomically: a failed transaction loses neither.
+        const cursor = store.openCursor();
+        cursor.onsuccess = () => {
+          const c = cursor.result;
+          if (!c) return;
+          saveToTrash(c.value);
+          c.delete();
+          c.continue();
+        };
       } else {
         kv.delete(tickets + id);
-        store.delete(id);
+        const request = store.get(id);
+        request.onsuccess = () => { saveToTrash(request.result); store.delete(id); };
       }
       tx.oncomplete = resolve;
       tx.onerror = tx.onabort = () => reject(tx.error || new Error('Erase failed'));
@@ -4780,6 +4798,93 @@ const CheckpointStore = (() => {
       localStorage.removeItem('yourtube.journal.erase');
     } catch (_) {}
     g.emit('history.updated', { videoId: id, removed: true });
+  }
+  async function trash() {
+    const db = await b();
+    if (!db) throw new Error('History storage unavailable');
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite'), store = tx.objectStore('kv');
+      const request = store.openCursor(IDBKeyRange.bound(trashPrefix, trashPrefix + '\uffff'));
+      const rows = [], now = Date.now();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const value = cursor.value?.v;
+        if (value && Number.isFinite(value.expiresAt) && value.expiresAt <= now) cursor.delete();
+        else if (value?.kind === 'history' && validId(value.row?.videoId))
+          rows.push({ key: cursor.key, ...value });
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve(rows.sort((a, b) => b.deletedAt - a.deletedAt));
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('Trash lookup failed'));
+    });
+  }
+  async function restoreTrash(key) {
+    if (typeof key !== 'string' || !key.startsWith(trashPrefix)) throw new Error('Invalid trash key');
+    const db = await b();
+    if (!db) throw new Error('History storage unavailable');
+    const result = await new Promise((resolve, reject) => {
+      const tx = db.transaction(['history', 'kv'], 'readwrite');
+      const kv = tx.objectStore('kv'), history = tx.objectStore('history');
+      const request = kv.get(key);
+      let outcome = 'missing';
+      request.onsuccess = () => {
+        const value = request.result?.v;
+        if (!value || value.kind !== 'history' || !validId(value.row?.videoId)) return;
+        if (!Number.isFinite(value.expiresAt) || value.expiresAt <= Date.now()) {
+          outcome = 'expired'; kv.delete(key); return;
+        }
+        const existing = history.get(value.row.videoId);
+        existing.onsuccess = () => {
+          // Never overwrite a newer recording or another restored item.
+          if (existing.result) { outcome = 'conflict'; return; }
+          const row = { ...value.row, retentionExempt: true,
+            _checkpointLife: nonce(), _checkpoint: { start: Date.now(), sid: nonce(), seq: 0 } };
+          history.put(row);
+          kv.delete(key);
+          outcome = 'restored';
+        };
+      };
+      tx.oncomplete = () => resolve(outcome);
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('Trash restore failed'));
+    });
+    if (result === 'restored') g.emit('history.updated', { restored: true });
+    return result;
+  }
+  async function importTrash(entries) {
+    if (!Array.isArray(entries) || entries.length > 5000) throw new Error('Invalid trash backup');
+    const db = await b();
+    if (!db) throw new Error('History storage unavailable');
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite'), store = tx.objectStore('kv');
+      const now = Date.now(), known = new Set();
+      let imported = 0, discarded = 0;
+      const cursor = store.openCursor(IDBKeyRange.bound(trashPrefix, trashPrefix + '\uffff'));
+      cursor.onsuccess = () => {
+        const c = cursor.result;
+        if (c) {
+          const v = c.value?.v;
+          if (v?.row?.videoId && Number.isFinite(v.deletedAt)) known.add(v.row.videoId + ':' + v.deletedAt);
+          c.continue();
+          return;
+        }
+        for (const item of entries) {
+          if (!item || item.kind !== 'history' || !validId(item.row?.videoId) ||
+              !Number.isFinite(item.deletedAt) || item.deletedAt <= 0 || item.deletedAt > now ||
+              !Number.isFinite(item.expiresAt) || item.expiresAt <= now ||
+              item.expiresAt > item.deletedAt + trashWindow) { discarded++; continue; }
+          const fingerprint = item.row.videoId + ':' + item.deletedAt;
+          if (known.has(fingerprint)) { discarded++; continue; }
+          known.add(fingerprint);
+          store.put({ k: trashPrefix + nonce(), v: {
+            kind: 'history', deletedAt: item.deletedAt, expiresAt: item.expiresAt, row: item.row,
+          }});
+          imported++;
+        }
+      };
+      tx.oncomplete = () => resolve({ imported, discarded });
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error('Trash import failed'));
+    });
   }
   async function pruneTickets() {
     const db = await b();
@@ -4793,7 +4898,7 @@ const CheckpointStore = (() => {
       cur.continue();
     };
   }
-  return { load, commit, edit, erase, blank, nonce, validId, pruneTickets };
+  return { load, commit, edit, erase, trash, restoreTrash, importTrash, blank, nonce, validId, pruneTickets };
 })();
 
 // One accessible decision surface, three layouts. Shadow DOM isolates the controls
@@ -5797,7 +5902,7 @@ function mountWatchLibrary(parent) {
         box.remove();
         pendingDelete = null;
         await refresh();
-        msg.textContent = 'Removed from this browser.';
+        msg.textContent = 'Moved to history trash for seven days.';
       },
       'danger',
     );
@@ -5903,6 +6008,54 @@ function mountWatchLibrary(parent) {
     } finally {
       input.value = '';
     }
+  };
+  const trashPanel = add(book, 'div', 'list');
+  trashPanel.hidden = true;
+  async function showTrash() {
+    trashPanel.hidden = false;
+    trashPanel.replaceChildren();
+    const entries = await CheckpointStore.trash();
+    add(trashPanel, 'div', 'cap', 'History trash  /  Recoverable for seven days');
+    if (!entries.length) add(trashPanel, 'p', 'meta', 'No recoverable history.');
+    for (const entry of entries) {
+      const line = add(trashPanel, 'div', 'row');
+      const detail = add(line, 'div', 'details');
+      add(detail, 'div', 'name', entry.row.title || entry.row.videoId);
+      add(detail, 'div', 'meta', 'Expires ' + new Date(entry.expiresAt).toLocaleString());
+      button(line, 'Restore', async () => {
+        const result = await CheckpointStore.restoreTrash(entry.key);
+        await refresh();
+        await showTrash();
+        msg.textContent = result === 'restored'
+          ? 'Restored. This item is exempt from automatic expiry.'
+          : result === 'conflict'
+            ? 'An active entry exists for this video. It was not overwritten.'
+            : 'This item is no longer recoverable.';
+      });
+    }
+  }
+  button(tools, 'History trash', async () => {
+    if (!trashPanel.hidden) { trashPanel.hidden = true; return; }
+    await showTrash();
+  });
+  const trashInput = add(tools, 'input', '');
+  trashInput.type = 'file';
+  trashInput.accept = '.json,application/json';
+  trashInput.hidden = true;
+  button(tools, 'Import history trash', () => trashInput.click());
+  trashInput.onchange = async () => {
+    try {
+      const file = trashInput.files?.[0];
+      if (!file) return;
+      if (file.size > 8 * 1024 * 1024) throw Error('File too large');
+      const backup = JSON.parse(await file.text());
+      if (backup?.format !== 'yourtube-history-trash-v1') throw Error('Wrong format');
+      const result = await CheckpointStore.importTrash(backup.entries);
+      if (!trashPanel.hidden) await showTrash();
+      msg.textContent = 'Imported ' + result.imported + ' history trash items; skipped ' + result.discarded + '.';
+    } catch (_) {
+      msg.textContent = 'Could not import this history trash file.';
+    } finally { trashInput.value = ''; }
   };
   button(tools, 'Clear history', () => confirmDelete(null, 'all local watch history'), 'danger');
   So('history.updated', refresh);
@@ -27370,6 +27523,18 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!rows.length) { pe("No local history to export.", 1800, "info"); return; }
         save("yourtube-history-" + stamp() + ".json", JSON.stringify(rows, null, 2));
       }));
+      row.appendChild(Oo("History trash (JSON)", async () => {
+        try {
+          const entries = await CheckpointStore.trash();
+          const out = entries.map(({key, ...entry}) => entry);
+          save("yourtube-history-trash-" + stamp() + ".json", JSON.stringify({
+            format: "yourtube-history-trash-v1", exportedAt: new Date().toISOString(), entries: out,
+          }, null, 2));
+        } catch (error) {
+          m("history trash export failed", error);
+          pe("Could not read history trash for export.", 2400, "error");
+        }
+      }));
       row.appendChild(Oo("History (CSV)", async () => {
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}
@@ -28331,6 +28496,11 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
       z();
       // Arm before the asynchronous config/DOM hydration and chunked card apply.
       WatchSessions.configure();
+      // Expired history-trash entries are removed even if the panel is never
+      // opened. Restore also checks the deadline atomically before writing.
+      const cleanTrash = () => CheckpointStore.trash().catch((error) => m('history trash cleanup', error));
+      setTimeout(cleanTrash, 15000);
+      setInterval(cleanTrash, 6 * 60 * 60 * 1000);
       g.on('cfg.changed', ({key}) => {if (['sessionRestoreOn','sessionResumeMode','sessionResumeDesign'].includes(key)) WatchSessions.configure();});
     } catch (e) {}
     try {

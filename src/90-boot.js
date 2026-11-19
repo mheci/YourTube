@@ -3,6 +3,11 @@
       z();
       // Arm before the asynchronous config/DOM hydration and chunked card apply.
       WatchSessions.configure();
+      // Expired history-trash entries are removed even if the panel is never
+      // opened. Restore also checks the deadline atomically before writing.
+      const cleanTrash = () => CheckpointStore.trash().catch((error) => m('history trash cleanup', error));
+      setTimeout(cleanTrash, 15000);
+      setInterval(cleanTrash, 6 * 60 * 60 * 1000);
       g.on('cfg.changed', ({key}) => {if (['sessionRestoreOn','sessionResumeMode','sessionResumeDesign'].includes(key)) WatchSessions.configure();});
     } catch (e) {}
     try {

@@ -4228,6 +4228,18 @@ body.ytb-calm #ytb-reader>div{background:var(--ytbc-card)!important;color:var(--
         if (!rows.length) { pe("No local history to export.", 1800, "info"); return; }
         save("yourtube-history-" + stamp() + ".json", JSON.stringify(rows, null, 2));
       }));
+      row.appendChild(Oo("History trash (JSON)", async () => {
+        try {
+          const entries = await CheckpointStore.trash();
+          const out = entries.map(({key, ...entry}) => entry);
+          save("yourtube-history-trash-" + stamp() + ".json", JSON.stringify({
+            format: "yourtube-history-trash-v1", exportedAt: new Date().toISOString(), entries: out,
+          }, null, 2));
+        } catch (error) {
+          m("history trash export failed", error);
+          pe("Could not read history trash for export.", 2400, "error");
+        }
+      }));
       row.appendChild(Oo("History (CSV)", async () => {
         let rows = [];
         try { rows = (await w("history")) || []; } catch (_) {}

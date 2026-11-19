@@ -26,4 +26,19 @@ def run(p):
         row['pass']=row.pop('pass_')
     except Exception as ex:
         row.update(error=str(ex)[:250]);row['pass']=False
-    return [row]
+    trash={"id":"export-data","key":"History trash (JSON)","description":"Real download preserves history-trash deadlines and payload"}
+    try:
+        p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});const now=Date.now();await new Promise((ok,no)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').put({k:'yourtube/trash/history/test-export',v:{kind:'history',deletedAt:now-1000,expiresAt:now+86400000,row:{videoId:'LabVideo001',title:'Trash item',lastPosition:42}}});tx.oncomplete=ok;tx.onerror=()=>no(tx.error)});db.close()}""")
+        p.evaluate('pick("export-data")')
+        with p.expect_download(timeout=8000) as info:
+            p.locator('[data-feat="export-data"]').get_by_role('button',name='History trash (JSON)',exact=True).click()
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'trash.json';info.value.save_as(path);out=json.loads(path.read_text())
+        assert out['format']=='yourtube-history-trash-v1'
+        item=next(x for x in out['entries'] if x['row']['title']=='Trash item')
+        assert item['row']['lastPosition']==42 and item['expiresAt']>item['deletedAt']
+        assert 'key' not in item
+        trash.update(filename=info.value.suggested_filename,pass_=True);trash['pass']=trash.pop('pass_')
+    except Exception as ex:
+        trash.update(error=str(ex)[:250]);trash['pass']=False
+    return [row,trash]

@@ -1079,7 +1079,7 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                     record(C, 19, title="Returned film"),
                     record(A, 4, lastWatched=1, title="Stale import"),
                 ]
-                panel.locator("input[type=file]").set_input_files(
+                panel.locator("input[type=file]").first.set_input_files(
                     {
                         "name": "local-backup.json",
                         "mimeType": "application/json",
@@ -1106,6 +1106,58 @@ if(location.pathname==='/watch' && location.search.includes('play=denied')){wind
                 }
 
             case("library-search-filter-pin-safe-remove", controls)
+
+            def history_trash():
+                init([record(C, 24, title="Recoverable film", pinned=0)])
+                watch()
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel = p.locator(".ytb-watch-journal")
+                panel.get_by_text("Recoverable film", exact=True).wait_for()
+                panel.get_by_text("Remove", exact=True).click()
+                panel.get_by_text("Confirm removal", exact=True).click()
+                waitrow("!r", C)
+                panel.get_by_text("History trash", exact=True).click()
+                line = panel.locator(".row").filter(has_text="Recoverable film")
+                line.get_by_text("Restore", exact=True).click()
+                waitrow("r?.retentionExempt===true&&r.lastPosition===24", C)
+                assert data(C)["notes"] == "keep this note"
+                # A conflicting newly recorded row must not be overwritten.
+                panel.get_by_text("History trash", exact=True).click()
+                panel.get_by_text("Remove", exact=True).click()
+                panel.get_by_text("Confirm removal", exact=True).click()
+                waitrow("!r", C)
+                p.evaluate("async row=>YourTube.history.put(row)", record(C, 9, title="New recording", pinned=0))
+                panel.get_by_text("History trash", exact=True).click()
+                line = panel.locator(".row").filter(has_text="Recoverable film")
+                line.get_by_text("Restore", exact=True).click()
+                panel.get_by_text("An active entry exists for this video. It was not overwritten.").wait_for()
+                assert data(C)["lastPosition"] == 9
+                return {"restorePreservedNotes": True, "restoredExempt": True, "conflictPreserved": True}
+
+            case("history-trash-restore-and-conflict", history_trash)
+
+            def history_trash_import():
+                init([])
+                watch()
+                p.evaluate('YourTube.features.get("session-restore").settings(document.querySelector("#journal-lab"))')
+                panel = p.locator(".ytb-watch-journal")
+                now = int(time.time() * 1000)
+                valid = {"kind":"history", "deletedAt":now-3600000, "expiresAt":now+6*86400000, "row":record(B, 17, title="Imported from trash")}
+                expired = {"kind":"history", "deletedAt":now-9*86400000, "expiresAt":now-2*86400000, "row":record(C, 13, title="Expired trash")}
+                backup = {"format":"yourtube-history-trash-v1", "entries":[valid, expired]}
+                panel.locator("input[type=file]").nth(1).set_input_files({"name":"trash.json", "mimeType":"application/json", "buffer":json.dumps(backup).encode()})
+                panel.get_by_text("Imported 1 history trash items; skipped 1.").wait_for()
+                assert data(B) is None and data(C) is None
+                saved = p.evaluate("""async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('yourtube_v2');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});return await new Promise((ok,no)=>{const r=db.transaction('kv').objectStore('kv').getAll();r.onsuccess=()=>ok(r.result.filter(x=>x.k.startsWith('yourtube/trash/history/')&&x.v?.row?.title==='Imported from trash'));r.onerror=()=>no(r.error)})}""")
+                assert len(saved)==1 and saved[0]["v"]["deletedAt"]==valid["deletedAt"] and saved[0]["v"]["expiresAt"]==valid["expiresAt"]
+                panel.get_by_text("History trash", exact=True).click()
+                line = panel.locator(".row").filter(has_text="Imported from trash")
+                line.get_by_text("Restore", exact=True).click()
+                waitrow("r?.retentionExempt===true&&r.lastPosition===17", B)
+                assert not panel.get_by_text("Expired trash", exact=True).count()
+                return {"validRestored": True, "expiredDiscarded": True, "originalWindowPreserved": True}
+
+            case("history-trash-import-retains-window", history_trash_import)
         c.close()
         if not args.profile:
             b.close()
